@@ -181,7 +181,7 @@ export default function App(){
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
   async function callAI(body){
-    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
@@ -222,7 +222,7 @@ Rules:
     if(!pasteText.trim()||pasteBusy)return;
     setPasteBusy(true);setPasteRes(null);
     try{
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
+      const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
@@ -298,7 +298,7 @@ Rules:
 - Never return empty events — if there is any date in the image, include it
 - summary: one warm sentence describing what was found`;
 
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
+      const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
