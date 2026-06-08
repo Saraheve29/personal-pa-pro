@@ -226,29 +226,52 @@ Rules:
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:2000,
-          system:PARSE_SYS,
-          messages:[{role:"user",content:pasteText}]
+          max_tokens:4000,
+          system:`You are an intelligent life assistant that reads any text and extracts structured information. Return ONLY raw JSON, no markdown, no backticks, no explanation.
+
+Format:
+{
+  "events": [{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],
+  "financials": [{"label":string,"amount":number,"currency":"GBP","type":"cost|saving|payment","date":"YYYY-MM-DD or null","notes":string}],
+  "destinations": [{"name":string,"type":"holiday|daytrip|hotel|venue","dates":string,"notes":string}],
+  "insights": [{"text":string}],
+  "summary": string,
+  "total_cost": number,
+  "total_saving": number
+}
+
+Rules for events: extract every date, activity, payment date, trip, holiday. If no time use "09:00". Assume current year or future if not stated.
+Rules for financials: extract all costs, prices, savings targets, payment amounts, totals.
+Rules for destinations: extract all places, hotels, parks, venues being visited.
+Rules for insights: generate 2-4 smart observations like time gaps between trips, budget advice, busy periods, things to book in advance.
+Summary: one warm sentence overview of everything.
+If a section has nothing relevant return an empty array.`,
+          messages:[{role:"user",content:`Analyse this text and extract all information:
+
+${pasteText}`}]
         })
       });
       const d=await r.json();
+      if(d.error){setPasteRes({error:true,msg:"API error: "+d.error.message});setPasteBusy(false);return;}
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      // strip any accidental markdown fences
-      const clean=raw.replace(/```[\w]*/g,"").trim();
+      let clean=raw.trim();
+      if(clean.includes("```")){
+        clean=clean.replace(/```[a-z]*/g,"").replace(/```/g,"").trim();
+      }
       const parsed=JSON.parse(clean);
       if(!parsed.events||parsed.events.length===0){
-        setPasteRes({error:true,msg:"No dates found. Try including specific dates, months or years."});
-      } else {
+        setPasteRes({error:true,msg:"No dates found. Make sure your text contains specific dates."});
+      }else{
         setPasteRes(parsed);
       }
     }catch(e){
-      console.error(e);
-      setPasteRes({error:true,msg:"Something went wrong — please try again."});
+      console.error("parsePaste error:",e);
+      setPasteRes({error:true,msg:"Something went wrong: "+e.message});
     }
     setPasteBusy(false);
   }
-  function handleImg(e){const f=e.target.files[0];if(!f)return;setImgFile(f);setImgRes(null);const r=new FileReader();r.onload=ev=>setImgPrev(ev.target.result);r.readAsDataURL(f);}
-  async function parseImg(){
+
+    async function parseImg(){
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
@@ -340,19 +363,87 @@ Rules:
     if(!result)return null;
     if(result.error)return(
       <div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}>
-        <div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract events</div>
+        <div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div>
         <div>{result.msg||"Please try again."}</div>
-        <div style={{fontSize:11,color:C.inkLight,marginTop:6}}>Tip: make sure your text includes specific dates — e.g. "14th July", "3 August 2026", "Monday 10th".</div>
+        <div style={{fontSize:11,color:C.inkLight,marginTop:6}}>Tip: include specific dates like "14th July 2026" or "Monday 10th August".</div>
       </div>
     );
-    return(<div style={{marginTop:16}}>
-      {result.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {result.summary}</div>}
-      {result.events?.length>0?<>
-        <div style={SL}>Detected Appointments</div>
-        {result.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:4}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div>{e.notes&&<div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div>}<span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
-        <div style={{height:8}}/><button style={goldBtn()} onClick={onAdd}>Add to Schedule</button><button style={goldBtn(true)} onClick={onDiscard}>Discard</button>
-      </>:<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",fontSize:13,fontFamily:FD,fontStyle:"italic"}}>No appointments detected. Please refine your input.</div>}
-    </div>);
+    const totalCost=result.total_cost||(result.financials?.filter(f=>f.type==="cost"||f.type==="payment").reduce((a,f)=>a+(f.amount||0),0))||0;
+    const totalSaving=result.total_saving||(result.financials?.filter(f=>f.type==="saving").reduce((a,f)=>a+(f.amount||0),0))||0;
+    return(
+      <div style={{marginTop:16}}>
+        {/* Summary */}
+        {result.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {result.summary}</div>}
+
+        {/* AI Insights */}
+        {result.insights?.length>0&&<div style={{marginBottom:16}}>
+          <div style={SL}>Eleanor's Insights</div>
+          {result.insights.map((ins,i)=>(
+            <div key={i} style={{background:C.goldPale,border:`1px solid ${C.goldBorder}40`,borderLeft:`4px solid ${C.gold}`,padding:"11px 14px",marginBottom:7,borderRadius:3,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>
+              💡 {ins.text}
+            </div>
+          ))}
+        </div>}
+
+        {/* Destinations */}
+        {result.destinations?.length>0&&<div style={{marginBottom:16}}>
+          <div style={SL}>Destinations & Trips</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {result.destinations.map((d,i)=>(
+              <div key={i} style={{background:C.sapphireBg,border:`1px solid ${C.sapphire}30`,borderRadius:4,padding:"10px 13px",flex:"1 1 140px"}}>
+                <div style={{fontSize:14,fontFamily:FD,color:C.sapphire,marginBottom:2}}>📍 {d.name}</div>
+                {d.dates&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:2}}>{d.dates}</div>}
+                {d.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB}}>{d.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </div>}
+
+        {/* Financials */}
+        {result.financials?.length>0&&<div style={{marginBottom:16}}>
+          <div style={SL}>Costs & Savings</div>
+          {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:10}}>
+            {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+              <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{totalCost.toLocaleString()}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
+            </div>}
+            {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+              <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{totalSaving.toLocaleString()}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
+            </div>}
+          </div>}
+          {result.financials.map((f,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:5}}>
+              <div>
+                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
+                {f.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:1}}>{f.notes}</div>}
+              </div>
+              <div style={{fontSize:15,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontWeight:300,marginLeft:10,whiteSpace:"nowrap"}}>
+                £{(f.amount||0).toLocaleString()}
+              </div>
+            </div>
+          ))}
+        </div>}
+
+        {/* Events */}
+        {result.events?.length>0&&<div style={{marginBottom:8}}>
+          <div style={SL}>{result.events.length} Appointments Found</div>
+          {result.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+              <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            </div>
+          );})}
+        </div>}
+
+        <div style={{height:8}}/>
+        <button style={goldBtn()} onClick={onAdd}>Add All Events to Schedule</button>
+        <button style={goldBtn(true)} onClick={onDiscard}>Discard</button>
+      </div>
+    );
   }
 
   /* ════════════════════════════════════════════════
