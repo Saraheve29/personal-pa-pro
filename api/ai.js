@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   try {
-    const { messages, system, max_tokens = 2000, model = "claude-sonnet-4-20250514" } = req.body;
+    const { messages, system, max_tokens = 2000, model = "claude-3-5-sonnet-20241022" } = req.body;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
