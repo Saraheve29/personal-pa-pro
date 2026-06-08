@@ -203,7 +203,16 @@ function App(){
     const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
-  const PARSE_SYS=`Extract calendar events. Return ONLY valid JSON, no markdown: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}. Today is ${fmt(today)}. Default date:today, time:09:00.`;
+  const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
+{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
+Rules:
+- If no year is mentioned assume ${today.getFullYear()} or ${today.getFullYear()+1} whichever is in the future
+- If no time is given use "09:00"
+- If no date is clear use today: ${fmt(today)}
+- For multi-day trips create one event for the start date with notes covering the full range
+- Priority: flights/medical/school = critical, travel/bookings = high, social = medium, optional = low
+- Never return an empty events array — if you find ANY dates at all, include them
+- summary should be a warm one-sentence overview of what was found`;
 
   async function sendChat(){
     if(!chatIn.trim()||paStatus!=="idle")return;
@@ -228,9 +237,91 @@ function App(){
     setBriefBusy(false);
   }
 
-  async function parsePaste(){if(!pasteText.trim()||pasteBusy)return;setPasteBusy(true);setPasteRes(null);try{const raw=await callAI({system:PARSE_SYS,messages:[{role:"user",content:pasteText}]});setPasteRes(JSON.parse(raw.replace(/```json|```/g,"").trim()));}catch{setPasteRes({error:true});}setPasteBusy(false);}
+  async function parsePaste(){
+    if(!pasteText.trim()||pasteBusy)return;
+    setPasteBusy(true);setPasteRes(null);
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:2000,
+          system:PARSE_SYS,
+          messages:[{role:"user",content:pasteText}]
+        })
+      });
+      const d=await r.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      // strip any accidental markdown fences
+      const clean=raw.replace(/^```[\w]*
+?/m,"").replace(/```$/m,"").trim();
+      const parsed=JSON.parse(clean);
+      if(!parsed.events||parsed.events.length===0){
+        setPasteRes({error:true,msg:"No dates found. Try including specific dates, months or years."});
+      } else {
+        setPasteRes(parsed);
+      }
+    }catch(e){
+      console.error(e);
+      setPasteRes({error:true,msg:"Something went wrong — please try again."});
+    }
+    setPasteBusy(false);
+  }
   function handleImg(e){const f=e.target.files[0];if(!f)return;setImgFile(f);setImgRes(null);const r=new FileReader();r.onload=ev=>setImgPrev(ev.target.result);r.readAsDataURL(f);}
-  async function parseImg(){if(!imgFile||imgBusy)return;setImgBusy(true);setImgRes(null);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(imgFile);});const raw=await callAI({system:PARSE_SYS+" Perform OCR on image.",messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:imgFile.type||"image/jpeg",data:b64}},{type:"text",text:"Extract all appointments or events from this image."}]}]});setImgRes(JSON.parse(raw.replace(/```json|```/g,"").trim()));}catch{setImgRes({error:true});}setImgBusy(false);}
+  async function parseImg(){
+    if(!imgFile||imgBusy)return;
+    setImgBusy(true);setImgRes(null);
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=()=>res(r.result.split(",")[1]);
+        r.onerror=rej;
+        r.readAsDataURL(imgFile);
+      });
+      const mt=imgFile.type||"image/jpeg";
+      const imgPrompt=`Look at this image carefully. It could be anything — a poster, flyer, event ticket, booking confirmation, screenshot, letter, handwritten note, calendar, itinerary, or social media post.
+
+Extract EVERY date, time, event, appointment, trip, show, concert, match, holiday, booking or plan you can see. Also extract location/venue if visible.
+
+Return ONLY valid JSON, no markdown, no explanation:
+{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
+
+Rules:
+- title: use the event/show/trip name, or a clear description
+- notes: include venue, location, address, reference numbers, performer names, or any other useful detail visible in the image
+- If no year visible assume ${today.getFullYear()} or ${today.getFullYear()+1} whichever puts the date in the future
+- If no time visible use "09:00"
+- priority: concerts/shows/sports = high, travel/flights = critical, social = medium
+- Never return empty events — if there is any date in the image, include it
+- summary: one warm sentence describing what was found`;
+
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:2000,
+          system:imgPrompt,
+          messages:[{role:"user",content:[
+            {type:"image",source:{type:"base64",media_type:mt,data:b64}},
+            {type:"text",text:"Extract all events, dates, times and locations from this image."}
+          ]}]
+        })
+      });
+      const d=await r.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      const clean=raw.replace(/^```[\w]*\n?/m,"").replace(/```$/m,"").trim();
+      const parsed=JSON.parse(clean);
+      if(!parsed.events||parsed.events.length===0){
+        setImgRes({error:true,msg:"No dates found in this image. Try a clearer photo or a different image."});
+      } else {
+        setImgRes(parsed);
+      }
+    }catch(e){
+      console.error(e);
+      setImgRes({error:true,msg:"Could not read image. Please try again with a clearer photo."});
+    }
+    setImgBusy(false);
+  }
   function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
 
   /* ── style atoms ── */
@@ -267,7 +358,13 @@ function App(){
 
   function ResultPreview({result,onAdd,onDiscard}){
     if(!result)return null;
-    if(result.error)return<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>Unable to extract events. Please try again.</div>;
+    if(result.error)return(
+      <div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}>
+        <div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract events</div>
+        <div>{result.msg||"Please try again."}</div>
+        <div style={{fontSize:11,color:C.inkLight,marginTop:6}}>Tip: make sure your text includes specific dates — e.g. "14th July", "3 August 2026", "Monday 10th".</div>
+      </div>
+    );
     return(<div style={{marginTop:16}}>
       {result.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {result.summary}</div>}
       {result.events?.length>0?<>
@@ -340,10 +437,18 @@ function App(){
       </div>
 
       {/* quick actions */}
-      <div style={{display:"flex",gap:8,marginBottom:4}}>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
         <button onClick={()=>setView("add")} style={{flex:1,padding:"11px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>＋ New Event</button>
         <button onClick={()=>setView("week")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>📆 Week View</button>
       </div>
+      {!installed?(
+        <button onClick={installApp} style={{width:"100%",padding:"13px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,color:C.goldLight,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 3px 14px rgba(28,24,18,0.25)`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:4}}>
+          <span style={{fontSize:16}}>⬇</span>
+          <span>Install App on Your Phone</span>
+        </button>
+      ):(
+        <div style={{textAlign:"center",padding:"11px",background:C.emeraldBg,border:`1px solid ${C.emerald}40`,borderRadius:4,fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.16em",textTransform:"uppercase"}}>✓ App Installed Successfully</div>
+      )}
     </div>
   );
 
@@ -438,9 +543,9 @@ function App(){
         <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setView("home");}} onDiscard={()=>setPasteRes(null)}/>
       </div>}
       {impTab==="image"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload a screenshot, booking confirmation, or photograph. Eleanor will read and extract all relevant appointments.</div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image</strong> — a poster, flyer, event ticket, booking confirmation, screenshot, letter, or even a handwritten note. Eleanor will read the whole image and extract every date, time, and location she can find.</div>
         <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,letterSpacing:"0.06em",borderRadius:6}}>
-          {imgPrev?"✦ Image ready — tap Extract below":"Tap to select image or screenshot"}
+          {imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter…"}
           <input type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
         </label>
         {imgPrev&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
