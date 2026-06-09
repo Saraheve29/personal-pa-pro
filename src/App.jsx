@@ -420,26 +420,10 @@ Rules:
 - summary: one sentence describing what was found
 - NEVER return empty events array — if you see ANY date at all, include it`;
 
-      // Call Anthropic directly from browser — no Vercel size limit
-      // Get key from proxy first
-      let apiKey="";
-      try{
-        const kr=await fetch("/api/key");
-        const kd=await kr.json();
-        apiKey=kd.key||"";
-      }catch(e){console.error("Key fetch failed:",e);}
-      if(!apiKey){
-        setImgRes({error:true,msg:"Could not load API key. Please check Vercel environment variables."});
-        setImgBusy(false);return;
-      }
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
+      // Send through proxy
+      const r=await fetch("/api/ai",{
         method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "anthropic-version":"2023-06-01",
-          "x-api-key":apiKey,
-          "anthropic-dangerous-direct-browser-access":"true"
-        },
+        headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
           max_tokens:4000,
@@ -450,8 +434,10 @@ Rules:
           ]}]
         })
       });
-      const d=await r.json();
-      console.log("Full API response:",JSON.stringify(d).slice(0,500));
+      const text=await r.text();
+      // Show raw response on screen for debugging
+      setImgRes({error:true,msg:"DEBUG: "+text.slice(0,300)});
+      setImgBusy(false);return;
       // Handle all possible error states
       if(!d){setImgRes({error:true,msg:"No response received. Please try again."});setImgBusy(false);return;}
       if(d.error){setImgRes({error:true,msg:"API: "+(typeof d.error==="string"?d.error:d.error?.message||JSON.stringify(d.error).slice(0,100))});setImgBusy(false);return;}
@@ -475,7 +461,8 @@ Rules:
       }
     }catch(e){
       console.error("Image error:",e);
-      setImgRes({error:true,msg:"Error: "+e.message+" — please try again"});
+      const msg=e instanceof Error?e.message:typeof e==="string"?e:JSON.stringify(e)||"Unknown error";
+      setImgRes({error:true,msg:"Error: "+msg+" — please try again"});
     }
     setImgBusy(false);
   }
