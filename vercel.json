@@ -15,8 +15,9 @@
   ],
   "routes": [
     { "src": "/api/ai", "dest": "/api/ai.js" },
-    { "src": "/assets/(.*)", "dest": "/assets/$1" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/api/ai/(.*)", "dest": "/api/ai.js" },
+    { "src": "/assets/(.*)", "dest": "/dist/assets/$1" },
+    { "src": "^/[^.]*$", "dest": "/dist/index.html" },
+    { "src": "/(.*\\..*)", "dest": "/dist/$1" }
   ]
 }
