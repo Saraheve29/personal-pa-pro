@@ -418,11 +418,13 @@ Rules:
 - NEVER return empty events array — if you see ANY date at all, include it`;
 
       // Images go direct to Anthropic — bypasses Vercel 4.5MB proxy limit
+      const keyRes=await fetch("/api/key");
+      const {key}=await keyRes.json();
       const r=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",headers:{
           "Content-Type":"application/json",
           "anthropic-version":"2023-06-01",
-          "x-api-key": await fetch("/api/key").then(r=>r.json()).then(d=>d.key).catch(()=>""),
+          "x-api-key":key,
           "anthropic-dangerous-direct-browser-access":"true"
         },
         body:JSON.stringify({
