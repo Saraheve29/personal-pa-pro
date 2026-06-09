@@ -358,43 +358,40 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      // Compress image to max 1200px and convert to JPEG for reliability
+      // Send raw image directly — no compression, preserves all text
       const {b64,mt} = await new Promise((res,rej)=>{
-        const img=new Image();
-        img.onload=()=>{
-          const MAX=1200;
-          let w=img.width,h=img.height;
-          if(w>MAX||h>MAX){ if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;} }
-          const canvas=document.createElement("canvas");
-          canvas.width=w;canvas.height=h;
-          canvas.getContext("2d").drawImage(img,0,0,w,h);
-          const dataUrl=canvas.toDataURL("image/jpeg",0.85);
-          res({b64:dataUrl.split(",")[1],mt:"image/jpeg"});
-        };
-        img.onerror=rej;
         const reader=new FileReader();
-        reader.onload=ev=>{img.src=ev.target.result;};
+        reader.onload=()=>{
+          const dataUrl=reader.result;
+          const b64=dataUrl.split(",")[1];
+          const mt=imgFile.type||"image/jpeg";
+          res({b64,mt});
+        };
         reader.onerror=rej;
         reader.readAsDataURL(imgFile);
       });
-      const imgPrompt=`You are an expert at reading images and extracting dates. Look very carefully at every part of this image.
+      const imgPrompt=`You are an AI assistant with perfect vision. Read every single piece of text in this image with extreme care.
 
-Find ANY of these: dates, times, day names, month names, years, event names, show names, trip names, booking references, venue names, addresses, ticket info, appointment details, holiday dates, activity schedules.
+This image may be: a Rover/pet booking, event ticket, poster, flyer, booking confirmation, letter, screenshot, calendar, itinerary, social media post, handwritten note, or anything else.
 
-Be VERY generous — if you see "Sat 14th", "July 2026", "3pm", "Tuesday", or any date-like text, extract it as an event.
+YOUR JOB: Extract every date, time, event, booking, appointment or activity you can see.
 
-Return ONLY raw JSON, no markdown, no backticks:
+Return ONLY a raw JSON object. No markdown. No backticks. No explanation. Just JSON starting with {
+
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
 
-Critical rules:
-- ALWAYS return at least one event if there is ANY date-related text visible anywhere in the image
-- title: name of the event, show, trip, appointment or a description of what the date is for
-- notes: venue, location, price, reference number, any other visible details — keep under 80 chars
-- date: convert any date format to YYYY-MM-DD. "14 July 2026" = "2026-07-14". "Sat 3rd Aug" = "${today.getFullYear()}-08-03"
-- If no year visible use ${today.getFullYear()} unless the date has passed, then use ${today.getFullYear()+1}
-- time: "HH:MM" format. "3pm" = "15:00". "7:30" = "07:30". Unknown = "09:00"
-- priority: travel/flights = critical, shows/events/bookings = high, social = medium, reminders = low
-- summary: one warm sentence about what was found in the image`;
+Rules:
+- Read ALL text in the image including small print, headers, labels, prices, names
+- title: the main name or description (e.g. "Dog Boarding — Henry", "Rover Booking", "Concert", "Dentist")  
+- For Rover/pet bookings: include pet name and type in title, owner name in notes
+- date: convert ALL formats. "Mon 12 Oct" = "${today.getFullYear()}-10-12". "12/10/26" = "2026-10-12". "July 14" = "${today.getFullYear()}-07-14"
+- For date ranges (e.g. Mon-Fri): create ONE event on start date, put end date in notes
+- If no year: use ${today.getFullYear()} if date is in future, ${today.getFullYear()+1} if passed
+- time: convert all formats. "3pm"="15:00", "9:30am"="09:30", "noon"="12:00", unknown="09:00"
+- notes: include price, reference number, location, pet name, owner, anything else visible. Max 100 chars
+- priority: flights/travel=critical, bookings/events/medical=high, social=medium, reminders=low
+- summary: one sentence describing what was found
+- NEVER return empty events array — if you see ANY date at all, include it`;
 
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
@@ -409,21 +406,35 @@ Critical rules:
         })
       });
       const d=await r.json();
-      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      // Robustly extract JSON from any response format
+      console.log("API response:",JSON.stringify(d).slice(0,300));
+      if(d.error){
+        setImgRes({error:true,msg:"API error: "+(d.error?.message||JSON.stringify(d.error))});
+        setImgBusy(false);return;
+      }
+      const raw=d.content?.find(b=>b.type==="text")?.text||"";
+      console.log("Raw text:",raw.slice(0,500));
+      if(!raw){
+        setImgRes({error:true,msg:"No response from AI. Please try again."});
+        setImgBusy(false);return;
+      }
+      // Robustly extract JSON
       let clean=raw.trim();
       const jsonStart=clean.indexOf("{");
       const jsonEnd=clean.lastIndexOf("}");
       if(jsonStart>=0&&jsonEnd>=0){clean=clean.slice(jsonStart,jsonEnd+1);}
+      else{
+        setImgRes({error:true,msg:"AI responded but no dates found. Raw: "+raw.slice(0,100)});
+        setImgBusy(false);return;
+      }
       const parsed=JSON.parse(clean);
       if(!parsed.events||parsed.events.length===0){
-        setImgRes({error:true,msg:"No dates found. Make sure the image clearly shows dates or event details."});
+        setImgRes({error:true,msg:"No dates found in image. Raw response: "+raw.slice(0,150)});
       } else {
         setImgRes(parsed);
       }
     }catch(e){
       console.error("Image parse error:",e);
-      setImgRes({error:true,msg:"Could not read image. Try a clearer photo with visible text."});
+      setImgRes({error:true,msg:"Parse error: "+e.message});
     }
     setImgBusy(false);
   }
@@ -886,7 +897,7 @@ Critical rules:
             <div style={{width:44,height:1,background:`linear-gradient(90deg,${C.goldBorder},transparent)`,margin:"7px 0"}}/>
             <div style={{fontSize:12,color:C.inkLight,letterSpacing:"0.07em",fontFamily:FB}}>{today.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
           </div>
-          {cfls.length>0&&<div className="gold-pulse" style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
+          {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
         </div>
         {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
           {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>setView("schedule")},{n:events.filter(e=>e.source==="rover").length,l:"Rover",a:C.emerald,action:()=>{}}].map((s,i)=>(
