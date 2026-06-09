@@ -426,8 +426,7 @@ Rules:
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
-          max_tokens:4000,
-          system:imgPrompt,
+          max_tokens:8000,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:mt,data:b64}},
             {type:"text",text:"Please read every piece of text in this image carefully and extract all dates, events, times, and locations. Return as JSON."}
@@ -435,28 +434,43 @@ Rules:
         })
       });
       const text=await r.text();
-      // Show raw response on screen for debugging
-      setImgRes({error:true,msg:"DEBUG: "+text.slice(0,300)});
-      setImgBusy(false);return;
-      // Handle all possible error states
-      if(!d){setImgRes({error:true,msg:"No response received. Please try again."});setImgBusy(false);return;}
+      const d=JSON.parse(text);
+      if(!d){setImgRes({error:true,msg:"No response received."});setImgBusy(false);return;}
       if(d.error){setImgRes({error:true,msg:"API: "+(typeof d.error==="string"?d.error:d.error?.message||JSON.stringify(d.error).slice(0,100))});setImgBusy(false);return;}
-      if(!d.content||!d.content.length){setImgRes({error:true,msg:"Empty response: "+JSON.stringify(d).slice(0,150)});setImgBusy(false);return;}
+      if(!d.content||!d.content.length){setImgRes({error:true,msg:"Empty response."});setImgBusy(false);return;}
       const raw=d.content.find(b=>b.type==="text")?.text||"";
-      console.log("Raw text from AI:",raw.slice(0,300));
-      if(!raw.trim()){setImgRes({error:true,msg:"AI returned empty text. Try again."});setImgBusy(false);return;}
-      // Extract JSON from anywhere in the response
-      const jsonStart=raw.indexOf("{");
-      const jsonEnd=raw.lastIndexOf("}");
-      if(jsonStart<0||jsonEnd<0){
-        setImgRes({error:true,msg:"AI said: "+raw.slice(0,200)});
-        setImgBusy(false);return;
+      if(!raw.trim()){setImgRes({error:true,msg:"AI returned empty text."});setImgBusy(false);return;}
+
+      // Robust JSON extraction — handles truncated, wrapped, or partial responses
+      function extractJSON(str){
+        // Try parsing directly first
+        try{return JSON.parse(str);}catch{}
+        // Find outermost { } and try
+        const s=str.indexOf("{"),e=str.lastIndexOf("}");
+        if(s>=0&&e>s){
+          try{return JSON.parse(str.slice(s,e+1));}catch{}
+          // If still fails, try to fix truncated JSON by closing open arrays/objects
+          let partial=str.slice(s,e+1);
+          // Count unclosed brackets and close them
+          let opens=0,openSq=0;
+          for(const ch of partial){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
+          // Close any open strings first by removing trailing incomplete string
+          partial=partial.replace(/,?\s*"[^"]*$/,'');
+          // Close open arrays and objects
+          for(let i=0;i<openSq;i++)partial+="]";
+          for(let i=0;i<opens;i++)partial+="}";
+          try{return JSON.parse(partial);}catch{}
+        }
+        return null;
       }
-      const clean=raw.slice(jsonStart,jsonEnd+1);
-      const parsed=JSON.parse(clean);
-      if(!parsed.events||parsed.events.length===0){
-        setImgRes({error:true,msg:"No events in response. AI said: "+raw.slice(0,150)});
+
+      const parsed=extractJSON(raw);
+      if(!parsed||!parsed.events||parsed.events.length===0){
+        // Last resort — try to extract any dates manually from raw text
+        setImgRes({error:true,msg:"Could not parse response. Please try again."});
       }else{
+        // Filter out any malformed events
+        parsed.events=parsed.events.filter(e=>e.title&&e.date);
         setImgRes(parsed);
       }
     }catch(e){
