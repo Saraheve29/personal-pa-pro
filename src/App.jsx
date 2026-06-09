@@ -181,7 +181,7 @@ export default function App(){
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
   async function callAI(body){
-    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
@@ -225,7 +225,7 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"claude-sonnet-4-6",
           max_tokens:8000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
 Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
@@ -298,7 +298,7 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"claude-sonnet-4-6",
           max_tokens:2000,
           system:imgPrompt,
           messages:[{role:"user",content:[
