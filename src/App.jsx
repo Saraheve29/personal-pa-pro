@@ -85,6 +85,48 @@ const ImportIcon=({type,size=36})=>{
   return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={p.stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={p.d}/></svg>);
 };
 
+function ConflictAlert({cfls,events}){
+  const [open,setOpen]=useState(false);
+  if(!cfls.length)return null;
+  return(
+    <div style={{marginBottom:12}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",borderRadius:4,borderLeft:`4px solid ${C.crimson}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:13,color:C.crimson,fontFamily:FB,fontWeight:500}}>◆ {cfls.length} scheduling conflict{cfls.length>1?"s":""} detected</div>
+        <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{open?"▲ Hide":"▼ Show"}</div>
+      </div>
+      {open&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderTop:"none",borderRadius:"0 0 4px 4px",padding:"12px 16px"}}>
+        <div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginBottom:10,lineHeight:1.6}}>These appointments share the same time slot. Please reschedule one of them.</div>
+        {cfls.map(([id1,id2],i)=>{
+          const e1=events.find(e=>e.id===id1);
+          const e2=events.find(e=>e.id===id2);
+          if(!e1||!e2)return null;
+          return(
+            <div key={i} style={{background:"rgba(255,255,255,0.5)",borderRadius:4,padding:"10px 12px",marginBottom:i<cfls.length-1?8:0}}>
+              <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Conflict {i+1}</div>
+              <div style={{display:"flex",gap:8,alignItems:"stretch"}}>
+                <div style={{flex:1,background:C.card,borderRadius:3,padding:"9px 11px",border:`1px solid ${C.crimson}30`}}>
+                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e1.time}</div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e1.title}</div>
+                  {e1.notes&&<div style={{fontSize:11,color:C.inkFaint,marginTop:2}}>{e1.notes}</div>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",color:C.crimson,fontFamily:FM,fontSize:14}}>⚡</div>
+                <div style={{flex:1,background:C.card,borderRadius:3,padding:"9px 11px",border:`1px solid ${C.crimson}30`}}>
+                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e2.time}</div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e2.title}</div>
+                  {e2.notes&&<div style={{fontSize:11,color:C.inkFaint,marginTop:2}}>{e2.notes}</div>}
+                </div>
+              </div>
+              <div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:8,textAlign:"center"}}>
+                {e1.date} — both at {e1.time}
+              </div>
+            </div>
+          );
+        })}
+      </div>}
+    </div>
+  );
+}
+
 const GLOBAL_CSS=`
   @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Tenor+Sans&family=Courier+Prime&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -298,46 +340,54 @@ ${pasteText}`}]
         r.readAsDataURL(imgFile);
       });
       const mt=imgFile.type||"image/jpeg";
-      const imgPrompt=`Look at this image carefully. It could be anything — a poster, flyer, event ticket, booking confirmation, screenshot, letter, handwritten note, calendar, itinerary, or social media post.
+      const imgPrompt=`You are an expert at reading images and extracting dates. Look very carefully at every part of this image.
 
-Extract EVERY date, time, event, appointment, trip, show, concert, match, holiday, booking or plan you can see. Also extract location/venue if visible.
+Find ANY of these: dates, times, day names, month names, years, event names, show names, trip names, booking references, venue names, addresses, ticket info, appointment details, holiday dates, activity schedules.
 
-Return ONLY valid JSON, no markdown, no explanation:
+Be VERY generous — if you see "Sat 14th", "July 2026", "3pm", "Tuesday", or any date-like text, extract it as an event.
+
+Return ONLY raw JSON, no markdown, no backticks:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
 
-Rules:
-- title: use the event/show/trip name, or a clear description
-- notes: include venue, location, address, reference numbers, performer names, or any other useful detail visible in the image
-- If no year visible assume ${today.getFullYear()} or ${today.getFullYear()+1} whichever puts the date in the future
-- If no time visible use "09:00"
-- priority: concerts/shows/sports = high, travel/flights = critical, social = medium
-- Never return empty events — if there is any date in the image, include it
-- summary: one warm sentence describing what was found`;
+Critical rules:
+- ALWAYS return at least one event if there is ANY date-related text visible anywhere in the image
+- title: name of the event, show, trip, appointment or a description of what the date is for
+- notes: venue, location, price, reference number, any other visible details — keep under 80 chars
+- date: convert any date format to YYYY-MM-DD. "14 July 2026" = "2026-07-14". "Sat 3rd Aug" = "${today.getFullYear()}-08-03"
+- If no year visible use ${today.getFullYear()} unless the date has passed, then use ${today.getFullYear()+1}
+- time: "HH:MM" format. "3pm" = "15:00". "7:30" = "07:30". Unknown = "09:00"
+- priority: travel/flights = critical, shows/events/bookings = high, social = medium, reminders = low
+- summary: one warm sentence about what was found in the image`;
 
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
-          max_tokens:2000,
+          max_tokens:4000,
           system:imgPrompt,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:mt,data:b64}},
-            {type:"text",text:"Extract all events, dates, times and locations from this image."}
+            {type:"text",text:"Please read every piece of text in this image carefully and extract all dates, events, times, and locations. Return as JSON."}
           ]}]
         })
       });
       const d=await r.json();
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      const clean=raw.replace(/```[\w]*/g,"").trim();
+      let clean=raw.trim();
+      if(clean.includes("```")){clean=clean.replace(/```[a-z]*/g,"").replace(/```/g,"").trim();}
+      // find JSON object in response
+      const jsonStart=clean.indexOf("{");
+      const jsonEnd=clean.lastIndexOf("}");
+      if(jsonStart>=0&&jsonEnd>=0){clean=clean.slice(jsonStart,jsonEnd+1);}
       const parsed=JSON.parse(clean);
       if(!parsed.events||parsed.events.length===0){
-        setImgRes({error:true,msg:"No dates found in this image. Try a clearer photo or a different image."});
+        setImgRes({error:true,msg:"No dates found. Make sure the image clearly shows dates or event details."});
       } else {
         setImgRes(parsed);
       }
     }catch(e){
-      console.error(e);
-      setImgRes({error:true,msg:"Could not read image. Please try again with a clearer photo."});
+      console.error("Image parse error:",e);
+      setImgRes({error:true,msg:"Could not read image. Try a clearer photo with visible text."});
     }
     setImgBusy(false);
   }
@@ -585,7 +635,7 @@ Rules:
           <div style={SL}>Today's Schedule</div>
           <button onClick={()=>setView("week")} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>See Week →</button>
         </div>
-        {cfls.length>0&&<div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"11px 14px",marginBottom:10,fontSize:12,color:C.crimson,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.crimson}`}}>◆ Conflict detected.</div>}
+        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events}/>}
         {todayEvs.length===0
           ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",background:C.card,borderRadius:6,border:`1px solid ${C.borderSoft}`}}><div style={{fontSize:16,fontFamily:FD,fontStyle:"italic",color:C.inkLight}}>Your day is clear.</div></div>
           :todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*50}/>)}
@@ -603,7 +653,7 @@ Rules:
   /* ── SCHEDULE (TODAY DETAIL) ── */
   const ScheduleView=()=>(
     <div>
-      {cfls.length>0&&<div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"13px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.crimson}`}}>◆ Scheduling conflict detected — two appointments share the same time.</div>}
+      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events}/>}
       <div style={SL}>{today.toLocaleDateString("en-GB",{weekday:"long"})} — {todayEvs.length} appointment{todayEvs.length!==1?"s":""}</div>
       {todayEvs.length===0?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your day is clear.</div></div>:todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*55}/>)}
     </div>
