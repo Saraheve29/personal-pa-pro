@@ -373,9 +373,8 @@ Critical rules:
       });
       const d=await r.json();
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      // Robustly extract JSON from any response format
       let clean=raw.trim();
-      if(clean.includes("```")){clean=clean.replace(/```[a-z]*/g,"").replace(/```/g,"").trim();}
-      // find JSON object in response
       const jsonStart=clean.indexOf("{");
       const jsonEnd=clean.lastIndexOf("}");
       if(jsonStart>=0&&jsonEnd>=0){clean=clean.slice(jsonStart,jsonEnd+1);}
