@@ -420,9 +420,26 @@ Rules:
 - summary: one sentence describing what was found
 - NEVER return empty events array — if you see ANY date at all, include it`;
 
-      // Send through proxy — compress to stay under 4MB Vercel limit
-      const r=await fetch("/api/ai",{
-        method:"POST",headers:{"Content-Type":"application/json"},
+      // Call Anthropic directly from browser — no Vercel size limit
+      // Get key from proxy first
+      let apiKey="";
+      try{
+        const kr=await fetch("/api/key");
+        const kd=await kr.json();
+        apiKey=kd.key||"";
+      }catch(e){console.error("Key fetch failed:",e);}
+      if(!apiKey){
+        setImgRes({error:true,msg:"Could not load API key. Please check Vercel environment variables."});
+        setImgBusy(false);return;
+      }
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "anthropic-version":"2023-06-01",
+          "x-api-key":apiKey,
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
           max_tokens:4000,
