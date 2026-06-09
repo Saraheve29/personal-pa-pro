@@ -427,6 +427,7 @@ Rules:
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
           max_tokens:8000,
+          system:imgPrompt,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:mt,data:b64}},
             {type:"text",text:"Please read every piece of text in this image carefully and extract all dates, events, times, and locations. Return as JSON."}
