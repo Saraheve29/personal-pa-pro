@@ -181,7 +181,7 @@ export default function App(){
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
   async function callAI(body){
-    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,...body})});
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
@@ -225,27 +225,11 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:4000,
-          system:`You are an intelligent life assistant that reads any text and extracts structured information. Return ONLY raw JSON, no markdown, no backticks, no explanation.
-
-Format:
-{
-  "events": [{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],
-  "financials": [{"label":string,"amount":number,"currency":"GBP","type":"cost|saving|payment","date":"YYYY-MM-DD or null","notes":string}],
-  "destinations": [{"name":string,"type":"holiday|daytrip|hotel|venue","dates":string,"notes":string}],
-  "insights": [{"text":string}],
-  "summary": string,
-  "total_cost": number,
-  "total_saving": number
-}
-
-Rules for events: extract every date, activity, payment date, trip, holiday. If no time use "09:00". Assume current year or future if not stated.
-Rules for financials: extract all costs, prices, savings targets, payment amounts, totals.
-Rules for destinations: extract all places, hotels, parks, venues being visited.
-Rules for insights: generate 2-4 smart observations like time gaps between trips, budget advice, busy periods, things to book in advance.
-Summary: one warm sentence overview of everything.
-If a section has nothing relevant return an empty array.`,
+          model:"claude-sonnet-4-20250514",
+          max_tokens:8000,
+          system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
+Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
+Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.`,
           messages:[{role:"user",content:`Analyse this text and extract all information:
 
 ${pasteText}`}]
@@ -314,7 +298,7 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-6",
+          model:"claude-sonnet-4-20250514",
           max_tokens:2000,
           system:imgPrompt,
           messages:[{role:"user",content:[
