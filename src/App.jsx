@@ -379,13 +379,16 @@ ${pasteText}`}]
               ctx.drawImage(img,0,0,w,h);
               return canvas.toDataURL("image/jpeg",quality).split(",")[1];
             };
-            // Target under 3MB (Vercel limit is 4.5MB, leaving buffer)
-            let b64=compress(0.95,2000);
-            if(b64.length>3000000) b64=compress(0.85,1800);
-            if(b64.length>3000000) b64=compress(0.75,1600);
-            if(b64.length>3000000) b64=compress(0.65,1400);
-            if(b64.length>3000000) b64=compress(0.55,1200);
-            console.log("Image size after compression:",Math.round(b64.length/1024),"KB");
+            // Must stay under 500KB base64 to avoid Vercel 4.5MB limit
+            // High res first attempts to keep text readable
+            let b64=compress(0.95,2400);
+            if(b64.length>500000) b64=compress(0.85,2000);
+            if(b64.length>500000) b64=compress(0.75,1600);
+            if(b64.length>500000) b64=compress(0.65,1400);
+            if(b64.length>500000) b64=compress(0.55,1200);
+            if(b64.length>500000) b64=compress(0.45,1000);
+            if(b64.length>500000) b64=compress(0.35,800);
+            console.log("Final image size:",Math.round(b64.length/1024),"KB");
             res({b64,mt:"image/jpeg"});
           };
           img.onerror=rej;
