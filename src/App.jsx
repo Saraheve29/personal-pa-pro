@@ -181,7 +181,7 @@ export default function App(){
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
   async function callAI(body){
-    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,...body})});
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
@@ -225,7 +225,7 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"claude-sonnet-4-6",
           max_tokens:4000,
           system:`You are an intelligent life assistant that reads any text and extracts structured information. Return ONLY raw JSON, no markdown, no backticks, no explanation.
 
@@ -252,7 +252,11 @@ ${pasteText}`}]
         })
       });
       const d=await r.json();
-      if(d.error){setPasteRes({error:true,msg:"API error: "+d.error.message});setPasteBusy(false);return;}
+      if(d.error){
+        const msg=typeof d.error==="string"?d.error:d.error?.message||JSON.stringify(d.error);
+        setPasteRes({error:true,msg:"API error: "+msg});
+        setPasteBusy(false);return;
+      }
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
       let clean=raw.trim();
       if(clean.includes("```")){
@@ -271,7 +275,16 @@ ${pasteText}`}]
     setPasteBusy(false);
   }
 
-    async function parseImg(){
+    function handleImg(e){
+    const f=e.target.files[0];
+    if(!f)return;
+    setImgFile(f);setImgRes(null);
+    const r=new FileReader();
+    r.onload=ev=>setImgPrev(ev.target.result);
+    r.readAsDataURL(f);
+  }
+
+  async function parseImg(){
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
@@ -301,7 +314,7 @@ Rules:
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"claude-sonnet-4-6",
           max_tokens:2000,
           system:imgPrompt,
           messages:[{role:"user",content:[
