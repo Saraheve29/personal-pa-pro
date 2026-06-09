@@ -40,7 +40,26 @@ const PM={
   medium:  {label:"Medium",  color:C.sapphire, bg:C.sapphireBg,glyph:"◇"},
   low:     {label:"Low",     color:C.inkFaint, bg:C.parchment, glyph:"○"},
 };
-const getConflicts=evs=>{const out=[],byD={};evs.forEach(e=>{(byD[e.date]=byD[e.date]||[]).push(e);});Object.values(byD).forEach(day=>{for(let i=0;i<day.length;i++)for(let j=i+1;j<day.length;j++)if(day[i].time&&day[j].time&&day[i].time===day[j].time)out.push([day[i].id,day[j].id]);});return out;};
+const getConflicts=evs=>{
+  const out=[];
+  const byD={};
+  evs.forEach(e=>{(byD[e.date]=byD[e.date]||[]).push(e);});
+  Object.values(byD).forEach(day=>{
+    for(let i=0;i<day.length;i++){
+      for(let j=i+1;j<day.length;j++){
+        const a=day[i],b=day[j];
+        // duplicate: same title and date
+        if(a.title.toLowerCase()===b.title.toLowerCase()){
+          out.push([a.id,b.id,"duplicate"]);
+        // time conflict: same time slot
+        } else if(a.time&&b.time&&a.time===b.time){
+          out.push([a.id,b.id,"conflict"]);
+        }
+      }
+    }
+  });
+  return out;
+};
 
 /* ── COMPONENTS ── */
 /* ── SWAP THIS PATH when you have a real photo ── */
@@ -85,40 +104,46 @@ const ImportIcon=({type,size=36})=>{
   return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={p.stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={p.d}/></svg>);
 };
 
-function ConflictAlert({cfls,events}){
+function ConflictAlert({cfls,events,onDelete}){
   const [open,setOpen]=useState(false);
   if(!cfls.length)return null;
+  const dupes=cfls.filter(c=>c[2]==="duplicate");
+  const conflicts=cfls.filter(c=>c[2]==="conflict");
+  const label=dupes.length&&conflicts.length?"Duplicates & Conflicts detected":
+    dupes.length?`${dupes.length} duplicate${dupes.length>1?"s":""} detected`:
+    `${conflicts.length} scheduling conflict${conflicts.length>1?"s":""} detected`;
   return(
     <div style={{marginBottom:12}}>
       <div onClick={()=>setOpen(o=>!o)} style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",borderRadius:4,borderLeft:`4px solid ${C.crimson}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontSize:13,color:C.crimson,fontFamily:FB,fontWeight:500}}>◆ {cfls.length} scheduling conflict{cfls.length>1?"s":""} detected</div>
+        <div style={{fontSize:13,color:C.crimson,fontFamily:FB,fontWeight:500}}>◆ {label}</div>
         <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{open?"▲ Hide":"▼ Show"}</div>
       </div>
       {open&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderTop:"none",borderRadius:"0 0 4px 4px",padding:"12px 16px"}}>
-        <div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginBottom:10,lineHeight:1.6}}>These appointments share the same time slot. Please reschedule one of them.</div>
-        {cfls.map(([id1,id2],i)=>{
+        {cfls.map(([id1,id2,type],i)=>{
           const e1=events.find(e=>e.id===id1);
           const e2=events.find(e=>e.id===id2);
           if(!e1||!e2)return null;
+          const isDupe=type==="duplicate";
           return(
-            <div key={i} style={{background:"rgba(255,255,255,0.5)",borderRadius:4,padding:"10px 12px",marginBottom:i<cfls.length-1?8:0}}>
-              <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:6}}>Conflict {i+1}</div>
+            <div key={i} style={{background:"rgba(255,255,255,0.6)",borderRadius:4,padding:"10px 12px",marginBottom:i<cfls.length-1?8:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>{isDupe?"⚠ Duplicate":"⚡ Time Conflict"}</div>
+              </div>
               <div style={{display:"flex",gap:8,alignItems:"stretch"}}>
                 <div style={{flex:1,background:C.card,borderRadius:3,padding:"9px 11px",border:`1px solid ${C.crimson}30`}}>
-                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e1.time}</div>
-                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e1.title}</div>
-                  {e1.notes&&<div style={{fontSize:11,color:C.inkFaint,marginTop:2}}>{e1.notes}</div>}
+                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e1.date} {e1.time}</div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink,marginBottom:6}}>{e1.title}</div>
+                  <button onClick={()=>onDelete(e1.id)} style={{width:"100%",padding:"5px",border:`1px solid ${C.crimson}`,borderRadius:3,background:"transparent",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Remove</button>
                 </div>
-                <div style={{display:"flex",alignItems:"center",color:C.crimson,fontFamily:FM,fontSize:14}}>⚡</div>
+                <div style={{display:"flex",alignItems:"center",color:C.crimson,fontFamily:FM,fontSize:14}}>{isDupe?"=":"⚡"}</div>
                 <div style={{flex:1,background:C.card,borderRadius:3,padding:"9px 11px",border:`1px solid ${C.crimson}30`}}>
-                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e2.time}</div>
-                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e2.title}</div>
-                  {e2.notes&&<div style={{fontSize:11,color:C.inkFaint,marginTop:2}}>{e2.notes}</div>}
+                  <div style={{fontSize:12,color:C.crimson,fontFamily:FM,marginBottom:2}}>{e2.date} {e2.time}</div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink,marginBottom:6}}>{e2.title}</div>
+                  <button onClick={()=>onDelete(e2.id)} style={{width:"100%",padding:"5px",border:`1px solid ${C.crimson}`,borderRadius:3,background:"transparent",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Remove</button>
                 </div>
               </div>
-              <div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:8,textAlign:"center"}}>
-                {e1.date} — both at {e1.time}
-              </div>
+              {isDupe&&<div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:6,textAlign:"center"}}>Same event added twice — remove one.</div>}
+              {!isDupe&&<div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:6,textAlign:"center"}}>{e1.date} — both at {e1.time}</div>}
             </div>
           );
         })}
@@ -333,13 +358,25 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      const b64=await new Promise((res,rej)=>{
-        const r=new FileReader();
-        r.onload=()=>res(r.result.split(",")[1]);
-        r.onerror=rej;
-        r.readAsDataURL(imgFile);
+      // Compress image to max 1200px and convert to JPEG for reliability
+      const {b64,mt} = await new Promise((res,rej)=>{
+        const img=new Image();
+        img.onload=()=>{
+          const MAX=1200;
+          let w=img.width,h=img.height;
+          if(w>MAX||h>MAX){ if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;} }
+          const canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          canvas.getContext("2d").drawImage(img,0,0,w,h);
+          const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+          res({b64:dataUrl.split(",")[1],mt:"image/jpeg"});
+        };
+        img.onerror=rej;
+        const reader=new FileReader();
+        reader.onload=ev=>{img.src=ev.target.result;};
+        reader.onerror=rej;
+        reader.readAsDataURL(imgFile);
       });
-      const mt=imgFile.type||"image/jpeg";
       const imgPrompt=`You are an expert at reading images and extracting dates. Look very carefully at every part of this image.
 
 Find ANY of these: dates, times, day names, month names, years, event names, show names, trip names, booking references, venue names, addresses, ticket info, appointment details, holiday dates, activity schedules.
@@ -634,7 +671,7 @@ Critical rules:
           <div style={SL}>Today's Schedule</div>
           <button onClick={()=>setView("week")} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>See Week →</button>
         </div>
-        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events}/>}
+        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
         {todayEvs.length===0
           ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",background:C.card,borderRadius:6,border:`1px solid ${C.borderSoft}`}}><div style={{fontSize:16,fontFamily:FD,fontStyle:"italic",color:C.inkLight}}>Your day is clear.</div></div>
           :todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*50}/>)}
@@ -652,7 +689,7 @@ Critical rules:
   /* ── SCHEDULE (TODAY DETAIL) ── */
   const ScheduleView=()=>(
     <div>
-      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events}/>}
+      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
       <div style={SL}>{today.toLocaleDateString("en-GB",{weekday:"long"})} — {todayEvs.length} appointment{todayEvs.length!==1?"s":""}</div>
       {todayEvs.length===0?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your day is clear.</div></div>:todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*55}/>)}
     </div>
