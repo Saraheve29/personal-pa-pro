@@ -358,35 +358,35 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      // Smart compression — keeps text sharp, stays under Vercel 4.5MB limit
+      // Compress to strictly under 800KB base64 (~600KB image) to stay under Vercel 4.5MB limit
+      // Use high resolution to keep text readable
       const {b64,mt} = await new Promise((res,rej)=>{
         const reader=new FileReader();
         reader.onload=ev=>{
           const img=new Image();
           img.onload=()=>{
-            // Use high quality settings to preserve text readability
-            const MAX=2000; // large enough to keep text sharp
-            let w=img.width, h=img.height;
-            if(w>MAX||h>MAX){
-              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
-              else{w=Math.round(w*MAX/h);h=MAX;}
-            }
-            const canvas=document.createElement("canvas");
-            canvas.width=w; canvas.height=h;
-            const ctx=canvas.getContext("2d");
-            ctx.imageSmoothingEnabled=true;
-            ctx.imageSmoothingQuality="high";
-            ctx.drawImage(img,0,0,w,h);
-            // Use high quality JPEG to preserve text
-            const dataUrl=canvas.toDataURL("image/jpeg",0.92);
-            const b64=dataUrl.split(",")[1];
-            // Check size — if still too big, reduce quality
-            if(b64.length>3500000){
-              const dataUrl2=canvas.toDataURL("image/jpeg",0.75);
-              res({b64:dataUrl2.split(",")[1],mt:"image/jpeg"});
-            } else {
-              res({b64,mt:"image/jpeg"});
-            }
+            const compress=(quality,maxPx)=>{
+              let w=img.width, h=img.height;
+              if(w>maxPx||h>maxPx){
+                if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}
+                else{w=Math.round(w*maxPx/h);h=maxPx;}
+              }
+              const canvas=document.createElement("canvas");
+              canvas.width=w; canvas.height=h;
+              const ctx=canvas.getContext("2d");
+              ctx.imageSmoothingEnabled=true;
+              ctx.imageSmoothingQuality="high";
+              ctx.drawImage(img,0,0,w,h);
+              return canvas.toDataURL("image/jpeg",quality).split(",")[1];
+            };
+            // Try progressively smaller until under 800KB
+            let b64=compress(0.9,1600);
+            if(b64.length>800000) b64=compress(0.8,1400);
+            if(b64.length>800000) b64=compress(0.7,1200);
+            if(b64.length>800000) b64=compress(0.6,1000);
+            if(b64.length>800000) b64=compress(0.5,800);
+            console.log("Image size after compression:",Math.round(b64.length/1024),"KB");
+            res({b64,mt:"image/jpeg"});
           };
           img.onerror=rej;
           img.src=ev.target.result;
@@ -417,8 +417,14 @@ Rules:
 - summary: one sentence describing what was found
 - NEVER return empty events array — if you see ANY date at all, include it`;
 
-      const r=await fetch("/api/ai",{
-        method:"POST",headers:{"Content-Type":"application/json"},
+      // Images go direct to Anthropic — bypasses Vercel 4.5MB proxy limit
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{
+          "Content-Type":"application/json",
+          "anthropic-version":"2023-06-01",
+          "x-api-key": await fetch("/api/key").then(r=>r.json()).then(d=>d.key).catch(()=>""),
+          "anthropic-dangerous-direct-browser-access":"true"
+        },
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
           max_tokens:4000,
