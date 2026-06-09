@@ -33,14 +33,7 @@ const upcomingHols=(n=5)=>{const t=fmt(today);return UK_HOLIDAYS.filter(h=>h.end
 const daysUntil=ds=>Math.ceil((new Date(ds+"T12:00:00")-today)/86400000);
 const fmtRange=(s,e)=>{const sd=new Date(s+"T12:00:00"),ed=new Date(e+"T12:00:00");if(s===e)return sd.toLocaleDateString("en-GB",{day:"numeric",month:"long"});return`${sd.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${ed.toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`;};
 
-const INIT=[
-  {id:1,title:"School Drop-Off",    date:fmt(today),                              time:"08:30",priority:"critical",source:"manual", notes:"Both children"},
-  {id:2,title:"Dog Sitting — Bella",date:fmt(today),                              time:"10:00",priority:"high",    source:"rover",  notes:"Mrs Johnson collection"},
-  {id:3,title:"GP Appointment",     date:fmt(today),                              time:"14:00",priority:"critical",source:"email",  notes:"Repeat prescription"},
-  {id:4,title:"School Collection",  date:fmt(today),                              time:"15:30",priority:"critical",source:"manual", notes:""},
-  {id:5,title:"Thinko — Dev Session",date:fmt(new Date(today.getTime()+86400000)),time:"10:00",priority:"high",   source:"manual", notes:"Housework module"},
-  {id:6,title:"Dog Sitting — Max",  date:fmt(new Date(today.getTime()+86400000)), time:"09:00",priority:"high",   source:"rover",  notes:"Overnight"},
-];
+const INIT=[];
 const PM={
   critical:{label:"Critical",color:C.crimson,  bg:C.crimsonBg, glyph:"◆"},
   high:    {label:"High",    color:C.gold,     bg:C.goldPale,  glyph:"◈"},
@@ -128,13 +121,27 @@ const GLOBAL_CSS=`
 `;
 
 export default function App(){
-  const [events,    setEvents]   =useState(INIT);
+  const [events, setEvents] = useState(()=>{
+    try{
+      const saved=localStorage.getItem("papa_events");
+      return saved?JSON.parse(saved):[];
+    }catch{return [];}
+  });
   const [view,      setView]     =useState("home");    // home | schedule | week | briefing | import | chat | add
   const [impTab,    setImpTab]   =useState("text");
   const [briefing,  setBriefing] =useState(null);
   const [briefBusy, setBriefBusy]=useState(false);
   const [briefExp,  setBriefExp] =useState(null);
-  const [msgs,      setMsgs]     =useState([{role:"assistant",text:"Good morning. I'm Eleanor, your Personal Assistant. I've reviewed your schedule — four appointments today, with your GP at 14:00 your most important. Everything is in order. How may I assist you?",ts:new Date()}]);
+  const [msgs, setMsgs] = useState(()=>{
+    try{
+      const saved=localStorage.getItem("papa_msgs");
+      if(saved){
+        const parsed=JSON.parse(saved);
+        return parsed.map(m=>({...m,ts:new Date(m.ts)}));
+      }
+    }catch{}
+    return [{role:"assistant",text:"Good morning. I'm Eleanor, your Personal Assistant. How may I assist you?",ts:new Date()}];
+  });
   const [chatIn,    setChatIn]   =useState("");
   const [paStatus,  setPaStatus] =useState("idle");
   const [showWave,  setShowWave] =useState(false);
@@ -142,6 +149,8 @@ export default function App(){
   const [pasteText, setPasteText]=useState("");
   const [pasteBusy, setPasteBusy]=useState(false);
   const [pasteRes,  setPasteRes] =useState(null);
+  const [confirmCosts, setConfirmCosts] = useState(false);
+  const [editedFinancials, setEditedFinancials] = useState([]);
   const [imgFile,   setImgFile]  =useState(null);
   const [imgPrev,   setImgPrev]  =useState(null);
   const [imgBusy,   setImgBusy]  =useState(false);
@@ -166,6 +175,16 @@ export default function App(){
     if(outcome==="accepted") setInstalled(true);
     setInstallPrompt(null);
   }
+
+  // Save events to localStorage whenever they change
+  useEffect(()=>{
+    try{ localStorage.setItem("papa_events",JSON.stringify(events)); }catch{}
+  },[events]);
+
+  // Save msgs to localStorage whenever they change
+  useEffect(()=>{
+    try{ localStorage.setItem("papa_msgs",JSON.stringify(msgs)); }catch{}
+  },[msgs]);
 
   const chatEnd=useRef(null);
 
@@ -220,7 +239,7 @@ Rules:
 
   async function parsePaste(){
     if(!pasteText.trim()||pasteBusy)return;
-    setPasteBusy(true);setPasteRes(null);
+    setPasteBusy(true);setPasteRes(null);setConfirmCosts(false);setEditedFinancials([]);
     try{
       const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
@@ -398,29 +417,78 @@ Rules:
 
         {/* Financials */}
         {result.financials?.length>0&&<div style={{marginBottom:16}}>
-          <div style={SL}>Costs & Savings</div>
-          {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:10}}>
-            {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
-              <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{totalCost.toLocaleString()}</div>
-              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
-            </div>}
-            {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
-              <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{totalSaving.toLocaleString()}</div>
-              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
-            </div>}
-          </div>}
-          {result.financials.map((f,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:5}}>
-              <div>
-                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
-                {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
-                {f.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:1}}>{f.notes}</div>}
-              </div>
-              <div style={{fontSize:15,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontWeight:300,marginLeft:10,whiteSpace:"nowrap"}}>
-                £{(f.amount||0).toLocaleString()}
-              </div>
+
+          {/* Ask to confirm costs */}
+          {!confirmCosts&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:12}}>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>Eleanor found {result.financials.length} financial items.</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Would you like to confirm or edit the costs before saving?</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{setEditedFinancials(result.financials.map(f=>({...f})));setConfirmCosts(true);}} style={{flex:1,padding:"10px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Yes, Review Costs</button>
+              <button onClick={()=>setConfirmCosts(null)} style={{flex:1,padding:"10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>No, Skip</button>
             </div>
-          ))}
+          </div>}
+
+          {/* Editable costs */}
+          {confirmCosts===true&&<div>
+            <div style={SL}>Confirm & Edit Costs</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Tap any amount to edit it. Changes are saved automatically.</div>
+            {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:12}}>
+              {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{(editedFinancials.filter(f=>f.type==="cost"||f.type==="payment").reduce((a,f)=>a+(parseFloat(f.amount)||0),0)).toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
+              </div>}
+              {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{(editedFinancials.filter(f=>f.type==="saving").reduce((a,f)=>a+(parseFloat(f.amount)||0),0)).toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
+              </div>}
+            </div>}
+            {editedFinancials.map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:13,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontFamily:FD}}>£</span>
+                  <input
+                    type="number"
+                    value={f.amount||0}
+                    onChange={e=>{const updated=[...editedFinancials];updated[i]={...f,amount:parseFloat(e.target.value)||0};setEditedFinancials(updated);}}
+                    style={{width:80,padding:"6px 8px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:14,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,textAlign:"right",background:C.goldPale,outline:"none"}}
+                  />
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setConfirmCosts("done")} style={{width:"100%",padding:"11px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.emerald},#3A8A58)`,color:"#fff",fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginTop:4}}>✓ Confirm Costs</button>
+          </div>}
+
+          {/* Confirmed summary */}
+          {(confirmCosts==="done"||confirmCosts===null)&&<div>
+            <div style={SL}>Costs & Savings</div>
+            {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:10}}>
+              {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{totalCost.toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
+              </div>}
+              {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{totalSaving.toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
+              </div>}
+            </div>}
+            {(confirmCosts==="done"?editedFinancials:result.financials).map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:5}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
+                </div>
+                <div style={{fontSize:15,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontWeight:300,marginLeft:10,whiteSpace:"nowrap"}}>
+                  £{(f.amount||0).toLocaleString()}
+                </div>
+              </div>
+            ))}
+            {confirmCosts==="done"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textAlign:"center",marginTop:6}}>✓ Costs confirmed</div>}
+          </div>}
+
         </div>}
 
         {/* Events */}
@@ -630,7 +698,22 @@ Rules:
         </label>
         {imgPrev&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
         {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?"Reading image…":"Extract Appointments from Image"}</button>}
-        <ResultPreview result={imgRes} onAdd={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setView("home");}} onDiscard={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}/>
+        {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
+        {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
+        {imgRes&&!imgRes.error&&imgRes.events?.length>0&&<div>
+          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:12}}>{imgRes.events.length} Events Found</div>
+          {imgRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+              <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            </div>
+          );})}
+          <div style={{height:8}}/>
+          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}>Discard</button>
+        </div>}
       </div>}
       {impTab==="email"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect your inbox to scan automatically for booking confirmations and appointments.</div>
@@ -755,13 +838,12 @@ Rules:
 
       {view!=="chat"&&<div style={{padding:"11px 20px",borderTop:`1px solid ${C.border}`,background:C.cream,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.22em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
-        {!installed && installPrompt && (
-          <button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 2px 8px rgba(154,123,60,0.25)`,whiteSpace:"nowrap",flexShrink:0}}>
-            ⬇ Install App
-          </button>
-        )}
-        {installed && <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
-        {!installed && !installPrompt && <div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>{if(window.confirm("Clear all events and chat history? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your schedule has been cleared. How may I assist you?",ts:new Date()}]);}}} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
+          {!installed&&installPrompt&&<button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>⬇ Install App</button>}
+          {installed&&<div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
+          {!installed&&!installPrompt&&<div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
+        </div>
       </div>}
     </div>
   );
