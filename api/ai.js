@@ -1,3 +1,11 @@
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -36,9 +44,9 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       console.error("Anthropic error:", JSON.stringify(data));
-      return res.status(response.status).json({ 
+      return res.status(response.status).json({
         error: data?.error?.message || "Anthropic API error",
-        detail: data 
+        detail: data
       });
     }
 
