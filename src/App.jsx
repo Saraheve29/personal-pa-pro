@@ -379,12 +379,12 @@ ${pasteText}`}]
               ctx.drawImage(img,0,0,w,h);
               return canvas.toDataURL("image/jpeg",quality).split(",")[1];
             };
-            // Try progressively smaller until under 800KB
-            let b64=compress(0.9,1600);
-            if(b64.length>800000) b64=compress(0.8,1400);
-            if(b64.length>800000) b64=compress(0.7,1200);
-            if(b64.length>800000) b64=compress(0.6,1000);
-            if(b64.length>800000) b64=compress(0.5,800);
+            // Target under 3MB (Vercel limit is 4.5MB, leaving buffer)
+            let b64=compress(0.95,2000);
+            if(b64.length>3000000) b64=compress(0.85,1800);
+            if(b64.length>3000000) b64=compress(0.75,1600);
+            if(b64.length>3000000) b64=compress(0.65,1400);
+            if(b64.length>3000000) b64=compress(0.55,1200);
             console.log("Image size after compression:",Math.round(b64.length/1024),"KB");
             res({b64,mt:"image/jpeg"});
           };
@@ -417,16 +417,9 @@ Rules:
 - summary: one sentence describing what was found
 - NEVER return empty events array — if you see ANY date at all, include it`;
 
-      // Images go direct to Anthropic — bypasses Vercel 4.5MB proxy limit
-      const keyRes=await fetch("/api/key");
-      const {key}=await keyRes.json();
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{
-          "Content-Type":"application/json",
-          "anthropic-version":"2023-06-01",
-          "x-api-key":key,
-          "anthropic-dangerous-direct-browser-access":"true"
-        },
+      // Send through proxy — compress to stay under 4MB Vercel limit
+      const r=await fetch("/api/ai",{
+        method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
           max_tokens:4000,
