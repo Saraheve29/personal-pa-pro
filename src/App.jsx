@@ -406,35 +406,31 @@ Rules:
         })
       });
       const d=await r.json();
-      console.log("API response:",JSON.stringify(d).slice(0,300));
-      if(d.error){
-        setImgRes({error:true,msg:"API error: "+(d.error?.message||JSON.stringify(d.error))});
+      console.log("Full API response:",JSON.stringify(d).slice(0,500));
+      // Handle all possible error states
+      if(!d){setImgRes({error:true,msg:"No response received. Please try again."});setImgBusy(false);return;}
+      if(d.error){setImgRes({error:true,msg:"API: "+(typeof d.error==="string"?d.error:d.error?.message||JSON.stringify(d.error).slice(0,100))});setImgBusy(false);return;}
+      if(!d.content||!d.content.length){setImgRes({error:true,msg:"Empty response: "+JSON.stringify(d).slice(0,150)});setImgBusy(false);return;}
+      const raw=d.content.find(b=>b.type==="text")?.text||"";
+      console.log("Raw text from AI:",raw.slice(0,300));
+      if(!raw.trim()){setImgRes({error:true,msg:"AI returned empty text. Try again."});setImgBusy(false);return;}
+      // Extract JSON from anywhere in the response
+      const jsonStart=raw.indexOf("{");
+      const jsonEnd=raw.lastIndexOf("}");
+      if(jsonStart<0||jsonEnd<0){
+        setImgRes({error:true,msg:"AI said: "+raw.slice(0,200)});
         setImgBusy(false);return;
       }
-      const raw=d.content?.find(b=>b.type==="text")?.text||"";
-      console.log("Raw text:",raw.slice(0,500));
-      if(!raw){
-        setImgRes({error:true,msg:"No response from AI. Please try again."});
-        setImgBusy(false);return;
-      }
-      // Robustly extract JSON
-      let clean=raw.trim();
-      const jsonStart=clean.indexOf("{");
-      const jsonEnd=clean.lastIndexOf("}");
-      if(jsonStart>=0&&jsonEnd>=0){clean=clean.slice(jsonStart,jsonEnd+1);}
-      else{
-        setImgRes({error:true,msg:"AI responded but no dates found. Raw: "+raw.slice(0,100)});
-        setImgBusy(false);return;
-      }
+      const clean=raw.slice(jsonStart,jsonEnd+1);
       const parsed=JSON.parse(clean);
       if(!parsed.events||parsed.events.length===0){
-        setImgRes({error:true,msg:"No dates found in image. Raw response: "+raw.slice(0,150)});
-      } else {
+        setImgRes({error:true,msg:"No events in response. AI said: "+raw.slice(0,150)});
+      }else{
         setImgRes(parsed);
       }
     }catch(e){
-      console.error("Image parse error:",e);
-      setImgRes({error:true,msg:"Parse error: "+e.message});
+      console.error("Image error:",e);
+      setImgRes({error:true,msg:"Error: "+e.message+" — please try again"});
     }
     setImgBusy(false);
   }
