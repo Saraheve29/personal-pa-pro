@@ -278,7 +278,7 @@ export default function App(){
   async function connectGoogle(){
     setGoogleBusy(true);
     try{
-      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"url"})});
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"url"})});
       const {url}=await r.json();
       window.location.href=url;
     }catch(e){
@@ -290,13 +290,13 @@ export default function App(){
   async function exchangeGoogleCode(code){
     setGoogleBusy(true);
     try{
-      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"token",code})});
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"token",code})});
       const tokens=await r.json();
       if(tokens.error){alert("Auth failed: "+tokens.error);setGoogleBusy(false);return;}
       localStorage.setItem("papa_google_tokens",JSON.stringify(tokens));
       setGoogleTokens(tokens);
       // Get profile
-      const pr=await fetch("/api/gmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:tokens.access_token,action:"profile"})});
+      const pr=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:tokens.access_token,action:"gmail_profile"})});
       const profile=await pr.json();
       localStorage.setItem("papa_google_profile",JSON.stringify(profile));
       setGoogleProfile(profile);
@@ -314,7 +314,7 @@ export default function App(){
     if(!googleTokens)return;
     setEmailSt("connecting");
     try{
-      const r=await fetch("/api/gcal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"list"})});
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"gmail_list"})});
       const data=await r.json();
       if(data.error){setEmailSt("idle");alert("Calendar error: "+data.error);return;}
       setCalEvs(data.events||[]);
@@ -325,7 +325,7 @@ export default function App(){
   async function addToGoogleCalendar(event){
     if(!googleTokens)return false;
     try{
-      const r=await fetch("/api/gcal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"add",event})});
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"cal_add",event})});
       const data=await r.json();
       return data.success;
     }catch{return false;}
@@ -929,7 +929,7 @@ Rules:
           <button style={goldBtn()} onClick={async()=>{
             setEmailSt("connecting");
             try{
-              const r=await fetch("/api/gmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"list"})});
+              const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"gmail_list"})});
               const data=await r.json();
               if(data.error){setEmailSt("idle");alert("Error: "+data.error);return;}
               // Use AI to extract appointments from email snippets
