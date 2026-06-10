@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const { code, tokens, client_id, client_secret } = body;
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-    const REDIRECT_URI = "https://personal-pa-pro.vercel.app/api/ai";
+    const REDIRECT_URI = "https://personal-pa-pro.vercel.app/api/auth/callback";
 
     if (action === "url") {
       const params = new URLSearchParams({
