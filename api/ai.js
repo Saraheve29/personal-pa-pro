@@ -22,7 +22,7 @@ export default async function handler(req, res) {
         client_id: CLIENT_ID,
         redirect_uri: REDIRECT_URI,
         response_type: "code",
-        scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events email profile",
+        scope: "email profile",
         access_type: "offline",
         prompt: "consent"
       });
