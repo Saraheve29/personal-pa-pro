@@ -11,8 +11,8 @@ export default async function handler(req, res) {
   // ── GOOGLE OAUTH ──
   if (action === "url" || action === "token" || action === "refresh") {
     const { code, tokens, client_id, client_secret } = body;
-    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || client_id;
-    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || client_secret;
+    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || client_id || "1077821534253-ig9moa6j77lr9lpmlhf50fbhvus0omf7.apps.googleusercontent.com";
+    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || client_secret || "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";
     const REDIRECT_URI = "https://personal-pa-pro.vercel.app/api/ai";
 
     if (action === "url") {
