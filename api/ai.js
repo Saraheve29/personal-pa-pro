@@ -13,6 +13,8 @@ export default async function handler(req, res) {
     const { code, tokens, client_id, client_secret } = body;
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+    console.log("CLIENT_ID present:", !!CLIENT_ID, "starts with:", CLIENT_ID?.slice(0,20));
+    if(!CLIENT_ID) return res.status(500).json({error:"GOOGLE_CLIENT_ID not set in Vercel environment variables"});
     const REDIRECT_URI = "https://personal-pa-pro.vercel.app/api/auth/callback";
 
     if (action === "url") {
