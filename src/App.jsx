@@ -219,6 +219,7 @@ export default function App(){
   const [confirmCosts, setConfirmCosts] = useState(false);
   const [editedFinancials, setEditedFinancials] = useState([]);
   const [imgFile,   setImgFile]  =useState(null);
+  const [imgB64,    setImgB64]   =useState(null);
   const [imgPrev,   setImgPrev]  =useState(null);
   const [imgBusy,   setImgBusy]  =useState(false);
   const [imgRes,    setImgRes]   =useState(null);
@@ -348,9 +349,16 @@ ${pasteText}`}]
     function handleImg(e){
     const f=e.target.files[0];
     if(!f)return;
-    setImgFile(f);setImgRes(null);
+    setImgFile(f);setImgRes(null);setImgB64(null);
     const r=new FileReader();
-    r.onload=ev=>setImgPrev(ev.target.result);
+    r.onload=ev=>{
+      const result=ev.target.result;
+      setImgPrev(result);
+      // Store b64 now so parseImg doesn't need to re-read
+      const parts=result.split(",");
+      if(parts.length>=2) setImgB64(parts[1]);
+    };
+    r.onerror=()=>console.error("Preview read failed");
     r.readAsDataURL(f);
   }
 
@@ -358,73 +366,63 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      // Step 1: Read file as base64
-      const rawB64=await new Promise((res,rej)=>{
+      // Step 1: Use pre-read b64 from handleImg — avoids double-read ProgressEvent bug
+      const b64=imgB64||await new Promise((resolve,reject)=>{
         const reader=new FileReader();
-        reader.onload=()=>res(reader.result.split(",")[1]);
-        reader.onerror=rej;
+        reader.onload=evt=>{
+          try{
+            const result=evt.target.result;
+            if(!result)return reject(new Error("Empty file result"));
+            const parts=result.split(",");
+            if(parts.length<2)return reject(new Error("Invalid file format"));
+            resolve(parts[1]);
+          }catch(e){reject(e);}
+        };
+        reader.onerror=evt=>reject(new Error("Cannot read file: "+(evt.target?.error?.message||"unknown")));
+        reader.onabort=()=>reject(new Error("File read aborted"));
         reader.readAsDataURL(imgFile);
       });
-      const rawMt=imgFile.type||"image/jpeg";
 
-      // Step 2: Send raw file — no canvas, no compression issues
-      // Raw file is well under Vercel's 4.5MB limit for normal screenshots
-      const b64=rawB64, mt=rawMt;
-      console.log("Sending raw image:",Math.round(b64.length/1024),"KB as",mt);
+      const mt=imgFile.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg";
+      console.log("Image read OK:",Math.round(b64.length/1024),"KB as",mt);
 
-      // Step 3: Call AI
-      const imgPrompt=`You are an AI assistant with perfect vision. Read every piece of text in this image carefully.
-This image may be anything: Rover/pet booking, event ticket, poster, flyer, booking confirmation, letter, screenshot, calendar, itinerary, or handwritten note.
-Extract every date, time, event, booking, appointment or activity visible.
-Return ONLY raw JSON starting with { — no markdown, no backticks, no explanation:
+      // Step 2: Build prompt
+      const imgPrompt=`You are an AI with perfect vision. Read ALL text in this image carefully.
+This may be an NHS message, Rover booking, ticket, poster, letter, calendar, or any screenshot.
+Extract every date, time, event, appointment or booking visible.
+Return ONLY raw JSON — no markdown, no backticks:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
 Rules:
-- title: event/booking name including pet name for Rover bookings
-- date: convert all formats. "Mon 12 Oct"="${today.getFullYear()}-10-12", "Fri 19 Jun"="${today.getFullYear()}-06-19"
-- No year visible: use ${today.getFullYear()} if future, ${today.getFullYear()+1} if past
-- Date ranges: one event on start date, end date in notes
-- time: "3pm"="15:00", "10:30"="10:30", unknown="09:00"
-- notes: price, reference, pet breed, owner name, location. Max 100 chars
-- priority: travel=critical, bookings/medical=high, social=medium, low=optional
-- NEVER return empty events — if ANY date visible, include it`;
+- title: clear description e.g. "NHS Therapy Appointment", "Dog Boarding — Sox"
+- date: convert all formats. "22 Jun 2026"="2026-06-22", "Mon 12 Oct"="2026-10-12"
+- No year: use ${today.getFullYear()} if future else ${today.getFullYear()+1}
+- time: "13:30"="13:30", "3pm"="15:00", unknown="09:00"  
+- notes: clinician name, pet name, price, reference, location. Max 100 chars
+- priority: medical/critical=critical, bookings=high, social=medium
+- NEVER return empty events — include any date you see`;
 
-      // Step 3b: Build request — if image still too large, compress harder
-      let finalB64=b64;
-      if(finalB64.length>1500000){
-        // Force smaller
-        try{
-          const img2=new Image();
-          await new Promise(r=>{img2.onload=r;img2.onerror=r;img2.src="data:"+mt+";base64,"+b64;});
-          const c2=document.createElement("canvas");
-          const M=800;
-          let w=img2.width||800,h=img2.height||600;
-          if(w>M||h>M){if(w>h){h=Math.round(h*M/w);w=M;}else{w=Math.round(w*M/h);h=M;}}
-          c2.width=w;c2.height=h;
-          c2.getContext("2d").drawImage(img2,0,0,w,h);
-          finalB64=c2.toDataURL("image/jpeg",0.7).split(",")[1];
-          console.log("Force compressed to:",Math.round(finalB64.length/1024),"KB");
-        }catch(e){console.log("Force compress failed",e);}
-      }
-
+      // Step 3: Send to proxy
       const controller=new AbortController();
-      const fetchTimeout=setTimeout(()=>controller.abort(),25000);
-      const response=await fetch("/api/ai",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        signal:controller.signal,
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:2000,
-          system:imgPrompt,
-          messages:[{role:"user",content:[
-            {type:"image",source:{type:"base64",media_type:"image/jpeg",data:finalB64}},
-            {type:"text",text:"Extract all dates, events and bookings from this image as JSON."}
-          ]}]
-        })
-      });
-      clearTimeout(fetchTimeout);
+      const timer=setTimeout(()=>controller.abort(),30000);
+      let response;
+      try{
+        response=await fetch("/api/ai",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          signal:controller.signal,
+          body:JSON.stringify({
+            model:"claude-sonnet-4-6",
+            max_tokens:2000,
+            system:imgPrompt,
+            messages:[{role:"user",content:[
+              {type:"image",source:{type:"base64",media_type:mt,data:b64}},
+              {type:"text",text:"Extract all dates, times and events from this image. Return as JSON."}
+            ]}]
+          })
+        });
+      }finally{clearTimeout(timer);}
 
-      // Step 4: Parse response robustly
+      // Step 4: Parse response
       const text=await response.text();
       let d;
       try{d=JSON.parse(text);}catch{
@@ -436,47 +434,40 @@ Rules:
         setImgBusy(false);return;
       }
       const raw=d.content?.find(b=>b.type==="text")?.text||"";
-      if(!raw){setImgRes({error:true,msg:"No text in response."});setImgBusy(false);return;}
+      if(!raw){setImgRes({error:true,msg:"No response from AI."});setImgBusy(false);return;}
 
-      // Extract JSON from response — handles markdown fences, extra text, truncation
-      function extractJSON(str){
-        try{return JSON.parse(str);}catch{}
-        const s=str.indexOf("{"),e=str.lastIndexOf("}");
-        if(s<0||e<0)return null;
-        let sub=str.slice(s,e+1);
-        try{return JSON.parse(sub);}catch{}
-        // Fix truncated JSON
-        sub=sub.replace(/,?\s*"[^"]*$/,"");
-        let opens=0,openSq=0;
-        for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
-        for(let i=0;i<openSq;i++)sub+="]";
-        for(let i=0;i<opens;i++)sub+="}";
-        try{return JSON.parse(sub);}catch{}
-        return null;
+      // Step 5: Extract JSON robustly
+      let parsed=null;
+      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+      if(s>=0&&e>s){
+        try{parsed=JSON.parse(raw.slice(s,e+1));}catch{
+          // Try to repair truncated JSON
+          let sub=raw.slice(s,e+1).replace(/,?\s*"[^"]*$/,"");
+          let opens=0,openSq=0;
+          for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
+          for(let i=0;i<openSq;i++)sub+="]";
+          for(let i=0;i<opens;i++)sub+="}";
+          try{parsed=JSON.parse(sub);}catch{}
+        }
       }
-
-      const parsed=extractJSON(raw);
       if(!parsed?.events?.length){
-        setImgRes({error:true,msg:"No dates found in this image. Make sure dates are clearly visible."});
+        setImgRes({error:true,msg:"No dates found. Make sure dates are clearly visible in the image."});
       }else{
-        parsed.events=parsed.events.filter(e=>e.title&&e.date);
+        parsed.events=parsed.events.filter(ev=>ev.title&&ev.date);
         setImgRes(parsed);
       }
     }catch(e){
-      console.error("parseImg error:",e);
-      if(e.name==="AbortError"){
-        setImgRes({error:true,msg:"Timed out — please try again"});
-      }else if(e&&e.toString().includes("isTrusted")){
-        // isTrusted = browser blocked the fetch (CORS or network)
-        // Try again with a much smaller version of the image
-        setImgRes({error:true,msg:"Connection error — your image may be too large. Try taking a screenshot of just the key details."});
-      }else{
-        setImgRes({error:true,msg:e instanceof Error?e.message:String(e)||"Network error — please try again"});
-      }
+      console.error("parseImg:",e);
+      const msg=e.name==="AbortError"?"Timed out — please try again":
+        e instanceof Error?e.message:
+        String(e).includes("ProgressEvent")?"Could not read image file — please try again":
+        "Error: "+String(e);
+      setImgRes({error:true,msg});
     }
     setImgBusy(false);
   }
-  function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
+
+    function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
 
   /* ── style atoms ── */
   const inp={width:"100%",padding:"12px 16px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:14,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:12,letterSpacing:"0.03em",boxShadow:`inset 0 1px 3px ${C.shadow}`};
