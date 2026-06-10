@@ -382,6 +382,9 @@ ${pasteText}`}]
                 const canvas=document.createElement("canvas");
                 canvas.width=w;canvas.height=h;
                 const ctx=canvas.getContext("2d");
+                // Fill white background first — fixes PNG transparency turning black
+                ctx.fillStyle="#FFFFFF";
+                ctx.fillRect(0,0,w,h);
                 ctx.imageSmoothingEnabled=true;
                 ctx.imageSmoothingQuality="high";
                 ctx.drawImage(img,0,0,w,h);
@@ -420,19 +423,41 @@ Rules:
 - priority: travel=critical, bookings/medical=high, social=medium, low=optional
 - NEVER return empty events — if ANY date visible, include it`;
 
+      // Step 3b: Build request — if image still too large, compress harder
+      let finalB64=b64;
+      if(finalB64.length>1500000){
+        // Force smaller
+        try{
+          const img2=new Image();
+          await new Promise(r=>{img2.onload=r;img2.onerror=r;img2.src="data:"+mt+";base64,"+b64;});
+          const c2=document.createElement("canvas");
+          const M=800;
+          let w=img2.width||800,h=img2.height||600;
+          if(w>M||h>M){if(w>h){h=Math.round(h*M/w);w=M;}else{w=Math.round(w*M/h);h=M;}}
+          c2.width=w;c2.height=h;
+          c2.getContext("2d").drawImage(img2,0,0,w,h);
+          finalB64=c2.toDataURL("image/jpeg",0.7).split(",")[1];
+          console.log("Force compressed to:",Math.round(finalB64.length/1024),"KB");
+        }catch(e){console.log("Force compress failed",e);}
+      }
+
+      const controller=new AbortController();
+      const fetchTimeout=setTimeout(()=>controller.abort(),25000);
       const response=await fetch("/api/ai",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
+        signal:controller.signal,
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
-          max_tokens:4000,
+          max_tokens:2000,
           system:imgPrompt,
           messages:[{role:"user",content:[
-            {type:"image",source:{type:"base64",media_type:mt,data:b64}},
+            {type:"image",source:{type:"base64",media_type:"image/jpeg",data:finalB64}},
             {type:"text",text:"Extract all dates, events and bookings from this image as JSON."}
           ]}]
         })
       });
+      clearTimeout(fetchTimeout);
 
       // Step 4: Parse response robustly
       const text=await response.text();
@@ -474,7 +499,11 @@ Rules:
       }
     }catch(e){
       console.error("parseImg error:",e);
-      setImgRes({error:true,msg:e instanceof Error?e.message:"Network error — please try again"});
+      if(e.name==="AbortError"){
+        setImgRes({error:true,msg:"Request timed out — please try a smaller image or try again"});
+      }else{
+        setImgRes({error:true,msg:e instanceof Error?e.message:"Network error — please try again"});
+      }
     }
     setImgBusy(false);
   }
