@@ -390,10 +390,12 @@ ${pasteText}`}]
                 ctx.drawImage(img,0,0,w,h);
                 return canvas.toDataURL("image/jpeg",quality).split(",")[1];
               };
-              let out=compress(0.92,2400);
-              if(out.length>3500000) out=compress(0.85,2000);
-              if(out.length>3500000) out=compress(0.75,1600);
-              if(out.length>3500000) out=compress(0.65,1200);
+              let out=compress(0.85,1600);
+              if(out.length>400000) out=compress(0.75,1400);
+              if(out.length>400000) out=compress(0.65,1200);
+              if(out.length>400000) out=compress(0.55,1000);
+              if(out.length>400000) out=compress(0.45,800);
+              console.log("Compressed to:",Math.round(out.length/1024),"KB");
               res({b64:out,mt:"image/jpeg"});
             }catch(e){rej(e);}
           };
