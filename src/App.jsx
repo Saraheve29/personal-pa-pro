@@ -358,126 +358,123 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      // Compress to strictly under 800KB base64 (~600KB image) to stay under Vercel 4.5MB limit
-      // Use high resolution to keep text readable
-      const {b64,mt} = await new Promise((res,rej)=>{
+      // Step 1: Read file as base64
+      const rawB64=await new Promise((res,rej)=>{
         const reader=new FileReader();
-        reader.onload=ev=>{
-          const img=new Image();
-          img.onload=()=>{
-            const compress=(quality,maxPx)=>{
-              let w=img.width, h=img.height;
-              if(w>maxPx||h>maxPx){
-                if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}
-                else{w=Math.round(w*maxPx/h);h=maxPx;}
-              }
-              const canvas=document.createElement("canvas");
-              canvas.width=w; canvas.height=h;
-              const ctx=canvas.getContext("2d");
-              ctx.imageSmoothingEnabled=true;
-              ctx.imageSmoothingQuality="high";
-              ctx.drawImage(img,0,0,w,h);
-              return canvas.toDataURL("image/jpeg",quality).split(",")[1];
-            };
-            // Must stay under 500KB base64 to avoid Vercel 4.5MB limit
-            // High res first attempts to keep text readable
-            let b64=compress(0.95,2400);
-            if(b64.length>500000) b64=compress(0.85,2000);
-            if(b64.length>500000) b64=compress(0.75,1600);
-            if(b64.length>500000) b64=compress(0.65,1400);
-            if(b64.length>500000) b64=compress(0.55,1200);
-            if(b64.length>500000) b64=compress(0.45,1000);
-            if(b64.length>500000) b64=compress(0.35,800);
-            console.log("Final image size:",Math.round(b64.length/1024),"KB");
-            res({b64,mt:"image/jpeg"});
-          };
-          img.onerror=rej;
-          img.src=ev.target.result;
-        };
+        reader.onload=()=>res(reader.result.split(",")[1]);
         reader.onerror=rej;
         reader.readAsDataURL(imgFile);
       });
-      const imgPrompt=`You are an AI assistant with perfect vision. Read every single piece of text in this image with extreme care.
+      const rawMt=imgFile.type||"image/jpeg";
 
-This image may be: a Rover/pet booking, event ticket, poster, flyer, booking confirmation, letter, screenshot, calendar, itinerary, social media post, handwritten note, or anything else.
+      // Step 2: Try to compress via canvas — if it fails use raw file
+      let b64=rawB64, mt=rawMt;
+      try{
+        const compressed=await new Promise((res,rej)=>{
+          const img=new Image();
+          const timeout=setTimeout(()=>rej(new Error("timeout")),5000);
+          img.onload=()=>{
+            clearTimeout(timeout);
+            try{
+              const compress=(quality,maxPx)=>{
+                let w=img.width,h=img.height;
+                if(w>maxPx||h>maxPx){if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}else{w=Math.round(w*maxPx/h);h=maxPx;}}
+                const canvas=document.createElement("canvas");
+                canvas.width=w;canvas.height=h;
+                const ctx=canvas.getContext("2d");
+                ctx.imageSmoothingEnabled=true;
+                ctx.imageSmoothingQuality="high";
+                ctx.drawImage(img,0,0,w,h);
+                return canvas.toDataURL("image/jpeg",quality).split(",")[1];
+              };
+              let out=compress(0.92,2400);
+              if(out.length>3500000) out=compress(0.85,2000);
+              if(out.length>3500000) out=compress(0.75,1600);
+              if(out.length>3500000) out=compress(0.65,1200);
+              res({b64:out,mt:"image/jpeg"});
+            }catch(e){rej(e);}
+          };
+          img.onerror=()=>{clearTimeout(timeout);rej(new Error("img load failed"));};
+          img.src="data:"+rawMt+";base64,"+rawB64;
+        });
+        b64=compressed.b64;mt=compressed.mt;
+        console.log("Compressed to:",Math.round(b64.length/1024),"KB");
+      }catch(e){
+        console.log("Compression skipped, using raw:",Math.round(rawB64.length/1024),"KB",e.message);
+        b64=rawB64;mt=rawMt;
+      }
 
-YOUR JOB: Extract every date, time, event, booking, appointment or activity you can see.
-
-Return ONLY a raw JSON object. No markdown. No backticks. No explanation. Just JSON starting with {
-
+      // Step 3: Call AI
+      const imgPrompt=`You are an AI assistant with perfect vision. Read every piece of text in this image carefully.
+This image may be anything: Rover/pet booking, event ticket, poster, flyer, booking confirmation, letter, screenshot, calendar, itinerary, or handwritten note.
+Extract every date, time, event, booking, appointment or activity visible.
+Return ONLY raw JSON starting with { — no markdown, no backticks, no explanation:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
-
 Rules:
-- Read ALL text in the image including small print, headers, labels, prices, names
-- title: the main name or description (e.g. "Dog Boarding — Henry", "Rover Booking", "Concert", "Dentist")  
-- For Rover/pet bookings: include pet name and type in title, owner name in notes
-- date: convert ALL formats. "Mon 12 Oct" = "${today.getFullYear()}-10-12". "12/10/26" = "2026-10-12". "July 14" = "${today.getFullYear()}-07-14"
-- For date ranges (e.g. Mon-Fri): create ONE event on start date, put end date in notes
-- If no year: use ${today.getFullYear()} if date is in future, ${today.getFullYear()+1} if passed
-- time: convert all formats. "3pm"="15:00", "9:30am"="09:30", "noon"="12:00", unknown="09:00"
-- notes: include price, reference number, location, pet name, owner, anything else visible. Max 100 chars
-- priority: flights/travel=critical, bookings/events/medical=high, social=medium, reminders=low
-- summary: one sentence describing what was found
-- NEVER return empty events array — if you see ANY date at all, include it`;
+- title: event/booking name including pet name for Rover bookings
+- date: convert all formats. "Mon 12 Oct"="${today.getFullYear()}-10-12", "Fri 19 Jun"="${today.getFullYear()}-06-19"
+- No year visible: use ${today.getFullYear()} if future, ${today.getFullYear()+1} if past
+- Date ranges: one event on start date, end date in notes
+- time: "3pm"="15:00", "10:30"="10:30", unknown="09:00"
+- notes: price, reference, pet breed, owner name, location. Max 100 chars
+- priority: travel=critical, bookings/medical=high, social=medium, low=optional
+- NEVER return empty events — if ANY date visible, include it`;
 
-      // Send through proxy
-      const r=await fetch("/api/ai",{
+      const response=await fetch("/api/ai",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",
-          max_tokens:8000,
+          max_tokens:4000,
           system:imgPrompt,
           messages:[{role:"user",content:[
             {type:"image",source:{type:"base64",media_type:mt,data:b64}},
-            {type:"text",text:"Please read every piece of text in this image carefully and extract all dates, events, times, and locations. Return as JSON."}
+            {type:"text",text:"Extract all dates, events and bookings from this image as JSON."}
           ]}]
         })
       });
-      const text=await r.text();
-      const d=JSON.parse(text);
-      if(!d){setImgRes({error:true,msg:"No response received."});setImgBusy(false);return;}
-      if(d.error){setImgRes({error:true,msg:"API: "+(typeof d.error==="string"?d.error:d.error?.message||JSON.stringify(d.error).slice(0,100))});setImgBusy(false);return;}
-      if(!d.content||!d.content.length){setImgRes({error:true,msg:"Empty response."});setImgBusy(false);return;}
-      const raw=d.content.find(b=>b.type==="text")?.text||"";
-      if(!raw.trim()){setImgRes({error:true,msg:"AI returned empty text."});setImgBusy(false);return;}
 
-      // Robust JSON extraction — handles truncated, wrapped, or partial responses
+      // Step 4: Parse response robustly
+      const text=await response.text();
+      let d;
+      try{d=JSON.parse(text);}catch{
+        setImgRes({error:true,msg:"Server error: "+text.slice(0,150)});
+        setImgBusy(false);return;
+      }
+      if(d.error){
+        setImgRes({error:true,msg:"API error: "+(d.error?.message||JSON.stringify(d.error).slice(0,100))});
+        setImgBusy(false);return;
+      }
+      const raw=d.content?.find(b=>b.type==="text")?.text||"";
+      if(!raw){setImgRes({error:true,msg:"No text in response."});setImgBusy(false);return;}
+
+      // Extract JSON from response — handles markdown fences, extra text, truncation
       function extractJSON(str){
-        // Try parsing directly first
         try{return JSON.parse(str);}catch{}
-        // Find outermost { } and try
         const s=str.indexOf("{"),e=str.lastIndexOf("}");
-        if(s>=0&&e>s){
-          try{return JSON.parse(str.slice(s,e+1));}catch{}
-          // If still fails, try to fix truncated JSON by closing open arrays/objects
-          let partial=str.slice(s,e+1);
-          // Count unclosed brackets and close them
-          let opens=0,openSq=0;
-          for(const ch of partial){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
-          // Close any open strings first by removing trailing incomplete string
-          partial=partial.replace(/,?\s*"[^"]*$/,'');
-          // Close open arrays and objects
-          for(let i=0;i<openSq;i++)partial+="]";
-          for(let i=0;i<opens;i++)partial+="}";
-          try{return JSON.parse(partial);}catch{}
-        }
+        if(s<0||e<0)return null;
+        let sub=str.slice(s,e+1);
+        try{return JSON.parse(sub);}catch{}
+        // Fix truncated JSON
+        sub=sub.replace(/,?\s*"[^"]*$/,"");
+        let opens=0,openSq=0;
+        for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
+        for(let i=0;i<openSq;i++)sub+="]";
+        for(let i=0;i<opens;i++)sub+="}";
+        try{return JSON.parse(sub);}catch{}
         return null;
       }
 
       const parsed=extractJSON(raw);
-      if(!parsed||!parsed.events||parsed.events.length===0){
-        // Last resort — try to extract any dates manually from raw text
-        setImgRes({error:true,msg:"Could not parse response. Please try again."});
+      if(!parsed?.events?.length){
+        setImgRes({error:true,msg:"No dates found in this image. Make sure dates are clearly visible."});
       }else{
-        // Filter out any malformed events
         parsed.events=parsed.events.filter(e=>e.title&&e.date);
         setImgRes(parsed);
       }
     }catch(e){
-      console.error("Image error:",e);
-      const msg=e instanceof Error?e.message:typeof e==="string"?e:JSON.stringify(e)||"Unknown error";
-      setImgRes({error:true,msg:"Error: "+msg+" — please try again"});
+      console.error("parseImg error:",e);
+      setImgRes({error:true,msg:e instanceof Error?e.message:"Network error — please try again"});
     }
     setImgBusy(false);
   }
