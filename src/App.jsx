@@ -254,6 +254,83 @@ export default function App(){
     try{ localStorage.setItem("papa_msgs",JSON.stringify(msgs)); }catch{}
   },[msgs]);
 
+  // Google OAuth state
+  const [googleTokens, setGoogleTokens] = useState(()=>{
+    try{const t=localStorage.getItem("papa_google_tokens");return t?JSON.parse(t):null;}catch{return null;}
+  });
+  const [googleProfile, setGoogleProfile] = useState(()=>{
+    try{const p=localStorage.getItem("papa_google_profile");return p?JSON.parse(p):null;}catch{return null;}
+  });
+  const [googleBusy, setGoogleBusy] = useState(false);
+
+  // Handle OAuth callback
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const code=params.get("oauth_code");
+    const err=params.get("oauth_error");
+    if(err){alert("Google sign-in failed: "+err);window.history.replaceState({},"","/");return;}
+    if(code){
+      window.history.replaceState({},"","/");
+      exchangeGoogleCode(code);
+    }
+  },[]);
+
+  async function connectGoogle(){
+    setGoogleBusy(true);
+    try{
+      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"url"})});
+      const {url}=await r.json();
+      window.location.href=url;
+    }catch(e){
+      alert("Could not connect to Google: "+e.message);
+      setGoogleBusy(false);
+    }
+  }
+
+  async function exchangeGoogleCode(code){
+    setGoogleBusy(true);
+    try{
+      const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"token",code})});
+      const tokens=await r.json();
+      if(tokens.error){alert("Auth failed: "+tokens.error);setGoogleBusy(false);return;}
+      localStorage.setItem("papa_google_tokens",JSON.stringify(tokens));
+      setGoogleTokens(tokens);
+      // Get profile
+      const pr=await fetch("/api/gmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:tokens.access_token,action:"profile"})});
+      const profile=await pr.json();
+      localStorage.setItem("papa_google_profile",JSON.stringify(profile));
+      setGoogleProfile(profile);
+    }catch(e){alert("Auth error: "+e.message);}
+    setGoogleBusy(false);
+  }
+
+  function disconnectGoogle(){
+    localStorage.removeItem("papa_google_tokens");
+    localStorage.removeItem("papa_google_profile");
+    setGoogleTokens(null);setGoogleProfile(null);
+  }
+
+  async function syncGoogleCalendar(){
+    if(!googleTokens)return;
+    setEmailSt("connecting");
+    try{
+      const r=await fetch("/api/gcal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"list"})});
+      const data=await r.json();
+      if(data.error){setEmailSt("idle");alert("Calendar error: "+data.error);return;}
+      setCalEvs(data.events||[]);
+      setCalSt("mock");
+    }catch(e){setCalSt("idle");alert("Calendar sync failed: "+e.message);}
+  }
+
+  async function addToGoogleCalendar(event){
+    if(!googleTokens)return false;
+    try{
+      const r=await fetch("/api/gcal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"add",event})});
+      const data=await r.json();
+      return data.success;
+    }catch{return false;}
+  }
+
   const chatEnd=useRef(null);
 
   useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[msgs,paStatus]);
@@ -842,16 +919,59 @@ Rules:
         </div>}
       </div>}
       {impTab==="email"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect your inbox to scan automatically for booking confirmations and appointments.</div>
-        {emailSt==="idle"&&<div><button style={goldBtn()} onClick={()=>mockConnect(setEmailSt,setEmailEvs,[{title:"Dentist Appointment",date:fmt(new Date(today.getTime()+2*86400000)),time:"11:00",priority:"high",notes:"NHS confirmation"},{title:"Rover Booking — Charlie",date:fmt(new Date(today.getTime()+3*86400000)),time:"09:00",priority:"high",notes:"3 nights · Ref R2847"},{title:"Parents' Evening",date:fmt(new Date(today.getTime()+5*86400000)),time:"17:30",priority:"critical",notes:"Reply required by Friday"}])}>Connect Gmail</button><button style={goldBtn(true)} onClick={()=>mockConnect(setEmailSt,setEmailEvs,[{title:"Dentist Appointment",date:fmt(new Date(today.getTime()+2*86400000)),time:"11:00",priority:"high",notes:"Outlook invite"}])}>Connect Outlook</button></div>}
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect Gmail so Eleanor can scan your inbox for bookings, appointments and confirmations.</div>
+        {!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Gmail"}</button>}
+        {googleTokens&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>✦ Connected: {googleProfile?.email||"Gmail"}</span>
+            <button onClick={disconnectGoogle} style={{background:"none",border:`1px solid ${C.emerald}`,color:C.emerald,fontFamily:FM,fontSize:9,padding:"3px 8px",cursor:"pointer",borderRadius:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>Disconnect</button>
+          </div>
+          <button style={goldBtn()} onClick={async()=>{
+            setEmailSt("connecting");
+            try{
+              const r=await fetch("/api/gmail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"list"})});
+              const data=await r.json();
+              if(data.error){setEmailSt("idle");alert("Error: "+data.error);return;}
+              // Use AI to extract appointments from email snippets
+              const snippets=(data.messages||[]).map(m=>"From: "+m.from+"\nSubject: "+m.subject+"\nDate: "+m.date+"\n"+m.snippet).join("\n\n")||"";
+              if(!snippets){setEmailSt("idle");alert("No emails found.");return;}
+              const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,system:`Extract calendar events from these email snippets. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}. Today is ${fmt(today)}.`,messages:[{role:"user",content:"Extract appointments from these emails:\n\n"+snippets}]})});
+              const aiData=await aiR.json();
+              const raw=aiData.content?.find(b=>b.type==="text")?.text||"{}";
+              const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+              const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{events:[]};
+              setEmailEvs(parsed.events||[]);
+              setEmailSt("mock");
+            }catch(err){setEmailSt("idle");alert("Scan failed: "+err.message);}
+          }}>Scan Inbox for Appointments</button>
+        </div>}
         {emailSt==="connecting"&&<div style={{textAlign:"center",color:C.gold,padding:"28px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.22em",textTransform:"uppercase"}} className="shimmer">Scanning inbox…</div>}
-        {emailSt==="mock"&&emailEvs&&<div><div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {emailEvs.length} appointments found in inbox.</div>{emailEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}<div style={{height:8}}/><button style={goldBtn()} onClick={()=>{addEvs(emailEvs,"email");setEmailSt("idle");setEmailEvs(null);setView("home");}}>Add All to Schedule</button><button style={goldBtn(true)} onClick={()=>{setEmailSt("idle");setEmailEvs(null);}}>Discard</button></div>}
+        {emailSt==="mock"&&emailEvs&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {emailEvs.length} appointment{emailEvs.length!==1?"s":""} found in inbox.</div>
+          {emailEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
+          <div style={{height:8}}/>
+          <button style={goldBtn()} onClick={()=>{addEvs(emailEvs,"email");setEmailSt("idle");setEmailEvs(null);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setEmailSt("idle");setEmailEvs(null);}}>Discard</button>
+        </div>}
       </div>}
       {impTab==="calendar"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Sync your Google Calendar or iCal feed to import upcoming events directly.</div>
-        {calSt==="idle"&&<div><button style={goldBtn()} onClick={()=>mockConnect(setCalSt,setCalEvs,[{title:"Weekly Review",date:fmt(new Date(today.getTime()+1*86400000)),time:"09:00",priority:"medium",notes:"Google Calendar"},{title:"Swimming Lesson",date:fmt(new Date(today.getTime()+4*86400000)),time:"16:00",priority:"high",notes:"Both children"},{title:"Bin Collection",date:fmt(new Date(today.getTime()+6*86400000)),time:"07:00",priority:"low",notes:"Recurring"}])}>Connect Google Calendar</button><button style={goldBtn(true)} onClick={()=>mockConnect(setCalSt,setCalEvs,[{title:"iCal Event",date:fmt(new Date(today.getTime()+2*86400000)),time:"10:00",priority:"medium",notes:"From .ics"}])}>Paste iCal / .ics Link</button></div>}
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect Google Calendar to sync your upcoming events directly into Personal PA Pro.</div>
+        {!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Google Calendar"}</button>}
+        {googleTokens&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>✦ Connected: {googleProfile?.email||"Google"}</span>
+            <button onClick={disconnectGoogle} style={{background:"none",border:`1px solid ${C.emerald}`,color:C.emerald,fontFamily:FM,fontSize:9,padding:"3px 8px",cursor:"pointer",borderRadius:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>Disconnect</button>
+          </div>
+          <button style={goldBtn()} onClick={syncGoogleCalendar} disabled={calSt==="connecting"}>Sync Google Calendar</button>
+        </div>}
         {calSt==="connecting"&&<div style={{textAlign:"center",color:C.gold,padding:"28px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.22em",textTransform:"uppercase"}} className="shimmer">Syncing calendar…</div>}
-        {calSt==="mock"&&calEvs&&<div><div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {calEvs.length} events imported from calendar.</div>{calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}<div style={{height:8}}/><button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setView("home");}}>Add All to Schedule</button><button style={goldBtn(true)} onClick={()=>{setCalSt("idle");setCalEvs(null);}}>Discard</button></div>}
+        {calSt==="mock"&&calEvs&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {calEvs.length} event{calEvs.length!==1?"s":""} found in Google Calendar.</div>
+          {calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
+          <div style={{height:8}}/>
+          <button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setCalSt("idle");setCalEvs(null);}}>Discard</button>
+        </div>}
       </div>}
     </div>
   );
