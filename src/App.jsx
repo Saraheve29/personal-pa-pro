@@ -367,47 +367,10 @@ ${pasteText}`}]
       });
       const rawMt=imgFile.type||"image/jpeg";
 
-      // Step 2: Try to compress via canvas — if it fails use raw file
-      let b64=rawB64, mt=rawMt;
-      try{
-        const compressed=await new Promise((res,rej)=>{
-          const img=new Image();
-          const timeout=setTimeout(()=>rej(new Error("timeout")),5000);
-          img.onload=()=>{
-            clearTimeout(timeout);
-            try{
-              const compress=(quality,maxPx)=>{
-                let w=img.width,h=img.height;
-                if(w>maxPx||h>maxPx){if(w>h){h=Math.round(h*maxPx/w);w=maxPx;}else{w=Math.round(w*maxPx/h);h=maxPx;}}
-                const canvas=document.createElement("canvas");
-                canvas.width=w;canvas.height=h;
-                const ctx=canvas.getContext("2d");
-                // Fill white background first — fixes PNG transparency turning black
-                ctx.fillStyle="#FFFFFF";
-                ctx.fillRect(0,0,w,h);
-                ctx.imageSmoothingEnabled=true;
-                ctx.imageSmoothingQuality="high";
-                ctx.drawImage(img,0,0,w,h);
-                return canvas.toDataURL("image/jpeg",quality).split(",")[1];
-              };
-              let out=compress(0.85,1600);
-              if(out.length>400000) out=compress(0.75,1400);
-              if(out.length>400000) out=compress(0.65,1200);
-              if(out.length>400000) out=compress(0.55,1000);
-              if(out.length>400000) out=compress(0.45,800);
-              console.log("Compressed to:",Math.round(out.length/1024),"KB");
-              res({b64:out,mt:"image/jpeg"});
-            }catch(e){rej(e);}
-          };
-          img.onerror=()=>{clearTimeout(timeout);rej(new Error("img load failed"));};
-          img.src="data:"+rawMt+";base64,"+rawB64;
-        });
-        b64=compressed.b64;mt=compressed.mt;
-        console.log("Compressed to:",Math.round(b64.length/1024),"KB");
-      }catch(e){
-        console.log("Compression skipped, using raw:",Math.round(rawB64.length/1024),"KB",e.message);
-        b64=rawB64;mt=rawMt;
-      }
+      // Step 2: Send raw file — no canvas, no compression issues
+      // Raw file is well under Vercel's 4.5MB limit for normal screenshots
+      const b64=rawB64, mt=rawMt;
+      console.log("Sending raw image:",Math.round(b64.length/1024),"KB as",mt);
 
       // Step 3: Call AI
       const imgPrompt=`You are an AI assistant with perfect vision. Read every piece of text in this image carefully.
@@ -502,9 +465,13 @@ Rules:
     }catch(e){
       console.error("parseImg error:",e);
       if(e.name==="AbortError"){
-        setImgRes({error:true,msg:"Request timed out — please try a smaller image or try again"});
+        setImgRes({error:true,msg:"Timed out — please try again"});
+      }else if(e&&e.toString().includes("isTrusted")){
+        // isTrusted = browser blocked the fetch (CORS or network)
+        // Try again with a much smaller version of the image
+        setImgRes({error:true,msg:"Connection error — your image may be too large. Try taking a screenshot of just the key details."});
       }else{
-        setImgRes({error:true,msg:e instanceof Error?e.message:"Network error — please try again"});
+        setImgRes({error:true,msg:e instanceof Error?e.message:String(e)||"Network error — please try again"});
       }
     }
     setImgBusy(false);
