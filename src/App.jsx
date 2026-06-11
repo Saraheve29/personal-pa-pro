@@ -152,6 +152,109 @@ function ConflictAlert({cfls,events,onDelete}){
   );
 }
 
+function ICalImport({onAdd}){
+  const [icalUrl,setIcalUrl]=useState(()=>localStorage.getItem("papa_ical_url")||"");
+  const [showSetup,setShowSetup]=useState(!localStorage.getItem("papa_ical_url"));
+  const [loading,setLoading]=useState(false);
+  const [events,setEvents]=useState([]);
+  const [error,setError]=useState("");
+
+  async function fetchIcal(){
+    if(!icalUrl.trim())return;
+    setLoading(true);setError("");setEvents([]);
+    localStorage.setItem("papa_ical_url",icalUrl.trim());
+    const proxies=[
+      "https://api.allorigins.win/raw?url=",
+      "https://corsproxy.io/?",
+    ];
+    let text="";
+    for(const proxy of proxies){
+      try{
+        const r=await fetch(proxy+encodeURIComponent(icalUrl.trim()),{signal:AbortSignal.timeout(8000)});
+        if(r.ok){text=await r.text();break;}
+      }catch{}
+    }
+    if(!text){setError("Could not load calendar. Check your link and try again.");setLoading(false);return;}
+    // Parse iCal
+    const evs=[];
+    const blocks=text.split("BEGIN:VEVENT");
+    for(let i=1;i<blocks.length;i++){
+      const b=blocks[i];
+      const get=k=>{const m=b.match(new RegExp(k+"[^:]*:([^\r\n]+)"));return m?m[1].trim():"";};
+      const dtstart=get("DTSTART");
+      const summary=get("SUMMARY")||"Event";
+      const desc=get("DESCRIPTION")||"";
+      const loc=get("LOCATION")||"";
+      if(!dtstart)continue;
+      // Parse date
+      let date="",time="09:00";
+      const d=dtstart.replace(/[TZ]/g,"");
+      if(d.length>=8){
+        date=d.slice(0,4)+"-"+d.slice(4,6)+"-"+d.slice(6,8);
+        if(d.length>=12)time=d.slice(8,10)+":"+d.slice(10,12);
+      }
+      // Only future events
+      if(date&&date>=fmt(today)){
+        evs.push({title:summary,date,time,priority:"medium",notes:(loc||desc).slice(0,100),source:"calendar"});
+      }
+    }
+    evs.sort((a,b)=>a.date.localeCompare(b.date));
+    setEvents(evs.slice(0,50));
+    if(!evs.length)setError("No upcoming events found in this calendar.");
+    setLoading(false);
+  }
+
+  const goldBtn=(ghost=false)=>({padding:"13px 24px",borderRadius:3,border:ghost?`1.5px solid ${C.goldBorder}`:"none",cursor:"pointer",fontSize:11,fontFamily:FB,letterSpacing:"0.16em",textTransform:"uppercase",background:ghost?"transparent":`linear-gradient(135deg,${C.gold},${C.goldBright} 50%,${C.gold})`,color:ghost?C.gold:C.card,width:"100%",marginBottom:8,boxShadow:ghost?"none":`0 2px 14px rgba(154,123,60,0.28)`,transition:"all 0.2s"});
+  const SL={fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:14};
+  const chip=(color,bg)=>({fontSize:9,padding:"3px 10px",borderRadius:2,background:bg,color,letterSpacing:"0.14em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${color}40`});
+  return(<div>
+    <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect your Google Calendar using your private iCal link — no sign-in needed.</div>
+
+    {showSetup?<div>
+      <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontSize:13,fontFamily:FD,color:C.ink,fontStyle:"italic",marginBottom:8}}>How to get your iCal link:</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.8}}>
+          1. Open <strong>Google Calendar</strong> on a computer<br/>
+          2. Click the <strong>⚙ Settings</strong> icon<br/>
+          3. Click your calendar name on the left<br/>
+          4. Scroll to <strong>"Secret address in iCal format"</strong><br/>
+          5. Copy the link and paste it below
+        </div>
+      </div>
+      <textarea
+        value={icalUrl}
+        onChange={e=>setIcalUrl(e.target.value)}
+        placeholder="Paste your iCal link here..."
+        style={{width:"100%",padding:"12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:12,fontFamily:FM,minHeight:80,resize:"none",background:C.parchment,color:C.ink,outline:"none",marginBottom:12,boxSizing:"border-box"}}
+      />
+      <button style={goldBtn()} onClick={()=>{if(icalUrl.trim()){setShowSetup(false);fetchIcal();}}}>Connect Calendar</button>
+    </div>:<div>
+      <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span>✦ Calendar connected</span>
+        <button onClick={()=>{localStorage.removeItem("papa_ical_url");setIcalUrl("");setShowSetup(true);setEvents([]);}} style={{background:"none",border:`1px solid ${C.emerald}`,color:C.emerald,fontFamily:FM,fontSize:9,padding:"3px 8px",cursor:"pointer",borderRadius:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>Change</button>
+      </div>
+      <button style={goldBtn()} onClick={fetchIcal} disabled={loading}>{loading?"Syncing…":"Sync Calendar"}</button>
+    </div>}
+
+    {loading&&<div style={{textAlign:"center",color:C.gold,padding:"20px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase"}} className="shimmer">Loading calendar…</div>}
+    {error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{error}</div>}
+    {events.length>0&&<div style={{marginTop:12}}>
+      <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:12}}>{events.length} Upcoming Events</div>
+      {events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+        <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+          <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+          <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+          {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:4}}>{e.notes}</div>}
+          <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+        </div>
+      );})}
+      <div style={{height:8}}/>
+      <button style={goldBtn()} onClick={()=>onAdd(events)}>Add All to Schedule</button>
+      <button style={goldBtn(true)} onClick={()=>setEvents([])}>Discard</button>
+    </div>}
+  </div>);
+}
+
 const GLOBAL_CSS=`
   @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Tenor+Sans&family=Courier+Prime&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -226,6 +329,24 @@ export default function App(){
   const [emailSt,   setEmailSt]  =useState("idle");
   const [emailEvs,  setEmailEvs] =useState(null);
   const [calSt,     setCalSt]    =useState("idle");
+  const [homeAddress,setHomeAddress]=useState(()=>localStorage.getItem("papa_home_address")||"");
+  const [travelMode,setTravelMode]=useState(()=>localStorage.getItem("papa_travel_mode")||"");
+  const [showTravelModal,setShowTravelModal]=useState(false);
+  const [eventWeather,setEventWeather]=useState({});
+  const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
+  const [linkUrl,   setLinkUrl]   =useState("");
+  const [emailText, setEmailText] =useState("");
+  const [emailBusy, setEmailBusy] =useState(false);
+  const [emailRes,  setEmailRes]  =useState(null);
+  const [handleText,setHandleText]=useState("");
+  const [handleDocFile,setHandleDocFile]=useState(null);
+  const [handleBusy,setHandleBusy]=useState(false);
+  const [handleRes, setHandleRes] =useState(null);
+  const [docFile,   setDocFile]   =useState(null);
+  const [docBusy,   setDocBusy]   =useState(false);
+  const [docRes,    setDocRes]    =useState(null);
+  const [linkBusy,  setLinkBusy]  =useState(false);
+  const [linkRes,   setLinkRes]   =useState(null);
   const [calEvs,    setCalEvs]   =useState(null);
   // PWA install prompt
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -248,6 +369,9 @@ export default function App(){
   useEffect(()=>{
     try{ localStorage.setItem("papa_events",JSON.stringify(events)); }catch{}
   },[events]);
+
+  useEffect(()=>{try{localStorage.setItem("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
+  useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -544,7 +668,206 @@ Rules:
     setImgBusy(false);
   }
 
-    function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
+    // ── LINK READER ──
+  async function readLink(){
+    if(!linkUrl.trim()||linkBusy)return;
+    setLinkBusy(true);setLinkRes(null);
+    try{
+      // Fetch page via proxy
+      const proxyUrl="https://api.allorigins.win/raw?url="+encodeURIComponent(linkUrl.trim());
+      const r=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
+      const html=await r.text();
+      // Strip HTML tags, get text content
+      const text=html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"")
+        .replace(/<[^>]+>/g," ")
+        .replace(/\s+/g," ")
+        .slice(0,3000);
+      // Send to AI
+      const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,
+          system:'Extract event details from this webpage text. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"high","notes":string}],"summary":string,"venue":string,"price":string}',
+          messages:[{role:"user",content:"Extract event from this page:\n\n"+text}]
+        })
+      });
+      const d=await aiR.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      setLinkRes(parsed);
+    }catch(e){
+      setLinkRes({error:true,msg:"Could not read that link: "+e.message});
+    }
+    setLinkBusy(false);
+  }
+
+  // ── WISHLIST ANALYSIS ──
+  async function analyseWishlistEvent(idx){
+    const item=wishlist[idx];
+    if(!item||item.analysing)return;
+    setWishlist(w=>w.map((x,i)=>i===idx?{...x,analysing:true}:x));
+    try{
+      // Check weather
+      let weatherInfo="";
+      if(item.date){
+        try{
+          const wr=await fetch("https://api.open-meteo.com/v1/forecast?latitude=52.55&longitude=0.09&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Europe/London&start_date="+item.date+"&end_date="+item.date);
+          const wd=await wr.json();
+          if(wd.daily?.temperature_2m_max?.[0]){
+            const temp=wd.daily.temperature_2m_max[0];
+            const code=wd.daily.weathercode[0];
+            const wx=code<=1?"☀️ Sunny":code<=3?"⛅ Cloudy":code<=67?"🌧 Rain":"❄️ Snow";
+            weatherInfo=wx+" "+Math.round(temp)+"°C";
+          }
+        }catch{}
+      }
+      // Check clashes
+      const clashEvs=events.filter(e=>e.date===item.date);
+      const clashInfo=clashEvs.length?"Clashes: "+clashEvs.map(e=>e.title).join(", "):"No clashes";
+      // Travel time via Google Maps embed link
+      const mapsUrl=homeAddress?"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(item.venue||item.title):"";
+      // AI analysis
+      const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:600,
+          system:"You are Eleanor, a professional PA. Give a brief practical assessment of this event in 2-3 sentences covering: whether to go, any concerns, and one recommendation. Be warm but direct.",
+          messages:[{role:"user",content:"Event: "+item.title+"\nDate: "+item.date+"\nVenue: "+(item.venue||"unknown")+"\nPrice: "+(item.price||"unknown")+"\nWeather: "+(weatherInfo||"unknown")+"\n"+clashInfo+"\nHome: "+(homeAddress||"not set")}]
+        })
+      });
+      const d=await aiR.json();
+      const advice=d.content?.find(b=>b.type==="text")?.text||"";
+      setWishlist(w=>w.map((x,i)=>i===idx?{...x,analysing:false,analysis:{weather:weatherInfo,clashes:clashEvs,advice,mapsUrl}}:x));
+    }catch(e){
+      setWishlist(w=>w.map((x,i)=>i===idx?{...x,analysing:false,analysis:{advice:"Could not analyse: "+e.message}}:x));
+    }
+  }
+
+  // ── PASTE EMAIL ──
+  async function parseEmail(){
+    if(!emailText.trim()||emailBusy)return;
+    setEmailBusy(true);setEmailRes(null);
+    try{
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,
+          system:'You are Eleanor, a professional PA. Read this email and extract: appointments/dates, action items required, key information, and any deadlines. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string,"sender":string,"urgent":boolean}',
+          messages:[{role:"user",content:"Read this email and extract all information:\n\n"+emailText}]
+        })
+      });
+      const d=await r.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      setEmailRes(parsed);
+    }catch(e){setEmailRes({error:true,msg:e.message});}
+    setEmailBusy(false);
+  }
+
+  // ── HANDLE THIS ──
+  async function handleThis(){
+    if((!handleText.trim()&&!handleDocFile)||handleBusy)return;
+    setHandleBusy(true);setHandleRes(null);
+    try{
+      let messages;
+      if(handleDocFile){
+        const b64=await new Promise((res,rej)=>{
+          const reader=new FileReader();
+          reader.onload=()=>res(reader.result.split(",")[1]);
+          reader.onerror=rej;
+          reader.readAsDataURL(handleDocFile);
+        });
+        const isPDF=handleDocFile.type==="application/pdf";
+        messages=[{role:"user",content:[
+          {type:isPDF?"document":"image",source:{type:"base64",media_type:handleDocFile.type,data:b64}},
+          {type:"text",text:"Please handle this"+(handleText.trim()?":\n\n"+handleText:" — read this document and draft an appropriate professional response.")}
+        ]}];
+      }else{
+        messages=[{role:"user",content:"Please handle this for me:\n\n"+handleText}];
+      }
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,
+          system:"You are Eleanor, a highly skilled Personal Executive Assistant. Draft a professional, formal letter or email to handle this situation. Be assertive but polite. Include a subject line. Format as: SUBJECT: [subject]\\n\\n[letter body]. Sign off as the user's PA.",
+          messages
+        })
+      });
+      const d=await r.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"";
+      setHandleRes(raw);
+    }catch(e){setHandleRes("Error: "+e.message);}
+    setHandleBusy(false);
+  }
+
+  // ── DOCUMENT UPLOAD ──
+  async function parseDoc(){
+    if(!docFile||docBusy)return;
+    setDocBusy(true);setDocRes(null);
+    try{
+      const b64=await new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=()=>res(reader.result.split(",")[1]);
+        reader.onerror=rej;
+        reader.readAsDataURL(docFile);
+      });
+      const isPDF=docFile.type==="application/pdf";
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:3000,
+          system:'You are Eleanor, a highly intelligent PA. Analyse this document thoroughly. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string,"plain_english":string,"important_points":[{"point":string,"type":"warning|info|deadline|money|right"}],"document_type":string}. plain_english: explain the whole document in simple everyday language as if talking to a friend. important_points: bullet the most important things the person needs to know — warnings, rights, deadlines, money amounts, things they must do. document_type: what kind of document this is.',
+          messages:[{role:"user",content:[
+            {type:isPDF?"document":"image",source:{type:"base64",media_type:docFile.type,data:b64}},
+            {type:"text",text:"Extract all key dates, deadlines, appointments and action items from this document."}
+          ]}]
+        })
+      });
+      const d=await r.json();
+      const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
+      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      setDocRes(parsed);
+    }catch(e){setDocRes({error:true,msg:e.message});}
+    setDocBusy(false);
+  }
+
+  // ── TRANSPORT LINKS ──
+  function transportLinks(e){
+    const dest=e.notes||e.title;
+    const origin=homeAddress||"March, Cambridgeshire";
+    const date=e.date;
+    const time=e.time||"09:00";
+    return {
+      google: "https://www.google.com/maps/dir/?api=1&origin="+encodeURIComponent(origin)+"&destination="+encodeURIComponent(dest)+"&travelmode=transit",
+      nationalRail: "https://www.nationalrail.co.uk/journey-planner/?origin=&destination=&leavingType=departing&leavingDate="+date.replace(/-/g,"")+"&leavingHour="+time.slice(0,2)+"&leavingMin="+time.slice(3,5)+"&adults=1",
+      trainline: "https://www.thetrainline.com/book/results?origin="+encodeURIComponent(origin)+"&destination="+encodeURIComponent(dest)+"&outwardDate="+date+"T"+time+":00&outwardDateType=departAfter&passengers[]=adult",
+      bustimes: "https://bustimes.org/journeys?from="+encodeURIComponent(origin)+"&to="+encodeURIComponent(dest),
+      traveline: "https://www.travelineeastanglia.co.uk/ea/XSLT_TRIP_REQUEST2?language=en&type_origin=any&name_origin="+encodeURIComponent(origin)+"&type_destination=any&name_destination="+encodeURIComponent(dest)+"&itdDateYear="+date.slice(0,4)+"&itdDateMonth="+date.slice(5,7)+"&itdDateDay="+date.slice(8,10)+"&itdTimeHour="+time.slice(0,2)+"&itdTimeMinute="+time.slice(3,5)
+    };
+  }
+
+  // ── WEATHER FOR EVENT ──
+  async function fetchEventWeather(date){
+    if(eventWeather[date])return eventWeather[date];
+    try{
+      const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=52.55&longitude=0.09&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&hourly=temperature_2m,weathercode&timezone=Europe/London&start_date=${date}&end_date=${date}`);
+      const d=await r.json();
+      if(!d.daily)return null;
+      const code=d.daily.weathercode[0];
+      const max=Math.round(d.daily.temperature_2m_max[0]);
+      const min=Math.round(d.daily.temperature_2m_min[0]);
+      const rain=d.daily.precipitation_probability_max[0];
+      const icon=code<=1?"☀️":code<=3?"⛅":code<=48?"🌫":code<=67?"🌧":code<=77?"❄️":code<=82?"🌦":"⛈";
+      const desc=code<=1?"Sunny":code<=3?"Partly cloudy":code<=48?"Foggy":code<=67?"Rain":code<=77?"Snow":code<=82?"Showers":"Thunderstorm";
+      const w={icon,desc,max,min,rain,date};
+      setEventWeather(prev=>({...prev,[date]:w}));
+      return w;
+    }catch{return null;}
+  }
+
+  // ── TRAVEL LINK ──
+  function travelLink(e,mode){
+    if(!homeAddress)return null;
+    const dest=e.notes||e.title;
+    const m=mode||travelMode||"transit";
+    return "https://www.google.com/maps/dir/?api=1&origin="+encodeURIComponent(homeAddress)+"&destination="+encodeURIComponent(dest)+"&travelmode="+m;
+  }
+
+  function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
 
   /* ── style atoms ── */
   const inp={width:"100%",padding:"12px 16px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:14,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:12,letterSpacing:"0.03em",boxShadow:`inset 0 1px 3px ${C.shadow}`};
@@ -558,21 +881,95 @@ Rules:
 
   function EvCard({e,delay=0}){
     const p=PM[e.priority]||PM.medium,isC=cflIds.has(e.id);
-    return(<div className="ev-card" style={{animationDelay:`${delay}ms`,background:C.card,marginBottom:10,borderRadius:4,border:`1px solid ${isC?C.crimson:C.borderSoft}`,borderLeft:`4px solid ${isC?C.crimson:C.goldBorder}`,padding:"15px 17px",position:"relative",boxShadow:`0 2px 10px ${C.shadow}`,transition:"box-shadow 0.2s"}}>
+    const [wx,setWx]=useState(null);
+    const [expanded,setExpanded]=useState(false);
+    const [brief,setBrief]=useState(null);
+    const [briefBusy,setBriefBusy]=useState(false);
+
+    useEffect(()=>{
+      if(e.date>=fmt(today)){fetchEventWeather(e.date).then(w=>setWx(w));}
+    },[e.date]);
+
+    const link=travelLink(e);
+    const modeLabel={driving:"driving",walking:"walking",transit:"public transport",bicycling:"cycling"}[travelMode]||"driving";
+
+    async function getEleanorBrief(){
+      if(brief||briefBusy)return;
+      setBriefBusy(true);
+      try{
+        const wxInfo=wx?`Weather: ${wx.icon} ${wx.desc}, ${wx.max}°C, rain ${wx.rain}%`:"Weather unknown";
+        const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:200,
+            system:"You are Eleanor, a professional PA. Give a concise 1-2 sentence briefing note about this appointment — covering what to prepare, when to leave (if travel mode and home address known), weather advisory, and any other practical consideration. Warm but professional tone. No bullet points.",
+            messages:[{role:"user",content:`Appointment: ${e.title}
+Date: ${e.date}
+Time: ${e.time}
+Location/Notes: ${e.notes||"not specified"}
+${wxInfo}
+Travel mode: ${modeLabel}
+Home address: ${homeAddress||"not set"}`}]
+          })
+        });
+        const d=await r.json();
+        setBrief(d.content?.find(b=>b.type==="text")?.text||"");
+      }catch{}
+      setBriefBusy(false);
+    }
+
+    return(<div className="ev-card" style={{animationDelay:`${delay}ms`,background:C.card,marginBottom:10,borderRadius:6,border:`1px solid ${isC?C.crimson:C.borderSoft}`,borderLeft:`4px solid ${isC?C.crimson:C.goldBorder}`,padding:"15px 17px",position:"relative",boxShadow:`0 2px 10px ${C.shadow}`,transition:"all 0.2s"}}>
       <button onClick={()=>del(e.id)} style={{position:"absolute",top:11,right:13,background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12,fontFamily:FM}}>✕</button>
       <div style={{display:"flex",gap:13,alignItems:"flex-start"}}>
         <div style={{textAlign:"center",minWidth:38,paddingTop:2}}>
           <div style={{fontSize:19,fontFamily:FD,color:C.gold,lineHeight:1,fontWeight:300}}>{e.time?.slice(0,2)||"—"}</div>
           <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.time?.slice(3)||"00"}</div>
+          {wx&&<div style={{fontSize:16,marginTop:4}}>{wx.icon}</div>}
         </div>
         <div style={{flex:1}}>
-          <div style={{fontSize:15,fontFamily:FD,color:C.ink,letterSpacing:"0.02em",marginBottom:3,fontWeight:500,paddingRight:20,lineHeight:1.3}}>{e.title}</div>
-          {e.notes&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:7,lineHeight:1.5}}>{e.notes}</div>}
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <div style={{fontSize:15,fontFamily:FD,color:C.ink,letterSpacing:"0.02em",marginBottom:2,fontWeight:500,paddingRight:20,lineHeight:1.3}}>{e.title}</div>
+          {e.notes&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+          {wx&&<div style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginBottom:5}}>{wx.desc} · {wx.max}°/{wx.min}°{wx.rain>30?" · 💧"+wx.rain+"% rain":""}</div>}
+
+          {/* Eleanor's brief */}
+          {brief&&<div style={{background:C.goldPale,borderRadius:3,padding:"8px 10px",marginBottom:8,fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,fontStyle:"italic",borderLeft:`3px solid ${C.goldBorder}`}}>✦ {brief}</div>}
+          {briefBusy&&<div style={{fontSize:11,color:C.gold,fontFamily:FM,marginBottom:8}} className="shimmer">Eleanor is preparing your briefing…</div>}
+
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
             <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
-            <span style={chip(C.gold,C.goldPale)}>{e.source}</span>
             {isC&&<span style={chip(C.crimson,C.crimsonBg)}>⚠ Conflict</span>}
+            <button onClick={getEleanorBrief} disabled={briefBusy||!!brief} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:brief?C.goldPale:C.card,color:C.gold,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.goldBorder}`,cursor:"pointer"}}>✦ Brief Me</button>
+            {homeAddress&&!travelMode&&<button onClick={()=>setShowTravelModal(true)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🗺 Travel</button>}
+            {link&&travelMode&&travelMode!=="transit"&&<a href={link} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,textDecoration:"none"}}>🗺 {modeLabel}</a>}
+            {travelMode==="transit"&&homeAddress&&<button onClick={()=>setExpanded(x=>!x)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🚌 Transport {expanded?"▲":"▼"}</button>}
           </div>
+          {/* Transport links panel */}
+          {expanded&&travelMode==="transit"&&homeAddress&&(()=>{
+            const t=transportLinks(e);
+            return(<div style={{marginTop:10,padding:"12px",background:C.parchment,borderRadius:4,border:`1px solid ${C.borderSoft}`}}>
+              <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>Check Journey Times</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <a href={t.google} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                  <span style={{fontSize:16}}>🗺</span>
+                  <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>Google Maps</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Live directions & times</div></div>
+                </a>
+                <a href={t.nationalRail} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                  <span style={{fontSize:16}}>🚂</span>
+                  <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>National Rail</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Train times & tickets</div></div>
+                </a>
+                <a href={t.trainline} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                  <span style={{fontSize:16}}>🎫</span>
+                  <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>Trainline</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Compare & book train tickets</div></div>
+                </a>
+                <a href={t.bustimes} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                  <span style={{fontSize:16}}>🚌</span>
+                  <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>Bus Times</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Live bus times near you</div></div>
+                </a>
+                <a href={t.traveline} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                  <span style={{fontSize:16}}>🗓</span>
+                  <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>Traveline East Anglia</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Local bus & coach planner</div></div>
+                </a>
+              </div>
+            </div>);
+          })()}
         </div>
       </div>
     </div>);
@@ -771,6 +1168,21 @@ Rules:
         </div>
       </div>
 
+      {/* ══ HERO 3 — CALENDAR ══ */}
+      <div className="hero-card" onClick={()=>setView("calendar")} style={{marginBottom:10,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s",animationDelay:"120ms"}}>
+        <div style={{background:`linear-gradient(135deg,#1A2038 0%,#0F1628 55%,#0A1020 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",right:-10,top:-10,fontSize:110,fontFamily:FD,color:"rgba(255,255,255,0.04)",lineHeight:1,userSelect:"none",fontStyle:"italic"}}>✦</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.sapphire}99,transparent)`}}/>
+          <div style={{fontSize:9,color:"rgba(160,180,255,0.85)",letterSpacing:"0.3em",textTransform:"uppercase",fontFamily:FM,marginBottom:8}}>My Schedule</div>
+          <div style={{fontFamily:FD,fontSize:30,color:"#C0C8F0",fontStyle:"italic",fontWeight:300,lineHeight:1.1,marginBottom:8}}>Calendar</div>
+          <div style={{fontSize:12,color:"rgba(160,180,255,0.6)",fontFamily:FB,lineHeight:1.6}}>Monthly view · Appointments · Add to Google</div>
+        </div>
+        <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{events.filter(e=>{const d=new Date(e.date+"T12:00:00");const n=new Date();return d>=n&&d<=new Date(n.getTime()+30*86400000);}).length} events in next 30 days</div>
+          <div style={{fontSize:11,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>View →</div>
+        </div>
+      </div>
+
       {/* Eleanor strip */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}} onClick={()=>setView("chat")}>
         <PaAvatar size={44} pulse={true}/>
@@ -798,6 +1210,7 @@ Rules:
       <div style={{display:"flex",gap:8,marginBottom:10}}>
         <button onClick={()=>setView("add")} style={{flex:1,padding:"11px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>＋ New Event</button>
         <button onClick={()=>setView("week")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>📆 Week View</button>
+        <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
       </div>
 
     </div>
@@ -870,7 +1283,7 @@ Rules:
       <div style={SL}>Import Appointments</div>
       {/* visual method picker */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
-        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Email",sub:"Gmail or Outlook",tab:"email"},{type:"calendar",label:"Calendar",sub:"Google Cal / iCal",tab:"calendar"}].map(m=>(
+        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Document",sub:"PDF or Word",tab:"doc"}].map(m=>(
           <div key={m.type} className="import-method" onClick={()=>setImpTab(m.tab)}
             style={{background:impTab===m.tab?C.goldPale:C.card,border:`1.5px solid ${impTab===m.tab?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"14px 14px",cursor:"pointer",transition:"all 0.18s",textAlign:"center",boxShadow:`0 1px 6px ${C.shadow}`}}>
             <div style={{width:40,height:40,borderRadius:6,background:impTab===m.tab?`linear-gradient(135deg,${C.gold},${C.goldBright})`:C.parchment,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>
@@ -884,7 +1297,7 @@ Rules:
 
       {/* divider */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-        <div style={{flex:1,height:1,background:C.borderSoft}}/><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>{["text","image","email","calendar"].find(t=>t===impTab)?.toUpperCase()}</div><div style={{flex:1,height:1,background:C.borderSoft}}/>
+        <div style={{flex:1,height:1,background:C.borderSoft}}/><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>{impTab?.toUpperCase()}</div><div style={{flex:1,height:1,background:C.borderSoft}}/>
       </div>
 
       {impTab==="text"&&<div>
@@ -918,45 +1331,194 @@ Rules:
           <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}>Discard</button>
         </div>}
       </div>}
-      {impTab==="email"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect Gmail so Eleanor can scan your inbox for bookings, appointments and confirmations.</div>
-        {!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Gmail"}</button>}
-        {googleTokens&&<div>
-          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>✦ Connected: {googleProfile?.email||"Gmail"}</span>
-            <button onClick={disconnectGoogle} style={{background:"none",border:`1px solid ${C.emerald}`,color:C.emerald,fontFamily:FM,fontSize:9,padding:"3px 8px",cursor:"pointer",borderRadius:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>Disconnect</button>
-          </div>
-          <button style={goldBtn()} onClick={async()=>{
-            setEmailSt("connecting");
-            try{
-              const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:googleTokens.access_token,action:"gmail_list"})});
-              const data=await r.json();
-              if(data.error){setEmailSt("idle");alert("Error: "+data.error);return;}
-              // Use AI to extract appointments from email snippets
-              const snippets=(data.messages||[]).map(m=>"From: "+m.from+"\nSubject: "+m.subject+"\nDate: "+m.date+"\n"+m.snippet).join("\n\n")||"";
-              if(!snippets){setEmailSt("idle");alert("No emails found.");return;}
-              const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:`Extract calendar events from these email snippets. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}. Today is ${fmt(today)}.`,messages:[{role:"user",content:"Extract appointments from these emails:\n\n"+snippets}]})});
-              const aiData=await aiR.json();
-              const raw=aiData.content?.find(b=>b.type==="text")?.text||"{}";
-              const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
-              const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{events:[]};
-              setEmailEvs(parsed.events||[]);
-              setEmailSt("mock");
-            }catch(err){setEmailSt("idle");alert("Scan failed: "+err.message);}
-          }}>Scan Inbox for Appointments</button>
-        </div>}
-        {emailSt==="connecting"&&<div style={{textAlign:"center",color:C.gold,padding:"28px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.22em",textTransform:"uppercase"}} className="shimmer">Scanning inbox…</div>}
-        {emailSt==="mock"&&emailEvs&&<div>
-          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {emailEvs.length} appointment{emailEvs.length!==1?"s":""} found in inbox.</div>
-          {emailEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
-          <div style={{height:8}}/>
-          <button style={goldBtn()} onClick={()=>{addEvs(emailEvs,"email");setEmailSt("idle");setEmailEvs(null);setView("home");}}>Add All to Schedule</button>
-          <button style={goldBtn(true)} onClick={()=>{setEmailSt("idle");setEmailEvs(null);}}>Discard</button>
+      {impTab==="doc"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload a PDF or Word document — Eleanor reads it and extracts all key dates, deadlines and action items.</div>
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"28px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,borderRadius:6}}>
+          {docFile?"✦ "+docFile.name+" — tap Extract below":"📄 Tap to upload PDF or Word document"}
+          <input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e=>{if(e.target.files[0]){setDocFile(e.target.files[0]);setDocRes(null);}}} style={{display:"none"}}/>
+        </label>
+        {docFile&&<button style={goldBtn()} onClick={parseDoc} disabled={docBusy}>{docBusy?"Reading document…":"Extract from Document"}</button>}
+        {docRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{docRes.msg}</div>}
+        {docRes&&!docRes.error&&<div style={{marginTop:12}}>
+          {/* Document type badge */}
+          {docRes.document_type&&<div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>📄 {docRes.document_type}</div>}
+
+          {/* Summary */}
+          {docRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px",marginBottom:12,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {docRes.summary}</div>}
+
+          {/* Plain English explanation */}
+          {docRes.plain_english&&<div style={{marginBottom:14}}>
+            <div style={SL}>Eleanor Explains</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.75,borderLeft:`4px solid ${C.goldBorder}`}}>
+              {docRes.plain_english}
+            </div>
+          </div>}
+
+          {/* Important points */}
+          {docRes.important_points?.length>0&&<div style={{marginBottom:14}}>
+            <div style={SL}>Important Points</div>
+            {docRes.important_points.map((p,i)=>{
+              const typeStyle={
+                warning:{bg:C.crimsonBg,border:C.crimson,icon:"⚠"},
+                deadline:{bg:C.goldPale,border:C.goldBorder,icon:"📅"},
+                money:{bg:C.emeraldBg,border:C.emerald,icon:"💰"},
+                right:{bg:C.sapphireBg,border:C.sapphire,icon:"✓"},
+                info:{bg:C.parchment,border:C.border,icon:"•"},
+              }[p.type]||{bg:C.parchment,border:C.border,icon:"•"};
+              return(
+                <div key={i} style={{display:"flex",gap:10,padding:"10px 13px",background:typeStyle.bg,border:`1px solid ${typeStyle.border}30`,borderLeft:`3px solid ${typeStyle.border}`,borderRadius:3,marginBottom:6}}>
+                  <span style={{fontSize:14,flexShrink:0}}>{typeStyle.icon}</span>
+                  <span style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{p.point}</span>
+                </div>
+              );
+            })}
+          </div>}
+
+          {/* Key info */}
+          {docRes.key_info?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>Key Details</div>
+            {docRes.key_info.map((k,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{k.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD,fontWeight:500}}>{k.value}</span>
+              </div>
+            ))}
+          </div>}
+
+          {/* Action items */}
+          {docRes.actions?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>What You Need to Do</div>
+            {docRes.actions.map((a,i)=>(
+              <div key={i} style={{padding:"9px 12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>→ {a.text}</div>
+                {a.deadline&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginTop:2}}>By: {a.deadline}</div>}
+              </div>
+            ))}
+          </div>}
+
+          {/* Dates */}
+          {docRes.events?.length>0&&<div style={{marginBottom:8}}>
+            <div style={SL}>{docRes.events.length} Important Dates</div>
+            {docRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
+                {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
+              </div>
+            );})}
+            <div style={{height:8}}/>
+            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events,"document");setDocRes(null);setDocFile(null);setView("home");}}>Add Dates to Schedule</button>
+          </div>}
+
+          <button style={goldBtn(true)} onClick={()=>{setDocRes(null);setDocFile(null);}}>Clear</button>
         </div>}
       </div>}
-      {impTab==="calendar"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Connect Google Calendar to sync your upcoming events directly into Personal PA Pro.</div>
-        {!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Google Calendar"}</button>}
+
+      {impTab==="handle"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Describe a difficult situation — Eleanor drafts a professional letter or email for you to send.</div>
+        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,lineHeight:1.7}}>
+            Examples: <em>"Chase my PIP review that's been delayed 3 months"</em> · <em>"Complain about my energy bill being too high"</em> · <em>"Request a refund from a company"</em> · <em>"Write to my landlord about repairs needed"</em>
+          </div>
+        </div>
+        <textarea style={{...inp,minHeight:120,resize:"vertical"}} value={handleText} onChange={e=>setHandleText(e.target.value)} placeholder="Describe what you need Eleanor to handle..."/>
+        <label style={{display:"block",border:`1.5px dashed ${C.borderSoft}`,padding:"12px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.card,color:handleDocFile?C.emerald:C.inkFaint,fontSize:12,fontFamily:FB,borderRadius:4}}>
+          {handleDocFile?"📄 "+handleDocFile.name+" — ready":"📎 Optional: upload a document (PDF, letter, bill...)"}
+          <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={e=>{if(e.target.files[0])setHandleDocFile(e.target.files[0]);}} style={{display:"none"}}/>
+        </label>
+        {handleDocFile&&<button onClick={()=>setHandleDocFile(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",marginBottom:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>✕ Remove document</button>}
+        <button style={goldBtn()} onClick={handleThis} disabled={handleBusy}>{handleBusy?"Drafting…":"✦ Handle This for Me"}</button>
+        {handleRes&&typeof handleRes==="string"&&!handleRes.startsWith("Error")&&<div style={{marginTop:14}}>
+          <div style={SL}>Eleanor's Draft</div>
+          <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",whiteSpace:"pre-wrap",fontSize:13,fontFamily:FB,color:C.inkMid,lineHeight:1.8,marginBottom:12}}>{handleRes}</div>
+          <button style={goldBtn()} onClick={()=>{navigator.clipboard?.writeText(handleRes);alert("Copied to clipboard!");}}>Copy to Clipboard</button>
+          <button style={goldBtn(true)} onClick={()=>{setHandleRes(null);setHandleText("");}}>Clear</button>
+        </div>}
+        {handleRes?.startsWith?.("Error")&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{handleRes}</div>}
+      </div>}
+
+      {impTab==="link"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste a link to any event page — Eleanor will read it and extract the date, time, venue and price.</div>
+        <input style={{...inp,marginBottom:8}} placeholder="https://..." value={linkUrl} onChange={e=>setLinkUrl(e.target.value)}/>
+        <button style={goldBtn()} onClick={readLink} disabled={linkBusy}>{linkBusy?"Reading page…":"Read Event from Link"}</button>
+        {linkRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{linkRes.msg}</div>}
+        {linkRes&&!linkRes.error&&<div style={{marginTop:14}}>
+          {linkRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:12,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {linkRes.summary}</div>}
+          {linkRes.venue&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>📍 {linkRes.venue}</div>}
+          {linkRes.price&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10}}>💰 {linkRes.price}</div>}
+          {linkRes.events?.length>0&&linkRes.events.map((e,i)=>(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:8,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:4}}>{e.notes}</div>}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button style={goldBtn()} onClick={()=>{
+              if(linkRes.events?.length){addEvs(linkRes.events,"link");}
+              // Also add to wishlist
+              if(linkRes.events?.[0]){
+                const e=linkRes.events[0];
+                setWishlist(w=>[...w,{id:Date.now(),title:e.title,date:e.date,venue:linkRes.venue||"",price:linkRes.price||"",notes:e.notes||"",url:linkUrl}]);
+              }
+              setLinkRes(null);setLinkUrl("");setView("home");
+            }}>Add to Schedule</button>
+            <button style={{...goldBtn(true),flex:"0 0 auto",width:"auto",padding:"12px 16px"}} onClick={()=>{
+              if(linkRes.events?.[0]){
+                const e=linkRes.events[0];
+                setWishlist(w=>[...w,{id:Date.now(),title:e.title,date:e.date,venue:linkRes.venue||"",price:linkRes.price||"",notes:e.notes||"",url:linkUrl}]);
+              }
+              setLinkRes(null);setLinkUrl("");setView("wishlist");
+            }}>Add to Wishlist</button>
+          </div>
+        </div>}
+      </div>}
+
+      {impTab==="email"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any email — Eleanor extracts appointments, actions and key info.</div>
+        <textarea style={{...inp,minHeight:140,resize:"vertical"}} value={emailText} onChange={e=>setEmailText(e.target.value)} placeholder="Paste the full email here..."/>
+        <button style={goldBtn()} onClick={parseEmail} disabled={emailBusy}>{emailBusy?"Reading…":"Extract from Email"}</button>
+        {emailRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{emailRes.msg}</div>}
+        {emailRes&&!emailRes.error&&<div style={{marginTop:12}}>
+          {emailRes.urgent&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderLeft:`4px solid ${C.crimson}`,padding:"10px 14px",marginBottom:10,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>⚠ Eleanor flagged this as urgent</div>}
+          {emailRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px",marginBottom:10,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {emailRes.summary}</div>}
+          {emailRes.sender&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:8}}>From: <strong style={{color:C.ink}}>{emailRes.sender}</strong></div>}
+          {emailRes.key_info?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Key Information</div>
+            {emailRes.key_info.map((k,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{k.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD}}>{k.value}</span>
+              </div>
+            ))}
+          </div>}
+          {emailRes.actions?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Action Items</div>
+            {emailRes.actions.map((a,i)=>(
+              <div key={i} style={{padding:"9px 12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>→ {a.text}</div>
+                {a.deadline&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginTop:2}}>By: {a.deadline}</div>}
+              </div>
+            ))}
+          </div>}
+          {emailRes.events?.length>0&&<div>
+            <div style={SL}>{emailRes.events.length} Appointments</div>
+            {emailRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
+                {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
+              </div>
+            );})}
+            <div style={{height:8}}/>
+            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events,"email");setEmailRes(null);setEmailText("");setView("home");}}>Add to Schedule</button>
+            <button style={goldBtn(true)} onClick={()=>{setEmailRes(null);setEmailText("");}}>Discard</button>
+          </div>}
+        </div>}
+      </div>}
+            {impTab==="calendar"&&<div>
+        <ICalImport onAdd={evs=>{addEvs(evs,"calendar");setView("home");}}/>
+        {false&&!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Google Calendar"}</button>}
         {googleTokens&&<div>
           <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>✦ Connected: {googleProfile?.email||"Google"}</span>
@@ -1028,8 +1590,197 @@ Rules:
     </div>
   );
 
-  const BACK_VIEWS=["schedule","week","briefing","import","chat","add"];
-  const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event"};
+  /* ── CALENDAR VIEW ── */
+  const CalendarView=()=>{
+    const [calMonth,setCalMonth]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+    const [selectedDay,setSelectedDay]=useState(fmt(today));
+
+    const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+    const firstDay=(y,m)=>new Date(y,m,1).getDay();
+    const monthName=new Intl.DateTimeFormat("en-GB",{month:"long"}).format(new Date(calMonth.y,calMonth.m,1));
+    const days=daysInMonth(calMonth.y,calMonth.m);
+    const startDay=firstDay(calMonth.y,calMonth.m);
+    const cells=[];
+    for(let i=0;i<startDay;i++)cells.push(null);
+    for(let d=1;d<=days;d++)cells.push(d);
+
+    const selectedEvs=events.filter(e=>e.date===selectedDay).sort((a,b)=>a.time.localeCompare(b.time));
+
+    function addToGoogleCalendar(e){
+      const start=e.time&&e.time!=="09:00"?e.date+"T"+e.time+":00":e.date;
+      const end=e.time&&e.time!=="09:00"?e.date+"T"+(String(parseInt(e.time.slice(0,2))+1).padStart(2,"0"))+e.time.slice(2)+":00":e.date;
+      const url="https://calendar.google.com/calendar/render?action=TEMPLATE"+
+        "&text="+encodeURIComponent(e.title)+
+        "&dates="+start.replace(/-/g,"").replace(/:/g,"")+"/"+ end.replace(/-/g,"").replace(/:/g,"")+
+        "&details="+encodeURIComponent(e.notes||"")+
+        "&sf=true&output=xml";
+      window.open(url,"_blank");
+    }
+
+    return(<div>
+      <div style={SL}>Calendar</div>
+
+      {/* Month navigation */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <button onClick={()=>setCalMonth(m=>m.m===0?{y:m.y-1,m:11}:{y:m.y,m:m.m-1})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 12px",cursor:"pointer",color:C.inkLight,fontFamily:FM,fontSize:12}}>←</button>
+        <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic"}}>{monthName} {calMonth.y}</div>
+        <button onClick={()=>setCalMonth(m=>m.m===11?{y:m.y+1,m:0}:{y:m.y,m:m.m+1})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 12px",cursor:"pointer",color:C.inkLight,fontFamily:FM,fontSize:12}}>→</button>
+      </div>
+
+      {/* Day labels */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",padding:"4px 0"}}>{d}</div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:18}}>
+        {cells.map((day,i)=>{
+          if(!day)return<div key={i}/>;
+          const ds=calMonth.y+"-"+String(calMonth.m+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+          const dayEvs=events.filter(e=>e.date===ds);
+          const isToday=ds===fmt(today);
+          const isSelected=ds===selectedDay;
+          const hasCritical=dayEvs.some(e=>e.priority==="critical");
+          return(
+            <div key={i} onClick={()=>setSelectedDay(ds)} style={{
+              textAlign:"center",padding:"6px 2px",borderRadius:4,cursor:"pointer",
+              background:isSelected?C.gold:isToday?C.goldPale:"transparent",
+              border:isSelected?`1px solid ${C.goldBright}`:isToday?`1px solid ${C.goldBorder}`:`1px solid transparent`,
+              transition:"all 0.15s",position:"relative"
+            }}>
+              <div style={{fontSize:13,fontFamily:isToday?FM:FB,color:isSelected?C.card:isToday?C.gold:C.ink,fontWeight:isToday?"600":"normal"}}>{day}</div>
+              {dayEvs.length>0&&<div style={{display:"flex",justifyContent:"center",gap:2,marginTop:2}}>
+                {dayEvs.slice(0,3).map((_,i)=>(
+                  <div key={i} style={{width:4,height:4,borderRadius:"50%",background:isSelected?C.card:hasCritical?C.crimson:C.gold}}/>
+                ))}
+              </div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected day events */}
+      <div style={{borderTop:`1px solid ${C.borderSoft}`,paddingTop:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={SL}>{new Date(selectedDay+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
+          <button onClick={()=>{setNewEv(n=>({...n,date:selectedDay}));setView("add");}} style={{background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"5px 10px",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase"}}>＋ Add</button>
+        </div>
+        {selectedEvs.length===0
+          ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",fontFamily:FD,fontStyle:"italic",fontSize:14}}>No appointments</div>
+          :selectedEvs.map((e,i)=>{
+            const p=PM[e.priority]||PM.medium;
+            return(
+              <div key={e.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,borderRadius:4,padding:"12px 14px",marginBottom:8,display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{textAlign:"center",minWidth:36}}>
+                  <div style={{fontSize:18,fontFamily:FD,color:C.gold,fontWeight:300,lineHeight:1}}>{e.time?.slice(0,2)||"—"}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.time?.slice(3)||"00"}</div>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+                  {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:6,lineHeight:1.4}}>{e.notes}</div>}
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+                    <button onClick={()=>addToGoogleCalendar(e)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.sapphireBg,color:C.sapphire,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.sapphire}40`,cursor:"pointer"}}>+ Google Cal</button>
+                    {homeAddress&&e.notes&&<a href={"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(e.notes.split(" ").slice(0,5).join(" "))} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer",textDecoration:"none"}}>🗺 Travel</a>}
+                    {homeAddress&&!e.notes&&<a href={"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(e.title)} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer",textDecoration:"none"}}>🗺 Travel</a>}
+                    <button onClick={()=>del(e.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:"transparent",color:C.inkFaint,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.borderSoft}`,cursor:"pointer"}}>Remove</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>);
+  };
+
+  /* ── WISHLIST VIEW ── */
+  const WishlistView=()=>(
+    <div>
+      <div style={SL}>Events I'm Thinking About</div>
+      <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:14}}>Eleanor will check dates, budget, travel and weather for each event.</div>
+      {wishlist.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.inkFaint}}>
+        <div style={{fontFamily:FD,fontSize:18,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your wishlist is empty.</div>
+        <div style={{fontSize:12,fontFamily:FB,color:C.inkFaint}}>Paste an event link in Import → Paste Link to add one.</div>
+      </div>}
+      {wishlist.map((item,idx)=>(
+        <div key={item.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:12,boxShadow:`0 2px 10px ${C.shadow}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:FD,fontSize:16,color:C.ink,marginBottom:3}}>{item.title}</div>
+              {item.date&&<div style={{fontSize:11,color:C.gold,fontFamily:FM}}>{item.date}</div>}
+              {item.venue&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>📍 {item.venue}</div>}
+              {item.price&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>💰 {item.price}</div>}
+            </div>
+            <button onClick={()=>setWishlist(w=>w.filter((_,i)=>i!==idx))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:14,padding:"0 0 0 8px"}}>✕</button>
+          </div>
+
+          {/* Analysis result */}
+          {item.analysis&&<div style={{background:C.parchment,borderRadius:4,padding:"12px",marginBottom:10,border:`1px solid ${C.borderSoft}`}}>
+            {item.analysis.weather&&<div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:6}}>🌤 Weather: <strong>{item.analysis.weather}</strong></div>}
+            {item.analysis.clashes?.length>0&&<div style={{fontSize:12,color:C.crimson,fontFamily:FB,marginBottom:6}}>⚠ Clashes with: {item.analysis.clashes.map(e=>e.title).join(", ")}</div>}
+            {item.analysis.clashes?.length===0&&<div style={{fontSize:12,color:C.emerald,fontFamily:FB,marginBottom:6}}>✓ No schedule clashes</div>}
+            {item.analysis.advice&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:6,fontStyle:"italic"}}>"{item.analysis.advice}"</div>}
+            {item.analysis.mapsUrl&&<a href={item.analysis.mapsUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"none"}}>🗺 Get Directions →</a>}
+          </div>}
+
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>analyseWishlistEvent(idx)} disabled={item.analysing} style={{flex:1,padding:"9px",border:"none",borderRadius:3,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
+              {item.analysing?"Analysing…":"✦ Analyse with Eleanor"}
+            </button>
+            <button onClick={()=>{
+              const mx=Math.max(...events.map(e=>e.id),0);
+              setEvents(ev=>[...ev,{id:mx+1,title:item.title,date:item.date,time:"09:00",priority:"high",notes:item.venue||item.notes||"",source:"wishlist"}]);
+              setWishlist(w=>w.filter((_,i)=>i!==idx));
+              setView("home");
+            }} style={{flex:1,padding:"9px",border:`1px solid ${C.goldBorder}`,borderRadius:3,background:"transparent",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
+              Add to Schedule
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  /* ── SETTINGS VIEW ── */
+  const SettingsView=()=>(
+    <div>
+      <div style={SL}>Settings</div>
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Home Address</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Save your home address once. Eleanor uses it to show a 🗺 Travel button on every appointment in your Calendar — tap it to get directions and travel time in Google Maps.</div>
+        <input
+          style={inp}
+          placeholder="e.g. 14 High Street, March, PE15 9JY"
+          value={homeAddress}
+          onChange={e=>setHomeAddress(e.target.value)}
+        />
+        <button style={goldBtn()} onClick={()=>{localStorage.setItem("papa_home_address",homeAddress);alert("Address saved! Travel buttons will now appear on your calendar events.");}}>Save Address</button>
+        {homeAddress&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",marginTop:4}}>✓ Address saved — travel buttons active</div>}
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Travel Mode</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>How Eleanor calculates your route to events.</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[["transit","🚌 Public Transport"],["walking","🚶 Walking"],["bicycling","🚲 Cycling"],["driving","🚗 Driving"]].map(([mode,label])=>(
+            <button key={mode} onClick={()=>{setTravelMode(mode);localStorage.setItem("papa_travel_mode",mode);}} style={{padding:"9px 14px",borderRadius:4,border:`1.5px solid ${travelMode===mode?C.goldBorder:C.borderSoft}`,background:travelMode===mode?C.goldPale:C.card,color:travelMode===mode?C.gold:C.inkLight,fontFamily:FB,fontSize:12,cursor:"pointer"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Clear All Data</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Remove all events, chat history and settings.</div>
+        <button onClick={()=>{if(window.confirm("Clear all data? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your data has been cleared. How may I assist you?",ts:new Date()}]);setHomeAddress("");setWishlist([]);setView("home");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson}}>Clear All Data</button>
+      </div>
+    </div>
+  );
+
+  const BACK_VIEWS=["schedule","week","briefing","import","chat","add","wishlist","settings","calendar"];
+  const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event",wishlist:"Wishlist",settings:"Settings",calendar:"Calendar"};
 
   return(
     <div style={{fontFamily:FB,background:C.parchment,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:C.ink}}>
@@ -1049,7 +1800,7 @@ Rules:
           {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
         </div>
         {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
-          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>setView("schedule")},{n:events.filter(e=>e.source==="rover").length,l:"Rover",a:C.emerald,action:()=>{}}].map((s,i)=>(
+          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>setView("schedule")},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
             <div key={i} onClick={s.action} style={{flex:1,padding:"13px 8px",textAlign:"center",background:C.card,borderRight:i<2?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
               <div style={{fontSize:24,fontFamily:FD,color:s.a,fontWeight:300,lineHeight:1}}>{s.n}</div>
               <div style={{fontSize:9,color:C.inkFaint,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:FM,marginTop:3}}>{s.l}</div>
@@ -1065,7 +1816,7 @@ Rules:
             <button onClick={()=>setView("home")} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
             <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
           </>
-          :[["home","Home"],["week","Week"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
+          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
             <button key={v} onClick={()=>setView(v)} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
           ))
         }
@@ -1080,7 +1831,34 @@ Rules:
         {view==="import"   && <ImportView/>}
         {view==="chat"     && <ChatView/>}
         {view==="add"      && <AddView/>}
+        {view==="wishlist"  && <WishlistView/>}
+        {view==="calendar"  && <CalendarView/>}
+        {view==="settings"  && <SettingsView/>}
       </div>
+
+      {/* Travel Mode Modal */}
+      {showTravelModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+        <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:400,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
+          <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>How do you travel?</div>
+          <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,marginBottom:20,lineHeight:1.6}}>Eleanor will use this for all travel directions and journey advice.</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[["transit","🚌 Public Transport","Bus, train, tram"],["walking","🚶 Walking","On foot"],["bicycling","🚲 Cycling","Bike"],["driving","🚗 Driving","Car or taxi"]].map(([mode,label,sub])=>(
+              <button key={mode} onClick={()=>{
+                setTravelMode(mode);
+                localStorage.setItem("papa_travel_mode",mode);
+                setShowTravelModal(false);
+              }} style={{padding:"14px 16px",borderRadius:6,border:`1.5px solid ${C.borderSoft}`,background:C.card,cursor:"pointer",textAlign:"left",display:"flex",gap:12,alignItems:"center",transition:"all 0.15s"}}>
+                <span style={{fontSize:24}}>{label.split(" ")[0]}</span>
+                <div>
+                  <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{label.slice(2)}</div>
+                  <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB}}>{sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>setShowTravelModal(false)} style={{marginTop:14,width:"100%",padding:"11px",border:`1px solid ${C.borderSoft}`,borderRadius:4,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>}
 
       {view!=="chat"&&<div style={{padding:"11px 20px",borderTop:`1px solid ${C.border}`,background:C.cream,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.22em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
