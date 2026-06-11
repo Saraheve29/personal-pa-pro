@@ -134,7 +134,7 @@ export default async function handler(req, res) {
 
   // ── ANTHROPIC AI ──
   try {
-    const { prompt, messages, system, max_tokens = 2000, model = "claude-sonnet-4-6" } = body;
+    const { prompt, messages, system, max_tokens = 2000, model = "claude-sonnet-4-5" } = body;
     const msgs = messages || [{ role: "user", content: prompt }];
     if (!msgs || !msgs.length) return res.status(400).json({ error: "Missing messages" });
     const requestBody = { model, max_tokens, messages: msgs };
