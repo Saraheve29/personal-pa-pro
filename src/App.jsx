@@ -266,8 +266,8 @@ export default function App(){
   // Handle OAuth callback
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
-    const code=params.get("oauth_code");
-    const err=params.get("oauth_error");
+    const code=params.get("oauth_code")||params.get("code");
+    const err=params.get("oauth_error")||params.get("error");
     if(err){alert("Google sign-in failed: "+err);window.history.replaceState({},"","/");return;}
     if(code){
       window.history.replaceState({},"","/");
