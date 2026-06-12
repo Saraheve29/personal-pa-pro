@@ -607,7 +607,7 @@ export default function App(){
   }
 
   async function callAI(body){
-    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,...body})});
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
@@ -639,14 +639,13 @@ Rules:
       :"No events scheduled yet.";
     console.log("Eleanor context events count:", allEvents.length, "\nFirst 3:", allEvents.slice(0,3).map(e=>e.title));
     try{
+      // Build fresh context - inject as a system-level context message
+      const contextMsg={role:"user",content:`[SCHEDULE UPDATE - ${allEvents.length} events in my schedule: ${ctx}]`};
       const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer, Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Never use bullet points. One question max at a time.
 
-CRITICAL: You have Sarah's COMPLETE schedule (${allEvents.length} events total). Search it carefully before saying you cannot find something. If asked about any event, holiday, appointment or date — look through ALL events below first.
+CRITICAL INSTRUCTION: A schedule update is injected at the start of every conversation. You MUST read it and use it to answer questions about Sarah's schedule. If asked about any event, holiday or date — search the schedule update carefully. Never say you cannot find something without first searching the full schedule.
 
-Sarah's complete schedule:
-${ctx}
-
-Today: ${fmt(today)}. Schedule conflicts: ${cfls.length}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
+Today: ${fmt(today)}. Conflicts: ${cfls.length}.`,messages:[contextMsg,...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
       if(eleanorVoiceOn)eleanorSpeak(raw);
       await new Promise(r=>setTimeout(r,850));setShowWave(false);
@@ -2220,6 +2219,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               {eleanorVoiceOn?"🔊 On":"🔇 Off"}
             </button>
             {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
+            <button onClick={()=>{if(window.confirm("Clear chat history?"))setMsgs([{role:"assistant",text:"Good day. I'm Eleanor — how may I assist you?",ts:new Date()}]);}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Clear</button>
           </div>
         </div>
       </div>
@@ -2709,7 +2709,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{display:"flex",alignItems:"center",background:C.card,borderBottom:`1px solid ${C.border}`,boxShadow:`0 1px 6px ${C.shadow}`,overflowX:"auto"}}>
         {BACK_VIEWS.includes(view)
           ?<>
-            <button onClick={()=>setView("home")} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
+            <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
             <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
           </>
           :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
