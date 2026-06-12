@@ -376,6 +376,8 @@ export default function App(){
   const [pasteText, setPasteText]=useState("");
   const [importContext,setImportContext]=useState("");
   const [criticalOnly,setCriticalOnly]=useState(false);
+  const [criticalDismissed,setCriticalDismissed]=useState(false);
+  const [dismissedCriticalIds,setDismissedCriticalIds]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_critical")||"[]");}catch{return [];}});
   const [eventNotes,setEventNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_event_notes")||"{}");}catch{return {};}});
   const [editingEventId,setEditingEventId]=useState(null);
   const [rescheduleId,setRescheduleId]=useState(null);
@@ -471,6 +473,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
   useEffect(()=>{try{localStorage.setItem("papa_birthday_actions",JSON.stringify(birthdayActions));}catch{}},[birthdayActions]);
   useEffect(()=>{try{localStorage.setItem("papa_event_notes",JSON.stringify(eventNotes));}catch{}},[eventNotes]);
+  useEffect(()=>{try{localStorage.setItem("papa_dismissed_critical",JSON.stringify(dismissedCriticalIds));}catch{}},[dismissedCriticalIds]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -663,7 +666,14 @@ Today: ${fmt(today)}. Conflicts: ${cfls.length}.`,messages:[contextMsg,...msgs.m
     const allEvs=freshEvs.length>=events.length?freshEvs:events;
     const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
-    try{const raw=await callAI({system:`You are a discreet, highly intelligent Executive PA. Produce a private executive briefing. Return ONLY valid JSON, no markdown:\n{"headline":string,"today_summary":string,"alerts":[{"title":string,"detail":string,"severity":"high"|"medium"|"low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}\nToday:${fmt(today)}.`,messages:[{role:"user",content:`Schedule:\n${schedCtx}\n\nHolidays:\n${holCtx}\n\nConflicts:${cfls.length}.`}]});setBriefing(JSON.parse(raw.replace(/```json|```/g,"").trim()));}catch{setBriefing({error:true});}
+    try{const raw=await callAI({system:`You are a discreet, highly intelligent Executive PA. Produce a private executive briefing. Return ONLY valid JSON, no markdown:\n{"headline":string,"today_summary":string,"alerts":[{"title":string,"detail":string,"severity":"high"|"medium"|"low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}\nToday:${fmt(today)}.`,messages:[{role:"user",content:`Schedule:\n${schedCtx}\n\nHolidays:\n${holCtx}\n\nConflicts:${cfls.length}.`}]});
+    const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
+    setBriefing(parsed);
+    if(parsed.today_summary&&eleanorVoiceOn){
+      const greeting="Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+". ";
+      setTimeout(()=>eleanorSpeak(greeting+parsed.today_summary),600);
+    }
+    }catch{setBriefing({error:true});}
     setBriefBusy(false);
   }
 
@@ -1771,18 +1781,27 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
   /* ── SCHEDULE (TODAY DETAIL) ── */
   const ScheduleView=()=>{
-    const criticalEvs=events.filter(e=>e.priority==="critical").sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+    const criticalEvs=events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
     const displayEvs=criticalOnly?criticalEvs:todayEvs;
     return(<div>
       {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div style={SL}>{criticalOnly?`${criticalEvs.length} Critical Events`:today.toLocaleDateString("en-GB",{weekday:"long"})+" — "+todayEvs.length+" appointment"+(todayEvs.length!==1?"s":"")}</div>
-        {criticalOnly&&<button onClick={()=>setCriticalOnly(false)} style={{background:"none",border:`1px solid ${C.crimson}`,borderRadius:3,padding:"4px 10px",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear</button>}
+        {criticalOnly&&<div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setDismissedCriticalIds(ids=>[...ids,...criticalEvs.map(e=>e.id)]);setCriticalOnly(false);}} style={{background:"none",border:`1px solid ${C.crimson}`,borderRadius:3,padding:"4px 10px",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✕ Dismiss All</button>
+          <button onClick={()=>setCriticalOnly(false)} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"4px 10px",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Close</button>
+        </div>}
       </div>
-      {criticalOnly&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}40`,borderLeft:`4px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:12,fontSize:12,color:C.crimson,fontFamily:FB}}>Showing all critical appointments across your schedule.</div>}
+      {criticalOnly&&criticalEvs.length>0&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}40`,borderLeft:`4px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:12,fontSize:12,color:C.crimson,fontFamily:FB}}>Tap ✕ on any event to dismiss it from this view. The event stays in your schedule.</div>}
       {displayEvs.length===0
-        ?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>{criticalOnly?"No critical events.":"Your day is clear."}</div></div>
-        :displayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>)}
+        ?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>{criticalOnly?"All critical events seen.":"Your day is clear."}</div></div>
+        :displayEvs.map((e,i)=>(
+          <div key={e.id} style={{position:"relative"}}>
+            {criticalOnly&&<button onClick={()=>setDismissedCriticalIds(ids=>[...ids,e.id])} style={{position:"absolute",top:14,right:40,zIndex:10,background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:3,padding:"2px 8px",color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Seen</button>}
+            <EvCard e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>
+          </div>
+        ))}
+      {criticalOnly&&dismissedCriticalIds.length>0&&<button onClick={()=>setDismissedCriticalIds([])} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:8}}>↺ Show all dismissed</button>}
     </div>);
   };
 
@@ -2278,7 +2297,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {paStatus==="speaking"&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}><PaAvatar size={30} speaking={true}/><div style={{padding:"10px 14px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.goldBorder}`,boxShadow:`0 2px 12px rgba(196,153,62,0.18)`,display:"flex",alignItems:"center",gap:8}}><Waveform active={true}/><span style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.1em"}}>Eleanor is responding…</span></div></div>}
         <div ref={chatEnd}/>
       </div>
-      {msgs.length<=1&&paStatus==="idle"&&<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>{["What's on today?","Any conflicts?","Free time this week?","Holiday advice"].map(q=>(<button key={q} onClick={()=>setChatIn(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.1em",cursor:"pointer"}}>{q}</button>))}</div>}
+      {msgs.length<=1&&paStatus==="idle"&&<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>{["What's on today?","Any conflicts?","Free time this week?","Holiday advice"].map(q=>(<button key={q} onClick={()=>sendChat(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.1em",cursor:"pointer"}}>{q}</button>))}</div>}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
         <ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/>
       </div>
@@ -2764,7 +2783,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
         </div>
         {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
-          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>{setCriticalOnly(true);setView("schedule");}},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
+          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).length,l:"Critical",a:C.crimson,action:()=>{setCriticalOnly(true);setView("schedule");}},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
             <div key={i} onClick={s.action} style={{flex:1,padding:"13px 8px",textAlign:"center",background:C.card,borderRight:i<2?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
               <div style={{fontSize:24,fontFamily:FD,color:s.a,fontWeight:300,lineHeight:1}}>{s.n}</div>
               <div style={{fontSize:9,color:C.inkFaint,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:FM,marginTop:3}}>{s.l}</div>
