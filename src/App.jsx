@@ -407,7 +407,10 @@ export default function App(){
   const [newReminder,setNewReminder]=useState({text:"",time:"08:00",days:["1","2","3","4","5","6","7"]});
   const [voiceListening,setVoiceListening]=useState(false);
   const [eleanorSpeaking,setEleanorSpeaking]=useState(false);
-  const [eleanorVoiceOn,setEleanorVoiceOn]=useState(()=>localStorage.getItem("papa_voice_on")==="true");
+  const [elevenLabsKey,setElevenLabsKey]=useState(()=>localStorage.getItem("papa_11labs_key")||"");
+  const [premiumVoice,setPremiumVoice]=useState(()=>localStorage.getItem("papa_premium_voice")!=="false");
+  const audioRef=React.useRef(null);
+  const [eleanorVoiceOn,setEleanorVoiceOn]=useState(()=>localStorage.getItem("papa_voice_on")!=="false");
   const [voiceText,setVoiceText]=useState("");
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
   const [linkUrl,   setLinkUrl]   =useState("");
@@ -1138,9 +1141,35 @@ Rules:
   }
 
   // ── ELEANOR SPEAKS ──
-  function eleanorSpeak(text){
-    if(!eleanorVoiceOn||!window.speechSynthesis)return;
-    window.speechSynthesis.cancel();
+  async function eleanorSpeak(text){
+    if(!eleanorVoiceOn)return;
+    stopSpeaking();
+
+    // Try ElevenLabs premium voice first
+    if(premiumVoice){
+      try{
+        setEleanorSpeaking(true);
+        const r=await fetch("/api/tts",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({text,apiKey:elevenLabsKey})
+        });
+        if(r.ok){
+          const blob=await r.blob();
+          const url=URL.createObjectURL(blob);
+          const audio=new Audio(url);
+          audioRef.current=audio;
+          audio.onended=()=>{setEleanorSpeaking(false);URL.revokeObjectURL(url);};
+          audio.onerror=()=>{setEleanorSpeaking(false);URL.revokeObjectURL(url);};
+          audio.play();
+          return;
+        }
+      }catch(e){console.warn("ElevenLabs failed:",e);}
+      setEleanorSpeaking(false);
+    }
+
+    // Browser voice fallback
+    if(!window.speechSynthesis)return;
     function doSpeak(){
       const voices=window.speechSynthesis.getVoices();
       const utterance=new SpeechSynthesisUtterance(text);
@@ -1157,12 +1186,12 @@ Rules:
       window.speechSynthesis.speak(utterance);
     }
     const voices=window.speechSynthesis.getVoices();
-    if(voices.length>0){doSpeak();}
-    else{
-      window.speechSynthesis.onvoiceschanged=()=>{window.speechSynthesis.onvoiceschanged=null;doSpeak();};
-    }
+    if(voices.length>0)doSpeak();
+    else window.speechSynthesis.onvoiceschanged=()=>{window.speechSynthesis.onvoiceschanged=null;doSpeak();};
   }
+
   function stopSpeaking(){
+    if(audioRef.current){audioRef.current.pause();audioRef.current=null;}
     window.speechSynthesis?.cancel();
     setEleanorSpeaking(false);
   }
@@ -1898,7 +1927,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           if(el)setPasteText(el.value);
           parsePaste();
         }} disabled={pasteBusy}>{pasteBusy?"Analysing…":"Extract Appointments"}</button>
-        <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setView("home");}} onDiscard={()=>setPasteRes(null)}/>
+        <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setCriticalOnly(false);setView("home");}} onDiscard={()=>setPasteRes(null)}/>
       </div>}
       {impTab==="image"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image</strong> — a poster, flyer, event ticket, booking confirmation, screenshot, letter, or even a handwritten note. Eleanor will read the whole image and extract every date, time, and location she can find.</div>
@@ -1921,7 +1950,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             </div>
           );})}
           <div style={{height:8}}/>
-          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
           <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}>Discard</button>
         </div>}
       </div>}
@@ -2001,7 +2030,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events,"document");setDocRes(null);setDocFile(null);setView("home");}}>Add Dates to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events,"document");setDocRes(null);setDocFile(null);setCriticalOnly(false);setView("home");}}>Add Dates to Schedule</button>
           </div>}
 
           <button style={goldBtn(true)} onClick={()=>{setDocRes(null);setDocFile(null);}}>Clear</button>
@@ -2090,7 +2119,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events,"pdf");setPdfRes(null);setPdfFile(null);setView("home");}}>Add to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events,"pdf");setPdfRes(null);setPdfFile(null);setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
             <button style={goldBtn(true)} onClick={()=>{setPdfRes(null);setPdfFile(null);}}>Clear</button>
           </div>}
         </div>}
@@ -2120,7 +2149,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 const e=linkRes.events[0];
                 setWishlist(w=>[...w,{id:Date.now(),title:e.title,date:e.date,venue:linkRes.venue||"",price:linkRes.price||"",notes:e.notes||"",url:linkUrl}]);
               }
-              setLinkRes(null);setLinkUrl("");setView("home");
+              setLinkRes(null);setLinkUrl("");setCriticalOnly(false);setView("home");
             }}>Add to Schedule</button>
             <button style={{...goldBtn(true),flex:"0 0 auto",width:"auto",padding:"12px 16px"}} onClick={()=>{
               if(linkRes.events?.[0]){
@@ -2170,13 +2199,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events,"email");setEmailRes(null);setEmailText("");setView("home");}}>Add to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events,"email");setEmailRes(null);setEmailText("");setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
             <button style={goldBtn(true)} onClick={()=>{setEmailRes(null);setEmailText("");}}>Discard</button>
           </div>}
         </div>}
       </div>}
             {impTab==="calendar"&&<div>
-        <ICalImport onAdd={evs=>{addEvs(evs,"calendar");setView("home");}}/>
+        <ICalImport onAdd={evs=>{addEvs(evs,"calendar");setCriticalOnly(false);setView("home");}}/>
         {false&&!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Google Calendar"}</button>}
         {googleTokens&&<div>
           <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2190,7 +2219,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {calEvs.length} event{calEvs.length!==1?"s":""} found in Google Calendar.</div>
           {calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
           <div style={{height:8}}/>
-          <button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
           <button style={goldBtn(true)} onClick={()=>{setCalSt("idle");setCalEvs(null);}}>Discard</button>
         </div>}
       </div>}
@@ -2219,8 +2248,19 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               {eleanorVoiceOn?"🔊 On":"🔇 Off"}
             </button>
             {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
-            <button onClick={()=>{if(window.confirm("Clear chat history?"))setMsgs([{role:"assistant",text:"Good day. I'm Eleanor — how may I assist you?",ts:new Date()}]);}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Clear</button>
           </div>
+        </div>
+        {/* Action buttons row */}
+        <div style={{display:"flex",gap:6,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
+          <button onClick={()=>{
+            const next=!eleanorVoiceOn;
+            setEleanorVoiceOn(next);
+            localStorage.setItem("papa_voice_on",String(next));
+            if(!next)stopSpeaking();
+          }} style={{flex:1,padding:"7px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>
+            {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
+          </button>
+          <button onClick={()=>{if(window.confirm("Clear chat history?"))setMsgs([{role:"assistant",text:"Good day. I'm Eleanor — how may I assist you?",ts:new Date()}]);}} style={{flex:1,padding:"7px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Clear Chat</button>
         </div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"18px 16px",display:"flex",flexDirection:"column",gap:12}}>
@@ -2264,7 +2304,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       const mx=Math.max(0,...events.map(e=>e.id));
       setEvents(ev=>[...ev,{id:mx+1+Math.floor(Math.random()*1000),title,date,time,priority,notes,source}]);
       setNewEv({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});
-      setView("home");
+      setCriticalOnly(false);setView("home");
     }
     return(<div>
       <div style={SL}>New Appointment</div>
@@ -2280,7 +2320,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <input ref={notesRef} style={inp} placeholder="Notes (optional)" defaultValue={newEv.notes}/>
       <div style={{height:6}}/>
       <button style={goldBtn()} onClick={save}>Add to Schedule</button>
-      <button style={goldBtn(true)} onClick={()=>setView("home")}>Cancel</button>
+      <button style={goldBtn(true)} onClick={()=>{setCriticalOnly(false);setView("home");}}>Cancel</button>
     </div>);
   };
 
@@ -2433,7 +2473,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               const mx=Math.max(...events.map(e=>e.id),0);
               setEvents(ev=>[...ev,{id:mx+1,title:item.title,date:item.date,time:"09:00",priority:"high",notes:item.venue||item.notes||"",source:"wishlist"}]);
               setWishlist(w=>w.filter((_,i)=>i!==idx));
-              setView("home");
+              setCriticalOnly(false);setView("home");
             }} style={{flex:1,padding:"9px",border:`1px solid ${C.goldBorder}`,borderRadius:3,background:"transparent",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
               Add to Schedule
             </button>
@@ -2629,7 +2669,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={SL}>Settings</div>
       {/* Eleanor Voice */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Eleanor's Voice</div>
           <button onClick={()=>{
             const next=!eleanorVoiceOn;
@@ -2641,7 +2681,35 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
           </button>
         </div>
-        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>When on, Eleanor will speak her responses aloud in chat. Uses your device's built-in voice.</div>
+
+        {/* Premium ElevenLabs voice */}
+        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"12px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontFamily:FD,fontSize:14,color:C.gold,fontStyle:"italic"}}>✦ Premium Voice</div>
+            <button onClick={()=>{
+              const next=!premiumVoice;
+              setPremiumVoice(next);
+              localStorage.setItem("papa_premium_voice",String(next));
+              if(next&&eleanorVoiceOn)eleanorSpeak("Hello Sarah. Premium voice is now active.");
+            }} style={{padding:"5px 12px",borderRadius:3,border:`1.5px solid ${premiumVoice?C.goldBorder:C.borderSoft}`,background:premiumVoice?C.gold:C.card,color:premiumVoice?C.card:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>
+              {premiumVoice?"✦ Active":"Enable"}
+            </button>
+          </div>
+          <div style={{fontSize:11,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:8}}>Eleanor speaks with a natural, warm voice via ElevenLabs. Get your free API key at elevenlabs.io</div>
+          <input
+            id="elevenlabs-key-input"
+            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:11,fontFamily:FM,background:C.card,color:C.ink,outline:"none",boxSizing:"border-box"}}
+            placeholder="Paste your ElevenLabs API key here..."
+            defaultValue={elevenLabsKey}
+            onBlur={e=>{
+              setElevenLabsKey(e.target.value);
+              localStorage.setItem("papa_11labs_key",e.target.value);
+            }}
+          />
+          {elevenLabsKey&&<div style={{fontSize:10,color:C.emerald,fontFamily:FM,marginTop:4}}>✓ API key saved</div>}
+        </div>
+
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>Standard voice uses your device's built-in voice for free.</div>
       </div>
 
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
@@ -2670,7 +2738,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Clear All Data</div>
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Remove all events, chat history and settings.</div>
-        <button onClick={()=>{if(window.confirm("Clear all data? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your data has been cleared. How may I assist you?",ts:new Date()}]);setHomeAddress("");setWishlist([]);setView("home");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson}}>Clear All Data</button>
+        <button onClick={()=>{if(window.confirm("Clear all data? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your data has been cleared. How may I assist you?",ts:new Date()}]);setHomeAddress("");setWishlist([]);setCriticalOnly(false);setView("home");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson}}>Clear All Data</button>
       </div>
     </div>
   );
