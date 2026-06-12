@@ -998,36 +998,54 @@ Rules:
         setCheckerBusy(false);return;
       }
 
-      // Now check each date against existing events
-      const results=extracted.dates.map(d=>{
+      // Check ALL dates in range - if two dates given, fill in every day between them
+      let datesToCheck=[];
+      if(extracted.dates.length===2){
+        const d1=new Date(extracted.dates[0].date+"T12:00:00");
+        const d2=new Date(extracted.dates[1].date+"T12:00:00");
+        const start=d1<d2?d1:d2;
+        const end=d1<d2?d2:d1;
+        const cur=new Date(start);
+        while(cur<=end){
+          datesToCheck.push({date:fmt(cur),label:fmt(cur)===extracted.dates[0].date?extracted.dates[0].label:fmt(cur)===extracted.dates[1].date?extracted.dates[1].label:null,time:null,isRange:true});
+          cur.setDate(cur.getDate()+1);
+        }
+      } else {
+        datesToCheck=extracted.dates;
+      }
+
+      const results=datesToCheck.map(d=>{
         const dateStr=d.date;
         const dayBefore=fmt(new Date(new Date(dateStr+"T12:00:00").getTime()-86400000));
         const dayAfter=fmt(new Date(new Date(dateStr+"T12:00:00").getTime()+86400000));
-
         const sameDay=events.filter(e=>e.date===dateStr);
         const before=events.filter(e=>e.date===dayBefore);
         const after=events.filter(e=>e.date===dayAfter);
-
-        // Check if time clashes specifically
         const timeClash=d.time?sameDay.filter(e=>e.time&&e.time===d.time):[];
-
         const isFree=sameDay.length===0;
         const hasConflict=timeClash.length>0;
-
-        return{
-          date:dateStr,
-          label:d.label,
-          time:d.time,
-          isFree,
-          hasConflict,
-          sameDay,
-          before,
-          after,
-          verdict:hasConflict?"clash":isFree?"free":sameDay.length<=1?"busy":"very busy"
-        };
+        return{date:dateStr,label:d.label,time:d.time,isFree,hasConflict,sameDay,before,after,
+          verdict:hasConflict?"clash":isFree?"free":sameDay.length<=1?"busy":"very busy"};
       });
 
-      setCheckerRes({dates:results});
+      // If it was a range query, show a summary instead of every single day
+      if(extracted.dates.length===2&&datesToCheck.length>2){
+        const busyDays=results.filter(r=>!r.isFree);
+        const clashDays=results.filter(r=>r.hasConflict);
+        const freeDays=results.filter(r=>r.isFree);
+        setCheckerRes({
+          isRange:true,
+          rangeStart:extracted.dates[0].date,
+          rangeEnd:extracted.dates[1].date,
+          totalDays:results.length,
+          freeDays:freeDays.length,
+          busyDays,
+          clashDays,
+          allResults:results
+        });
+      } else {
+        setCheckerRes({dates:results});
+      }
     }catch(e){setCheckerRes({error:true,msg:e.message});}
     setCheckerBusy(false);
   }
@@ -1473,13 +1491,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>
         </div>
         <textarea
+          id="checker-textarea"
           style={{width:"100%",padding:"11px 14px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",resize:"none",minHeight:70,boxSizing:"border-box",marginBottom:8,lineHeight:1.6}}
           placeholder={"Paste any dates, a message or text...\ne.g. 'Can you make Saturday 19th July?' or paste a letter with dates"}
-          value={checkerText}
-          onChange={e=>setCheckerText(e.target.value)}
+          defaultValue={checkerText}
         />
         <div style={{display:"flex",gap:8,marginBottom:checkerFile?8:0}}>
-          <button style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,color:C.goldLight,fontFamily:FM,fontSize:10,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer"}} onClick={checkSchedule} disabled={checkerBusy}>
+          <button style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,color:C.goldLight,fontFamily:FM,fontSize:10,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer"}} onClick={()=>{const el=document.getElementById("checker-textarea");if(el)setCheckerText(el.value);checkSchedule();}} disabled={checkerBusy}>
             {checkerBusy?"Checking…":"✦ Check My Schedule"}
           </button>
           <label style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:checkerFile?C.emerald:C.inkFaint,fontFamily:FM,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",whiteSpace:"nowrap"}}>
@@ -1491,6 +1509,33 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
         {/* Results */}
         {checkerRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"11px 14px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:10}}>{checkerRes.msg}</div>}
+        {/* Range result */}
+        {checkerRes?.isRange&&<div style={{marginTop:12}}>
+          <div style={{background:checkerRes.busyDays.length>0?C.crimsonBg:C.emeraldBg,border:`1px solid ${checkerRes.busyDays.length>0?C.crimson:C.emerald}30`,borderLeft:`4px solid ${checkerRes.busyDays.length>0?C.crimson:C.emerald}`,borderRadius:4,padding:"14px 16px",marginBottom:10}}>
+            <div style={{fontFamily:FD,fontSize:16,color:C.ink,marginBottom:4}}>
+              {checkerRes.rangeStart} → {checkerRes.rangeEnd} ({checkerRes.totalDays} days)
+            </div>
+            {checkerRes.busyDays.length===0
+              ?<div style={{fontSize:14,color:C.emerald,fontFamily:FD}}>✓ You're completely free for this entire period</div>
+              :<div style={{fontSize:14,color:C.crimson,fontFamily:FD}}>⚠ You have {checkerRes.busyDays.length} busy day{checkerRes.busyDays.length>1?"s":""} in this period</div>
+            }
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginTop:4}}>{checkerRes.freeDays} free days · {checkerRes.busyDays.length} busy days</div>
+          </div>
+          {checkerRes.busyDays.length>0&&<div>
+            <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Busy Days in This Period</div>
+            {checkerRes.busyDays.map((r,i)=>(
+              <div key={i} style={{background:C.crimsonBg,border:`1px solid ${C.crimson}20`,borderLeft:`3px solid ${C.crimson}`,borderRadius:3,padding:"10px 12px",marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <div style={{fontFamily:FD,fontSize:13,color:C.ink}}>{r.date}</div>
+                  <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{r.sameDay.length} appointment{r.sameDay.length>1?"s":""}</div>
+                </div>
+                {r.sameDay.map((e,j)=><div key={j} style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginTop:3}}>{e.time} — {e.title}</div>)}
+              </div>
+            ))}
+          </div>}
+          <button onClick={()=>{setCheckerRes(null);setCheckerText("");setCheckerFile(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 0",marginTop:8}}>Clear results</button>
+        </div>}
+
         {checkerRes?.dates&&<div style={{marginTop:12}}>
           {checkerRes.dates.map((r,i)=>{
             const verdictColor=r.hasConflict?C.crimson:r.isFree?C.emerald:r.verdict==="busy"?C.gold:C.crimson;
@@ -1918,13 +1963,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             Examples: <em>"Chase my PIP review that's been delayed 3 months"</em> · <em>"Complain about my energy bill being too high"</em> · <em>"Request a refund from a company"</em> · <em>"Write to my landlord about repairs needed"</em>
           </div>
         </div>
-        <textarea style={{...inp,minHeight:120,resize:"vertical"}} value={handleText} onChange={e=>setHandleText(e.target.value)} placeholder="Describe what you need Eleanor to handle..."/>
+        <textarea id="handle-textarea" style={{...inp,minHeight:120,resize:"vertical"}} defaultValue={handleText} placeholder="Describe what you need Eleanor to handle..." onBlur={e=>setHandleText(e.target.value)}/>
         <label style={{display:"block",border:`1.5px dashed ${C.borderSoft}`,padding:"12px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.card,color:handleDocFile?C.emerald:C.inkFaint,fontSize:12,fontFamily:FB,borderRadius:4}}>
           {handleDocFile?"📄 "+handleDocFile.name+" — ready":"📎 Optional: upload a document (PDF, letter, bill...)"}
           <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={e=>{if(e.target.files[0])setHandleDocFile(e.target.files[0]);}} style={{display:"none"}}/>
         </label>
         {handleDocFile&&<button onClick={()=>setHandleDocFile(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",marginBottom:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>✕ Remove document</button>}
-        <button style={goldBtn()} onClick={handleThis} disabled={handleBusy}>{handleBusy?"Drafting…":"✦ Handle This for Me"}</button>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("handle-textarea");if(el)setHandleText(el.value);handleThis();}} disabled={handleBusy}>{handleBusy?"Drafting…":"✦ Handle This for Me"}</button>
         {handleRes&&typeof handleRes==="string"&&!handleRes.startsWith("Error")&&<div style={{marginTop:14}}>
           <div style={SL}>Eleanor's Draft</div>
           <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",whiteSpace:"pre-wrap",fontSize:13,fontFamily:FB,color:C.inkMid,lineHeight:1.8,marginBottom:12}}>{handleRes}</div>
@@ -2038,8 +2083,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
       {impTab==="email"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any email — Eleanor extracts appointments, actions and key info.</div>
-        <textarea style={{...inp,minHeight:140,resize:"vertical"}} value={emailText} onChange={e=>setEmailText(e.target.value)} placeholder="Paste the full email here..."/>
-        <button style={goldBtn()} onClick={parseEmail} disabled={emailBusy}>{emailBusy?"Reading…":"Extract from Email"}</button>
+        <textarea id="email-textarea" style={{...inp,minHeight:140,resize:"vertical"}} defaultValue={emailText} placeholder="Paste the full email here..."/>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("email-textarea");if(el)setEmailText(el.value);parseEmail();}} disabled={emailBusy}>{emailBusy?"Reading…":"Extract from Email"}</button>
         {emailRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{emailRes.msg}</div>}
         {emailRes&&!emailRes.error&&<div style={{marginTop:12}}>
           {emailRes.urgent&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderLeft:`4px solid ${C.crimson}`,padding:"10px 14px",marginBottom:10,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>⚠ Eleanor flagged this as urgent</div>}
