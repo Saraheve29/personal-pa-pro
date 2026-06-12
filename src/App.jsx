@@ -255,6 +255,34 @@ function ICalImport({onAdd}){
   </div>);
 }
 
+function BriefingLoader(){
+  const [step,setStep]=React.useState(0);
+  const steps=[
+    "Eleanor is reviewing your schedule…",
+    "Checking upcoming holidays and school dates…",
+    "Looking for conflicts and busy periods…",
+    "Reviewing your commitments this week…",
+    "Checking the weather for your events…",
+    "Identifying opportunities and preparation needed…",
+    "Composing your personal briefing…",
+  ];
+  React.useEffect(()=>{
+    const t=setInterval(()=>setStep(s=>(s+1)%steps.length),2200);
+    return()=>clearInterval(t);
+  },[]);
+  return(
+    <div style={{textAlign:"center",padding:"60px 20px"}}>
+      {PA_PHOTO&&<div style={{width:64,height:64,borderRadius:"50%",overflow:"hidden",margin:"0 auto 16px",border:`2px solid ${C.goldBorder}`,boxShadow:`0 0 20px rgba(196,153,62,0.3)`}}>
+        <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
+      </div>}
+      <div className="shimmer" style={{fontSize:18,fontFamily:FD,color:C.gold,fontStyle:"italic",marginBottom:12,lineHeight:1.5,transition:"all 0.5s"}}>{steps[step]}</div>
+      <div style={{display:"flex",justifyContent:"center",gap:6,marginTop:8}}>
+        {steps.map((_,i)=><div key={i} style={{width:i===step?20:6,height:6,borderRadius:3,background:i===step?C.goldBright:C.goldPale,transition:"all 0.3s"}}/>)}
+      </div>
+    </div>
+  );
+}
+
 const GLOBAL_CSS=`
   @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,600&family=Tenor+Sans&family=Courier+Prime&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -319,6 +347,11 @@ export default function App(){
   const [pasteText, setPasteText]=useState("");
   const [importContext,setImportContext]=useState("");
   const [criticalOnly,setCriticalOnly]=useState(false);
+  const [eventNotes,setEventNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_event_notes")||"{}");}catch{return {};}});
+  const [editingEventId,setEditingEventId]=useState(null);
+  const [rescheduleId,setRescheduleId]=useState(null);
+  const [rescheduleDate,setRescheduleDate]=useState("");
+  const [rescheduleTime,setRescheduleTime]=useState("");
   const importContextRef=useRef("");
   const [pasteBusy, setPasteBusy]=useState(false);
   const [pasteRes,  setPasteRes] =useState(null);
@@ -343,6 +376,8 @@ export default function App(){
   const [showReminderModal,setShowReminderModal]=useState(false);
   const [newReminder,setNewReminder]=useState({text:"",time:"08:00",days:["1","2","3","4","5","6","7"]});
   const [voiceListening,setVoiceListening]=useState(false);
+  const [eleanorSpeaking,setEleanorSpeaking]=useState(false);
+  const [eleanorVoiceOn,setEleanorVoiceOn]=useState(()=>localStorage.getItem("papa_voice_on")==="true");
   const [voiceText,setVoiceText]=useState("");
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
   const [linkUrl,   setLinkUrl]   =useState("");
@@ -402,6 +437,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
   useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
   useEffect(()=>{try{localStorage.setItem("papa_birthday_actions",JSON.stringify(birthdayActions));}catch{}},[birthdayActions]);
+  useEffect(()=>{try{localStorage.setItem("papa_event_notes",JSON.stringify(eventNotes));}catch{}},[eventNotes]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -498,6 +534,43 @@ export default function App(){
   function addEvs(list,src){const mx=Math.max(...events.map(e=>e.id),0);setEvents(ev=>[...ev,...list.map((e,i)=>({...e,id:mx+i+1,source:src}))]);}
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
+  // Robust JSON extractor - handles truncated, malformed, escaped JSON
+  function robustJSON(raw){
+    if(!raw)return null;
+    // Remove markdown fences
+    let s=raw.replace(/```json/g,"").replace(/```/g,"").trim();
+    // Find outermost { }
+    const start=s.indexOf("{");
+    const end=s.lastIndexOf("}");
+    if(start<0)return null;
+    let sub=start>=0&&end>start?s.slice(start,end+1):s;
+    // Try direct parse
+    try{return JSON.parse(sub);}catch{}
+    // Fix common issues:
+    // 1. Remove trailing commas before } or ]
+    sub=sub.replace(/,(\s*[}\]])/g,"$1");
+    // 2. Fix unquoted property names
+    sub=sub.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,'$1"$2"$3');
+    // 3. Fix single quotes
+    sub=sub.replace(/'/g,'"');
+    try{return JSON.parse(sub);}catch{}
+    // 4. Truncation repair - find last complete array element
+    // Remove trailing incomplete string
+    sub=sub.replace(/,?\s*"[^"]*$/,"");
+    // Count and close unclosed brackets
+    let opens=0,openSq=0;
+    for(const ch of sub){
+      if(ch==="{")opens++;
+      else if(ch==="}")opens--;
+      else if(ch==="[")openSq++;
+      else if(ch==="]")openSq--;
+    }
+    for(let i=0;i<openSq;i++)sub+="]";
+    for(let i=0;i<opens;i++)sub+="}";
+    try{return JSON.parse(sub);}catch{}
+    return null;
+  }
+
   async function callAI(body){
     const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,...body})});
     const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
@@ -522,6 +595,7 @@ Rules:
     try{
       const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Thinko, Skyla), Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Write in natural flowing sentences — never bullet points. One question max at a time. Schedule:\n${ctx}\nConflicts:${cfls.length}. Today:${fmt(today)}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
+      if(eleanorVoiceOn)eleanorSpeak(raw);
       await new Promise(r=>setTimeout(r,850));setShowWave(false);
       setMsgs(m=>[...m,{role:"assistant",text:raw,ts:new Date()}]);setPaStatus("idle");
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
@@ -544,7 +618,7 @@ Rules:
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-5",
-          max_tokens:8000,
+          max_tokens:16000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
 Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
 Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT CONTEXT FROM USER: ${importContext} — use this to filter and prioritise what to extract.`:""}`,
@@ -560,12 +634,8 @@ ${pasteText}`}]
         setPasteBusy(false);return;
       }
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      let clean=raw.trim();
-      if(clean.includes("```")){
-        clean=clean.replace(/```[a-z]*/g,"").replace(/```/g,"").trim();
-      }
-      const parsed=JSON.parse(clean);
-      if(!parsed.events||parsed.events.length===0){
+      const parsed=robustJSON(raw);
+      if(!parsed||!parsed.events||parsed.events.length===0){
         setPasteRes({error:true,msg:"No dates found. Make sure your text contains specific dates."});
       }else{
         setPasteRes(parsed);
@@ -802,8 +872,7 @@ Rules:
       });
       const d=await r.json();
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
-      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      const parsed=robustJSON(raw)||{};
       setEmailRes(parsed);
     }catch(e){setEmailRes({error:true,msg:e.message});}
     setEmailBusy(false);
@@ -961,8 +1030,7 @@ Rules:
       const d=await r.json();
       if(d.error){setPdfRes({error:true,msg:d.error?.message||"Could not read PDF"});setPdfBusy(false);return;}
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
-      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      const parsed=robustJSON(raw)||{};
       setPdfRes(parsed);
     }catch(e){setPdfRes({error:true,msg:e.message});}
     setPdfBusy(false);
@@ -991,11 +1059,37 @@ Rules:
       });
       const d=await r.json();
       const raw=d.content?.find(b=>b.type==="text")?.text||"{}";
-      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
-      const parsed=s>=0?JSON.parse(raw.slice(s,e+1)):{};
+      const parsed=robustJSON(raw)||{};
       setDocRes(parsed);
     }catch(e){setDocRes({error:true,msg:e.message});}
     setDocBusy(false);
+  }
+
+  // ── ELEANOR SPEAKS ──
+  function eleanorSpeak(text){
+    if(!eleanorVoiceOn||!window.speechSynthesis)return;
+    window.speechSynthesis.cancel();
+    const utterance=new SpeechSynthesisUtterance(text);
+    // Find a nice British female voice
+    const voices=window.speechSynthesis.getVoices();
+    const preferred=voices.find(v=>v.lang==="en-GB"&&v.name.toLowerCase().includes("female"))
+      ||voices.find(v=>v.lang==="en-GB")
+      ||voices.find(v=>v.lang.startsWith("en")&&v.name.toLowerCase().includes("female"))
+      ||voices.find(v=>v.lang.startsWith("en"))
+      ||voices[0];
+    if(preferred)utterance.voice=preferred;
+    utterance.rate=0.92;
+    utterance.pitch=1.05;
+    utterance.volume=1;
+    utterance.onstart=()=>setEleanorSpeaking(true);
+    utterance.onend=()=>setEleanorSpeaking(false);
+    utterance.onerror=()=>setEleanorSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopSpeaking(){
+    window.speechSynthesis?.cancel();
+    setEleanorSpeaking(false);
   }
 
   // ── VOICE INPUT ──
@@ -1132,6 +1226,23 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:15,fontFamily:FD,color:C.ink,letterSpacing:"0.02em",marginBottom:2,fontWeight:500,paddingRight:20,lineHeight:1.3}}>{e.title}</div>
           {e.notes&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
           {wx&&<div style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginBottom:5}}>{wx.desc} · {wx.max}°/{wx.min}°{wx.rain>30?" · 💧"+wx.rain+"% rain":""}</div>}
+          {/* Event note */}
+          {eventNotes[e.id]&&editingEventId!==e.id&&<div style={{background:C.emeraldBg,borderRadius:3,padding:"7px 10px",marginBottom:6,fontSize:12,color:C.emerald,fontFamily:FB,lineHeight:1.5,borderLeft:`3px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <span>📝 {eventNotes[e.id]}</span>
+            <button onClick={()=>setEditingEventId(e.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.emerald,fontSize:10,fontFamily:FM,flexShrink:0}}>edit</button>
+          </div>}
+          {editingEventId===e.id&&<div style={{marginBottom:8}}>
+            <input
+              defaultValue={eventNotes[e.id]||""}
+              placeholder="Add a note e.g. 'Already paid' or 'Remind me 2 days before'"
+              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:12,fontFamily:FB,background:C.goldPale,color:C.ink,outline:"none",boxSizing:"border-box",marginBottom:6}}
+              autoFocus
+              onBlur={e2=>{setEventNotes(n=>({...n,[e.id]:e2.target.value}));setEditingEventId(null);}}
+              onKeyDown={e2=>{if(e2.key==="Enter"){setEventNotes(n=>({...n,[e.id]:e2.target.value}));setEditingEventId(null);}}}
+            />
+            <button onClick={()=>{setEventNotes(n=>{const x={...n};delete x[e.id];return x;});setEditingEventId(null);}} style={{fontSize:9,color:C.crimson,fontFamily:FM,background:"none",border:"none",cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Clear note</button>
+          </div>}
+          {!eventNotes[e.id]&&editingEventId!==e.id&&<button onClick={()=>setEditingEventId(e.id)} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,background:"none",border:`1px dashed ${C.borderSoft}`,borderRadius:3,padding:"3px 10px",cursor:"pointer",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>+ Add note</button>}
           {brief&&<div style={{background:C.goldPale,borderRadius:3,padding:"8px 10px",marginBottom:8,fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,fontStyle:"italic",borderLeft:`3px solid ${C.goldBorder}`}}>✦ {brief}</div>}
           {briefBusy&&<div style={{fontSize:11,color:C.gold,fontFamily:FM,marginBottom:8}} className="shimmer">Eleanor is preparing your briefing…</div>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
@@ -1383,6 +1494,47 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             );
           })}
           <button onClick={()=>{setCheckerRes(null);setCheckerText("");setCheckerFile(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 0"}}>Clear results</button>
+
+          {/* Reschedule option */}
+          <div style={{marginTop:12,borderTop:`1px solid ${C.borderSoft}`,paddingTop:12}}>
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginBottom:8}}>Need to change a date? Find and reschedule any appointment:</div>
+            <select style={{width:"100%",padding:"9px 12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:8,boxSizing:"border-box"}}
+              value={rescheduleId||""}
+              onChange={e2=>{
+                setRescheduleId(e2.target.value);
+                const ev=events.find(e=>e.id===parseInt(e2.target.value));
+                if(ev){setRescheduleDate(ev.date);setRescheduleTime(ev.time||"09:00");}
+              }}>
+              <option value="">Select appointment to reschedule…</option>
+              {events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
+                <option key={e.id} value={e.id}>{e.date} — {e.title}</option>
+              ))}
+            </select>
+            {rescheduleId&&<div>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>New Date</div>
+                  <input type="date" value={rescheduleDate} onChange={e2=>setRescheduleDate(e2.target.value)} style={{width:"100%",padding:"9px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>New Time</div>
+                  <input type="time" value={rescheduleTime} onChange={e2=>setRescheduleTime(e2.target.value)} style={{width:"100%",padding:"9px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:8,fontSize:12,fontFamily:FB,color:C.inkMid}}>
+                ✦ Confirm: Move <strong>{events.find(e=>e.id===parseInt(rescheduleId))?.title}</strong> to {rescheduleDate} at {rescheduleTime}?
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{flex:1,padding:"9px",border:"none",borderRadius:3,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}
+                  onClick={()=>{
+                    setEvents(evs=>evs.map(e=>e.id===parseInt(rescheduleId)?{...e,date:rescheduleDate,time:rescheduleTime}:e));
+                    setRescheduleId(null);setRescheduleDate("");setRescheduleTime("");
+                  }}>✓ Confirm Change</button>
+                <button style={{flex:1,padding:"9px",border:`1px solid ${C.borderSoft}`,borderRadius:3,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}
+                  onClick={()=>{setRescheduleId(null);setRescheduleDate("");setRescheduleTime("");}}>Cancel</button>
+              </div>
+            </div>}
+          </div>
         </div>}
       </div>
 
@@ -1532,7 +1684,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
         <button className="gold-pulse" style={goldBtn()} onClick={generateBriefing}>Generate My Briefing</button>
       </div>}
-      {briefBusy&&<div style={{textAlign:"center",padding:"60px 0"}}><div className="shimmer" style={{fontSize:22,fontFamily:FD,color:C.gold,fontStyle:"italic",marginBottom:12}}>Preparing your briefing…</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>Analysing schedule · Checking holidays</div></div>}
+      {briefBusy&&<BriefingLoader/>}
       {briefing?.error&&<div><div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"14px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>Unable to generate briefing. Please try again.</div><button style={goldBtn()} onClick={generateBriefing}>Retry</button></div>}
       {briefing&&!briefing.error&&<div>
         <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
@@ -1921,7 +2073,18 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",marginTop:3,marginBottom:4}}>Personal Executive Assistant</div>
             <StatusBadge status={paStatus}/>
           </div>
-          <div style={{width:64,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:C.cream,borderRadius:4,border:`1px solid ${C.borderSoft}`}}><Waveform active={showWave}/></div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{width:54,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:C.cream,borderRadius:4,border:`1px solid ${C.borderSoft}`}}><Waveform active={showWave||eleanorSpeaking}/></div>
+            <button onClick={()=>{
+              const next=!eleanorVoiceOn;
+              setEleanorVoiceOn(next);
+              localStorage.setItem("papa_voice_on",String(next));
+              if(!next)stopSpeaking();
+            }} style={{padding:"5px 10px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>
+              {eleanorVoiceOn?"🔊 On":"🔇 Off"}
+            </button>
+            {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
+          </div>
         </div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"18px 16px",display:"flex",flexDirection:"column",gap:12}}>
@@ -2305,6 +2468,23 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   const SettingsView=()=>(
     <div>
       <div style={SL}>Settings</div>
+      {/* Eleanor Voice */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Eleanor's Voice</div>
+          <button onClick={()=>{
+            const next=!eleanorVoiceOn;
+            setEleanorVoiceOn(next);
+            localStorage.setItem("papa_voice_on",String(next));
+            if(next)eleanorSpeak("Hello. I'm Eleanor, your Personal Assistant. Voice is now enabled.");
+            else stopSpeaking();
+          }} style={{padding:"8px 16px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>
+            {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
+          </button>
+        </div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>When on, Eleanor will speak her responses aloud in chat. Uses your device's built-in voice.</div>
+      </div>
+
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Home Address</div>
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Save your home address once. Eleanor uses it to show a 🗺 Travel button on every appointment in your Calendar — tap it to get directions and travel time in Google Maps.</div>
@@ -2422,7 +2602,19 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {view!=="chat"&&<div style={{padding:"11px 20px",borderTop:`1px solid ${C.border}`,background:C.cream,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.22em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>{if(window.confirm("Clear all events and chat history? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your schedule has been cleared. How may I assist you?",ts:new Date()}]);}}} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
+          <button onClick={()=>{
+            if(window.confirm("⚠ Clear ALL data?\n\nThis will permanently delete all events, chat history, reminders, birthdays and notes.\n\nThis cannot be undone.")){
+              localStorage.clear();
+              setEvents([]);
+              setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. All data has been cleared — a fresh start. How may I assist you?",ts:new Date()}]);
+              setReminders([]);
+              setBirthdays([]);
+              setBirthdayActions({});
+              setEventNotes({});
+              setWishlist([]);
+              setHomeAddress("");
+            }
+          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
           {!installed&&installPrompt&&<button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>⬇ Install App</button>}
           {installed&&<div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
           {!installed&&!installPrompt&&<div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
