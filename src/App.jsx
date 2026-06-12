@@ -258,6 +258,32 @@ function ICalImport({onAdd}){
   </div>);
 }
 
+// Isolated chat input - never re-renders with parent App
+const ChatInput=React.memo(function ChatInput({onSend,disabled}){
+  const ref=React.useRef(null);
+  function send(){
+    if(!ref.current||!ref.current.value.trim()||disabled)return;
+    onSend(ref.current.value.trim());
+    ref.current.value="";
+  }
+  return(
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <input
+        ref={ref}
+        style={{flex:1,padding:"12px 16px",border:"1px solid #DDD5C0",fontSize:13,background:"#FAF6EE",color:"#1C1812",fontFamily:"'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif",letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:"inset 0 1px 3px rgba(60,40,10,0.08)"}}
+        placeholder="Message Eleanor…"
+        disabled={disabled}
+        onKeyDown={e=>{if(e.key==="Enter")send();}}
+      />
+      <button
+        onClick={send}
+        disabled={disabled}
+        style={{width:44,height:44,borderRadius:"50%",border:"none",background:disabled?"#EBE4D2":"linear-gradient(135deg,#9A7B3C,#C4993E)",color:"#FFFDF8",cursor:disabled?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}
+      >→</button>
+    </div>
+  );
+});
+
 function BriefingLoader(){
   const [step,setStep]=React.useState(0);
   const steps=[
@@ -595,18 +621,20 @@ Rules:
 - Never return an empty events array — if you find ANY dates at all, include them
 - summary should be a warm one-sentence overview of what was found`;
 
-  async function sendChat(){
+  async function sendChat(directText){
     const el=document.getElementById("chat-input");
-    const inputVal=el?el.value:chatIn;
+    const inputVal=directText||chatIn;
     if(!inputVal.trim()||paStatus!=="idle")return;
     const u=inputVal.trim();
     setChatIn("");
     if(el)el.value="";
     setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
     setPaStatus("thinking");
-    // Read events fresh from localStorage to ensure latest data is included
-    const freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");
-    const allEvents=freshEvents.length>=events.length?freshEvents:events;
+    // Merge events state with localStorage to ensure nothing is missed
+    let freshEvents=[];
+    try{freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{}
+    // Use whichever has more events (state may have just-imported events not yet in localStorage)
+    const allEvents=events.length>=freshEvents.length?events:freshEvents;
     const ctx=[...allEvents].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})${e.notes?" ["+e.notes+"]":""}`).join("\n")||"No events scheduled.";
     try{
       const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Thinko, Skyla), Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Write in natural flowing sentences — never bullet points. One question max at a time. Schedule:\n${ctx}\nConflicts:${cfls.length}. Today:${fmt(today)}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
@@ -2200,10 +2228,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       </div>
       {msgs.length<=1&&paStatus==="idle"&&<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>{["What's on today?","Any conflicts?","Free time this week?","Holiday advice"].map(q=>(<button key={q} onClick={()=>setChatIn(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.1em",cursor:"pointer"}}>{q}</button>))}</div>}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <input id="chat-input" style={{flex:1,padding:"12px 16px",border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:`inset 0 1px 3px ${C.shadow}`}} defaultValue={chatIn} onChange={e=>setChatIn(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setChatIn(e.target.value);sendChat();}}} placeholder="Message Eleanor…" disabled={paStatus!=="idle"}/>
-          <button onClick={()=>{const el=document.getElementById("chat-input");if(el)setChatIn(el.value);sendChat();}} disabled={paStatus!=="idle"} style={{width:44,height:44,borderRadius:"50%",border:"none",background:paStatus!=="idle"?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:paStatus!=="idle"?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:paStatus==="idle"?`0 2px 10px rgba(154,123,60,0.35)`:"none",transition:"all 0.2s"}}>→</button>
-        </div>
+        <ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/>
       </div>
     </div>
   );
