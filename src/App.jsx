@@ -163,18 +163,38 @@ function ICalImport({onAdd}){
     if(!icalUrl.trim())return;
     setLoading(true);setError("");setEvents([]);
     localStorage.setItem("papa_ical_url",icalUrl.trim());
+    // Build proper Google Calendar iCal URL if user pasted secret key
+    let url=icalUrl.trim();
+    // If they pasted just the secret key (not a full URL)
+    if(!url.startsWith("http")){
+      url=`https://calendar.google.com/calendar/ical/${encodeURIComponent(url)}/basic.ics`;
+    }
     const proxies=[
       "https://api.allorigins.win/raw?url=",
       "https://corsproxy.io/?",
+      "https://cors-anywhere.herokuapp.com/",
     ];
     let text="";
     for(const proxy of proxies){
       try{
-        const r=await fetch(proxy+encodeURIComponent(icalUrl.trim()),{signal:AbortSignal.timeout(8000)});
-        if(r.ok){text=await r.text();break;}
+        const r=await fetch(proxy+encodeURIComponent(url),{signal:AbortSignal.timeout(12000)});
+        if(r.ok){
+          const t=await r.text();
+          if(t.includes("BEGIN:VCALENDAR")){text=t;break;}
+        }
       }catch{}
     }
-    if(!text){setError("Could not load calendar. Check your link and try again.");setLoading(false);return;}
+    // Last resort - try direct fetch (works if CORS allows)
+    if(!text){
+      try{
+        const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+        if(r.ok)text=await r.text();
+      }catch{}
+    }
+    if(!text||!text.includes("BEGIN:VCALENDAR")){
+      setError("Could not load calendar. Please paste the full iCal URL from Google Calendar settings (it should start with https://calendar.google.com)");
+      setLoading(false);return;
+    }
     // Parse iCal
     const evs=[];
     const blocks=text.split("BEGIN:VEVENT");
@@ -531,7 +551,12 @@ export default function App(){
   const weekDays=Array.from({length:7},(_,i)=>{const d=new Date(today.getTime()+i*86400000),ds=fmt(d);return{ds,label:i===0?"Today":d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}),evs:events.filter(e=>e.date===ds).sort((a,b)=>a.time.localeCompare(b.time))};});
   const nextHol=upcomingHols(1)[0];
 
-  function addEvs(list,src){const mx=Math.max(...events.map(e=>e.id),0);setEvents(ev=>[...ev,...list.map((e,i)=>({...e,id:mx+i+1,source:src}))]);}
+  function addEvs(list,src){
+    setEvents(ev=>{
+      const mx=Math.max(0,...ev.map(e=>e.id));
+      return [...ev,...list.map((e,i)=>({...e,id:mx+i+1+(Math.floor(Math.random()*10000)),source:src}))];
+    });
+  }
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
   // Robust JSON extractor - handles truncated, malformed, escaped JSON
@@ -591,7 +616,7 @@ Rules:
     const u=chatIn.trim();setChatIn("");
     setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
     setPaStatus("thinking");
-    const ctx=events.slice(0,20).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})`).join("\n");
+    const ctx=events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})${e.notes?" ["+e.notes+"]":""}`).join("\n");
     try{
       const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Thinko, Skyla), Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Write in natural flowing sentences — never bullet points. One question max at a time. Schedule:\n${ctx}\nConflicts:${cfls.length}. Today:${fmt(today)}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
@@ -1019,11 +1044,11 @@ Rules:
         reader.readAsDataURL(pdfFile);
       });
       const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:3000,
-          system:'Extract all appointments, dates, deadlines, key information and action items from this PDF. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string}',
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:8000,
+          system:`You are Eleanor, an expert document analyst. Read this entire PDF thoroughly. Extract every date, appointment, deadline, payment, event, action item and key piece of information. Return ONLY raw JSON, no markdown: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string}. Today is ${fmt(today)}. If no year stated use ${today.getFullYear()} or ${today.getFullYear()+1} whichever is future. Extract EVERYTHING you can find.`,
           messages:[{role:"user",content:[
             {type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},
-            {type:"text",text:"Extract all key dates, appointments, deadlines and action items from this PDF."}
+            {type:"text",text:"Please read this entire PDF carefully and extract all dates, events, appointments, deadlines, payments and action items. Be thorough."}
           ]}]
         })
       });
@@ -1069,24 +1094,27 @@ Rules:
   function eleanorSpeak(text){
     if(!eleanorVoiceOn||!window.speechSynthesis)return;
     window.speechSynthesis.cancel();
-    const utterance=new SpeechSynthesisUtterance(text);
-    // Find a nice British female voice
+    function doSpeak(){
+      const voices=window.speechSynthesis.getVoices();
+      const utterance=new SpeechSynthesisUtterance(text);
+      const preferred=voices.find(v=>v.lang==="en-GB"&&v.name.toLowerCase().includes("female"))
+        ||voices.find(v=>v.lang==="en-GB")
+        ||voices.find(v=>v.lang.startsWith("en")&&v.name.toLowerCase().includes("female"))
+        ||voices.find(v=>v.lang.startsWith("en"))
+        ||voices[0];
+      if(preferred)utterance.voice=preferred;
+      utterance.rate=0.92;utterance.pitch=1.05;utterance.volume=1;
+      utterance.onstart=()=>setEleanorSpeaking(true);
+      utterance.onend=()=>setEleanorSpeaking(false);
+      utterance.onerror=()=>setEleanorSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    }
     const voices=window.speechSynthesis.getVoices();
-    const preferred=voices.find(v=>v.lang==="en-GB"&&v.name.toLowerCase().includes("female"))
-      ||voices.find(v=>v.lang==="en-GB")
-      ||voices.find(v=>v.lang.startsWith("en")&&v.name.toLowerCase().includes("female"))
-      ||voices.find(v=>v.lang.startsWith("en"))
-      ||voices[0];
-    if(preferred)utterance.voice=preferred;
-    utterance.rate=0.92;
-    utterance.pitch=1.05;
-    utterance.volume=1;
-    utterance.onstart=()=>setEleanorSpeaking(true);
-    utterance.onend=()=>setEleanorSpeaking(false);
-    utterance.onerror=()=>setEleanorSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    if(voices.length>0){doSpeak();}
+    else{
+      window.speechSynthesis.onvoiceschanged=()=>{window.speechSynthesis.onvoiceschanged=null;doSpeak();};
+    }
   }
-
   function stopSpeaking(){
     window.speechSynthesis?.cancel();
     setEleanorSpeaking(false);
@@ -1728,20 +1756,20 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     <div>
       <div style={SL}>Import Appointments</div>
 
-      {/* Context note box */}
+      {/* Context note box - uncontrolled to prevent typing lag */}
       <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:16}}>
         <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>Help Eleanor understand what to extract</div>
         <input
+          id="import-context-input"
           style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}
           placeholder="e.g. 'My daughter is in Year 4' · 'Only extract my appointments' · 'Focus on July dates'"
           defaultValue={importContext}
-          onBlur={e=>setImportContext(e.target.value)}
-          onChange={e=>{importContextRef.current=e.target.value;}}
+          onBlur={e=>{setImportContext(e.target.value);importContextRef.current=e.target.value;}}
         />
       </div>
 
       {/* visual method picker */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}} key="import-grid">
         {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
           <div key={m.type} className="import-method" onClick={()=>setImpTab(m.tab)}
             style={{background:impTab===m.tab?C.goldPale:C.card,border:`1.5px solid ${impTab===m.tab?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"14px 14px",cursor:"pointer",transition:"all 0.18s",textAlign:"center",boxShadow:`0 1px 6px ${C.shadow}`}}>
@@ -1761,8 +1789,18 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
       {impTab==="text"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any text — an email, WhatsApp conversation, a list of dates. Eleanor will identify all commitments automatically.</div>
-        <textarea style={{...inp,minHeight:150,resize:"vertical"}} value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder={"e.g. 'Dentist Thursday 14th at 2:30pm'\nor paste a full email confirmation\nor 'Can you do school pickup Monday at 3:30?'"}/>
-        <button style={goldBtn()} onClick={parsePaste} disabled={pasteBusy}>{pasteBusy?"Analysing…":"Extract Appointments"}</button>
+        <textarea
+          id="paste-text-input"
+          style={{...inp,minHeight:150,resize:"vertical"}}
+          defaultValue={pasteText}
+          onChange={e=>{setPasteText(e.target.value);}}
+          placeholder={"e.g. 'Dentist Thursday 14th at 2:30pm'\nor paste a full email confirmation\nor 'Can you do school pickup Monday at 3:30?'"}
+        />
+        <button style={goldBtn()} onClick={()=>{
+          const el=document.getElementById("paste-text-input");
+          if(el)setPasteText(el.value);
+          parsePaste();
+        }} disabled={pasteBusy}>{pasteBusy?"Analysing…":"Extract Appointments"}</button>
         <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setView("home");}} onDiscard={()=>setPasteRes(null)}/>
       </div>}
       {impTab==="image"&&<div>
