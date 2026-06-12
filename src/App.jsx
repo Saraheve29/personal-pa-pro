@@ -224,12 +224,13 @@ function ICalImport({onAdd}){
         </div>
       </div>
       <textarea
-        value={icalUrl}
-        onChange={e=>setIcalUrl(e.target.value)}
+        id="ical-url-input"
+        defaultValue={icalUrl}
+        onBlur={e=>setIcalUrl(e.target.value)}
         placeholder="Paste your iCal link here..."
         style={{width:"100%",padding:"12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:12,fontFamily:FM,minHeight:80,resize:"none",background:C.parchment,color:C.ink,outline:"none",marginBottom:12,boxSizing:"border-box"}}
       />
-      <button style={goldBtn()} onClick={()=>{if(icalUrl.trim()){setShowSetup(false);fetchIcal();}}}>Connect Calendar</button>
+      <button style={goldBtn()} onClick={()=>{const el=document.getElementById("ical-url-input");const val=el?el.value:icalUrl;if(val.trim()){setIcalUrl(val);setShowSetup(false);fetchIcal();}}}>Connect Calendar</button>
     </div>:<div>
       <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span>✦ Calendar connected</span>
@@ -352,6 +353,7 @@ export default function App(){
   const [eventNotes,setEventNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_event_notes")||"{}");}catch{return {};}});
   const [editingEventId,setEditingEventId]=useState(null);
   const [rescheduleId,setRescheduleId]=useState(null);
+  const [rescheduleSearch,setRescheduleSearch]=useState("");
   const [rescheduleDate,setRescheduleDate]=useState("");
   const [rescheduleTime,setRescheduleTime]=useState("");
   const importContextRef=useRef("");
@@ -594,11 +596,18 @@ Rules:
 - summary should be a warm one-sentence overview of what was found`;
 
   async function sendChat(){
-    if(!chatIn.trim()||paStatus!=="idle")return;
-    const u=chatIn.trim();setChatIn("");
+    const el=document.getElementById("chat-input");
+    const inputVal=el?el.value:chatIn;
+    if(!inputVal.trim()||paStatus!=="idle")return;
+    const u=inputVal.trim();
+    setChatIn("");
+    if(el)el.value="";
     setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
     setPaStatus("thinking");
-    const ctx=events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})${e.notes?" ["+e.notes+"]":""}`).join("\n");
+    // Read events fresh from localStorage to ensure latest data is included
+    const freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");
+    const allEvents=freshEvents.length>=events.length?freshEvents:events;
+    const ctx=[...allEvents].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})${e.notes?" ["+e.notes+"]":""}`).join("\n")||"No events scheduled.";
     try{
       const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Thinko, Skyla), Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Write in natural flowing sentences — never bullet points. One question max at a time. Schedule:\n${ctx}\nConflicts:${cfls.length}. Today:${fmt(today)}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
@@ -611,7 +620,9 @@ Rules:
   async function generateBriefing(){
     setBriefBusy(true);setBriefing(null);
     const hols=upcomingHols(6);
-    const schedCtx=(()=>{const lines=[];for(let i=0;i<30;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=events.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events in next 30 days.";})();
+    const freshEvs=JSON.parse(localStorage.getItem("papa_events")||"[]");
+    const allEvs=freshEvs.length>=events.length?freshEvs:events;
+    const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
     try{const raw=await callAI({system:`You are a discreet, highly intelligent Executive PA. Produce a private executive briefing. Return ONLY valid JSON, no markdown:\n{"headline":string,"today_summary":string,"alerts":[{"title":string,"detail":string,"severity":"high"|"medium"|"low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}\nToday:${fmt(today)}.`,messages:[{role:"user",content:`Schedule:\n${schedCtx}\n\nHolidays:\n${holCtx}\n\nConflicts:${cfls.length}.`}]});setBriefing(JSON.parse(raw.replace(/```json|```/g,"").trim()));}catch{setBriefing({error:true});}
     setBriefBusy(false);
@@ -1553,18 +1564,36 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {/* Reschedule option */}
           <div style={{marginTop:12,borderTop:`1px solid ${C.borderSoft}`,paddingTop:12}}>
             <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginBottom:8}}>Need to change a date? Find and reschedule any appointment:</div>
-            <select style={{width:"100%",padding:"9px 12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:8,boxSizing:"border-box"}}
-              value={rescheduleId||""}
+            <input
+              id="reschedule-search"
+              placeholder="Type event name or date to search…"
+              style={{width:"100%",padding:"9px 12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:6,boxSizing:"border-box"}}
               onChange={e2=>{
-                setRescheduleId(e2.target.value);
-                const ev=events.find(e=>e.id===parseInt(e2.target.value));
-                if(ev){setRescheduleDate(ev.date);setRescheduleTime(ev.time||"09:00");}
-              }}>
-              <option value="">Select appointment to reschedule…</option>
-              {events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
-                <option key={e.id} value={e.id}>{e.date} — {e.title}</option>
-              ))}
-            </select>
+                const q=e2.target.value.toLowerCase();
+                setRescheduleSearch(q);
+                setRescheduleId("");setRescheduleDate("");setRescheduleTime("");
+              }}
+            />
+            {(()=>{
+              const q=(rescheduleSearch||"").toLowerCase();
+              const filtered=q.length>0?events.filter(e=>e.title.toLowerCase().includes(q)||e.date.includes(q)||e.notes?.toLowerCase().includes(q)):events;
+              return filtered.length>0?(
+                <div style={{maxHeight:200,overflowY:"auto",border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:8,background:C.card}}>
+                  {filtered.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
+                    <div key={e.id} onClick={()=>{
+                      setRescheduleId(String(e.id));
+                      setRescheduleDate(e.date);
+                      setRescheduleTime(e.time||"09:00");
+                      const el=document.getElementById("reschedule-search");
+                      if(el)el.value=e.title+" — "+e.date;
+                    }} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.borderSoft}`,background:rescheduleId===String(e.id)?C.goldPale:C.card,transition:"background 0.15s"}}>
+                      <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e.title}</div>
+                      <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.date} {e.time&&"· "+e.time}</div>
+                    </div>
+                  ))}
+                </div>
+              ):q.length>0?<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,padding:"8px 0",marginBottom:8}}>No events found matching "{rescheduleSearch}"</div>:null;
+            })()}
             {rescheduleId&&<div>
               <div style={{display:"flex",gap:8,marginBottom:8}}>
                 <div style={{flex:1}}>
@@ -1699,6 +1728,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={{fontSize:15,fontFamily:FD,color:day.ds===fmt(today)?C.gold:C.ink,fontStyle:day.ds===fmt(today)?"italic":"normal",fontWeight:300}}>{day.label}</div>
             <div style={{flex:1,height:1,background:C.borderSoft}}/>
             <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{day.evs.length} appt{day.evs.length!==1?"s":""}</div>
+            <button onClick={()=>{setNewEv(n=>({...n,date:day.ds}));setView("add");}} style={{background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"3px 9px",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase"}}>＋ Event</button>
+            <button onClick={()=>{setView("reminders");}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"3px 9px",cursor:"pointer",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase"}}>⏰</button>
           </div>
           {day.evs.length===0?<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,paddingLeft:4,fontStyle:"italic"}}>— Clear</div>
           :day.evs.map(e=>(
@@ -2028,8 +2059,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
       {impTab==="link"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste a link to any event page — Eleanor will read it and extract the date, time, venue and price.</div>
-        <input style={{...inp,marginBottom:8}} placeholder="https://..." value={linkUrl} onChange={e=>setLinkUrl(e.target.value)}/>
-        <button style={goldBtn()} onClick={readLink} disabled={linkBusy}>{linkBusy?"Reading page…":"Read Event from Link"}</button>
+        <input id="link-url-input" style={{...inp,marginBottom:8}} placeholder="https://..." defaultValue={linkUrl} onBlur={e=>setLinkUrl(e.target.value)}/>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("link-url-input");if(el)setLinkUrl(el.value);readLink();}} disabled={linkBusy}>{linkBusy?"Reading page…":"Read Event from Link"}</button>
         {linkRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{linkRes.msg}</div>}
         {linkRes&&!linkRes.error&&<div style={{marginTop:14}}>
           {linkRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:12,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {linkRes.summary}</div>}
@@ -2170,8 +2201,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {msgs.length<=1&&paStatus==="idle"&&<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>{["What's on today?","Any conflicts?","Free time this week?","Holiday advice"].map(q=>(<button key={q} onClick={()=>setChatIn(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.1em",cursor:"pointer"}}>{q}</button>))}</div>}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <input style={{flex:1,padding:"12px 16px",border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:`inset 0 1px 3px ${C.shadow}`}} value={chatIn} onChange={e=>setChatIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} placeholder="Message Eleanor…" disabled={paStatus!=="idle"}/>
-          <button onClick={sendChat} disabled={paStatus!=="idle"||!chatIn.trim()} style={{width:44,height:44,borderRadius:"50%",border:"none",background:paStatus!=="idle"||!chatIn.trim()?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:paStatus!=="idle"||!chatIn.trim()?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:paStatus==="idle"&&chatIn.trim()?`0 2px 10px rgba(154,123,60,0.35)`:"none",transition:"all 0.2s"}}>→</button>
+          <input id="chat-input" style={{flex:1,padding:"12px 16px",border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:`inset 0 1px 3px ${C.shadow}`}} defaultValue={chatIn} onChange={e=>setChatIn(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setChatIn(e.target.value);sendChat();}}} placeholder="Message Eleanor…" disabled={paStatus!=="idle"}/>
+          <button onClick={()=>{const el=document.getElementById("chat-input");if(el)setChatIn(el.value);sendChat();}} disabled={paStatus!=="idle"} style={{width:44,height:44,borderRadius:"50%",border:"none",background:paStatus!=="idle"?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:paStatus!=="idle"?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:paStatus==="idle"?`0 2px 10px rgba(154,123,60,0.35)`:"none",transition:"all 0.2s"}}>→</button>
         </div>
       </div>
     </div>
@@ -2501,7 +2532,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Add Reminder</div>
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>e.g. Take vitamins, What's for dinner, Walk the dog, Drink water</div>
-        <input style={inp} placeholder="Reminder text..." value={reminderText} onChange={e=>setReminderText(e.target.value)}/>
+        <input id="reminder-text-input" style={inp} placeholder="Reminder text..." defaultValue={reminderText} onBlur={e=>setReminderText(e.target.value)}/>
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,whiteSpace:"nowrap"}}>Time:</div>
           <input type="time" value={reminderTime} onChange={e=>setReminderTime(e.target.value)} style={{...inp,marginBottom:0,flex:1}}/>
@@ -2514,7 +2545,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             return(<button key={i} onClick={()=>setReminderDays(ds=>sel?ds.filter(x=>x!==val):[...ds,val])} style={{padding:"6px 10px",borderRadius:3,border:`1.5px solid ${sel?C.goldBorder:C.borderSoft}`,background:sel?C.goldPale:C.card,color:sel?C.gold:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.08em"}}>{d}</button>);
           })}
         </div>
-        <button style={goldBtn()} onClick={addReminder} disabled={!reminderText.trim()}>Add Reminder</button>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("reminder-text-input");if(el)setReminderText(el.value);addReminder();}} disabled={false}>Add Reminder</button>
       </div>
 
       {/* Quick add suggestions */}
@@ -2522,7 +2553,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Quick Add</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
           {[{text:"💊 Take vitamins",time:"08:00"},{text:"💧 Drink water",time:"10:00"},{text:"🍽 What's for dinner?",time:"16:00"},{text:"🌙 Wind down",time:"21:00"},{text:"🐕 Walk the dog",time:"07:30"},{text:"💊 Evening medication",time:"21:00"}].map((s,i)=>(
-            <button key={i} onClick={()=>{setReminderText(s.text);setReminderTime(s.time);}} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{s.text}</button>
+            <button key={i} onClick={()=>{setReminderText(s.text);setReminderTime(s.time);const el=document.getElementById("reminder-text-input");if(el)el.value=s.text;}} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{s.text}</button>
           ))}
         </div>
       </div>
