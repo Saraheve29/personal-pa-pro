@@ -317,12 +317,16 @@ export default function App(){
   const [showWave,  setShowWave] =useState(false);
   const [newEv,     setNewEv]    =useState({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});
   const [pasteText, setPasteText]=useState("");
+  const [importContext,setImportContext]=useState("");
+  const [criticalOnly,setCriticalOnly]=useState(false);
+  const importContextRef=useRef("");
   const [pasteBusy, setPasteBusy]=useState(false);
   const [pasteRes,  setPasteRes] =useState(null);
   const [confirmCosts, setConfirmCosts] = useState(false);
   const [editedFinancials, setEditedFinancials] = useState([]);
   const [imgFile,   setImgFile]  =useState(null);
   const [imgB64,    setImgB64]   =useState(null);
+  const [multiImgQueue,setMultiImgQueue]=useState([]);
   const [imgPrev,   setImgPrev]  =useState(null);
   const [imgBusy,   setImgBusy]  =useState(false);
   const [imgRes,    setImgRes]   =useState(null);
@@ -334,6 +338,8 @@ export default function App(){
   const [showTravelModal,setShowTravelModal]=useState(false);
   const [eventWeather,setEventWeather]=useState({});
   const [reminders,setReminders]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_reminders")||"[]");}catch{return [];}});
+  const [birthdays,setBirthdays]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_birthdays")||"[]");}catch{return [];}});
+  const [birthdayActions,setBirthdayActions]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_birthday_actions")||"{}");}catch{return {};}});
   const [showReminderModal,setShowReminderModal]=useState(false);
   const [newReminder,setNewReminder]=useState({text:"",time:"08:00",days:["1","2","3","4","5","6","7"]});
   const [voiceListening,setVoiceListening]=useState(false);
@@ -394,6 +400,8 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
   useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
   useEffect(()=>{try{localStorage.setItem("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
+  useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
+  useEffect(()=>{try{localStorage.setItem("papa_birthday_actions",JSON.stringify(birthdayActions));}catch{}},[birthdayActions]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -539,7 +547,7 @@ Rules:
           max_tokens:8000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
 Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
-Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.`,
+Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT CONTEXT FROM USER: ${importContext} — use this to filter and prioritise what to extract.`:""}`,
           messages:[{role:"user",content:`Analyse this text and extract all information:
 
 ${pasteText}`}]
@@ -569,7 +577,25 @@ ${pasteText}`}]
     setPasteBusy(false);
   }
 
-    function handleImg(e){
+    function handleImgMultiple(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    if(files.length===1){
+      setImgFile(files[0]);setImgRes(null);setImgB64(null);
+      const r=new FileReader();
+      r.onload=ev=>{setImgPrev(ev.target.result);const parts=ev.target.result.split(",");if(parts.length>=2)setImgB64(parts[1]);};
+      r.readAsDataURL(files[0]);
+    }else{
+      // Multiple files - process queue
+      setMultiImgQueue(files);setImgRes(null);
+      setImgFile(files[0]);
+      const r=new FileReader();
+      r.onload=ev=>{setImgPrev(ev.target.result);const parts=ev.target.result.split(",");if(parts.length>=2)setImgB64(parts[1]);};
+      r.readAsDataURL(files[0]);
+    }
+  }
+
+  function handleImg(e){
     const f=e.target.files[0];
     if(!f)return;
     setImgFile(f);setImgRes(null);setImgB64(null);
@@ -770,7 +796,7 @@ Rules:
     try{
       const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,
-          system:'You are Eleanor, a professional PA. Read this email and extract: appointments/dates, action items required, key information, and any deadlines. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string,"sender":string,"urgent":boolean}',
+          system:`You are Eleanor, a professional PA. Read this email and extract: appointments/dates, action items required, key information, and any deadlines.${importContext?" Context: "+importContext:""} Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string,"sender":string,"urgent":boolean}`,
           messages:[{role:"user",content:"Read this email and extract all information:\n\n"+emailText}]
         })
       });
@@ -815,6 +841,28 @@ Rules:
       setHandleRes(raw);
     }catch(e){setHandleRes("Error: "+e.message);}
     setHandleBusy(false);
+  }
+
+  // ── BIRTHDAY HELPERS ──
+  function nextOccurrence(monthDay){
+    // monthDay format: "MM-DD"
+    const [m,d]=monthDay.split("-").map(Number);
+    const now=new Date();
+    let year=now.getFullYear();
+    const next=new Date(year,m-1,d);
+    if(next<=now)next.setFullYear(year+1);
+    return fmt(next);
+  }
+  function daysUntilDate(dateStr){
+    return Math.ceil((new Date(dateStr+"T12:00:00")-new Date())/86400000);
+  }
+  function getBirthdayAlerts(){
+    return birthdays.map(b=>{
+      const next=nextOccurrence(b.monthDay);
+      const days=daysUntilDate(next);
+      const action=birthdayActions[b.id];
+      return{...b,next,days,action};
+    }).filter(b=>b.days<=30).sort((a,b)=>a.days-b.days);
   }
 
   // ── SCHEDULE CHECKER ──
@@ -1410,6 +1458,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{display:"flex",gap:8,marginBottom:10}}>
         <button onClick={()=>setView("add")} style={{flex:1,padding:"11px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>＋ New Event</button>
         <button onClick={()=>setView("reminders")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⏰ Reminders</button>
+        <button onClick={()=>setView("birthdays")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🎂 Birthdays</button>
         <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
       </div>
 
@@ -1417,13 +1466,21 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   );
 
   /* ── SCHEDULE (TODAY DETAIL) ── */
-  const ScheduleView=()=>(
-    <div>
+  const ScheduleView=()=>{
+    const criticalEvs=events.filter(e=>e.priority==="critical").sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+    const displayEvs=criticalOnly?criticalEvs:todayEvs;
+    return(<div>
       {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
-      <div style={SL}>{today.toLocaleDateString("en-GB",{weekday:"long"})} — {todayEvs.length} appointment{todayEvs.length!==1?"s":""}</div>
-      {todayEvs.length===0?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your day is clear.</div></div>:todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>)}
-    </div>
-  );
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={SL}>{criticalOnly?`${criticalEvs.length} Critical Events`:today.toLocaleDateString("en-GB",{weekday:"long"})+" — "+todayEvs.length+" appointment"+(todayEvs.length!==1?"s":"")}</div>
+        {criticalOnly&&<button onClick={()=>setCriticalOnly(false)} style={{background:"none",border:`1px solid ${C.crimson}`,borderRadius:3,padding:"4px 10px",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear</button>}
+      </div>
+      {criticalOnly&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}40`,borderLeft:`4px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:12,fontSize:12,color:C.crimson,fontFamily:FB}}>Showing all critical appointments across your schedule.</div>}
+      {displayEvs.length===0
+        ?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>{criticalOnly?"No critical events.":"Your day is clear."}</div></div>
+        :displayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>)}
+    </div>);
+  };
 
   /* ── WEEK VIEW ── */
   const WeekView=()=>(
@@ -1481,10 +1538,34 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
         {briefing.today_summary&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:10}}>Today at a Glance</div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
         {briefing.weekly_balance&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:12}}>Schedule Balance</div><div style={{display:"flex",alignItems:"center",gap:16}}><div style={{textAlign:"center",minWidth:50}}><div style={{fontSize:34,fontFamily:FD,color:briefing.weekly_balance.score>=7?C.emerald:briefing.weekly_balance.score>=4?C.gold:C.crimson,fontWeight:300,lineHeight:1}}>{briefing.weekly_balance.score}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>/10</div></div><div style={{flex:1}}><div style={{height:3,background:C.borderSoft,borderRadius:2,marginBottom:10,overflow:"hidden"}}><div style={{height:3,width:`${briefing.weekly_balance.score*10}%`,background:`linear-gradient(90deg,${C.gold},${C.goldLight})`,borderRadius:2}}/></div><div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{briefing.weekly_balance.comment}</div></div></div></div>}
-        {briefing.alerts?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Alerts & Flags</div>{briefing.alerts.map((a,i)=><div key={i} style={{background:sevBg(a.severity),border:`1px solid ${sevColor(a.severity)}30`,borderLeft:`4px solid ${sevColor(a.severity)}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:14,fontFamily:FD,color:sevColor(a.severity),marginBottom:4,fontWeight:500}}>{a.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{a.detail}</div></div>)}</div>}
+        {/* Birthday alerts in briefing */}
+        {(()=>{const alerts=getBirthdayAlerts().filter(b=>b.days<=14&&b.action!=="done"&&b.action!=="skip");if(!alerts.length)return null;return(<div style={{marginBottom:18}}>
+          <div style={SL}>🎂 Birthdays & Celebrations</div>
+          {alerts.map(b=>{
+            const isSoon=b.days<=7;
+            const color=b.days===0?C.crimson:isSoon?C.gold:C.sapphire;
+            const bg=b.days===0?C.crimsonBg:isSoon?C.goldPale:C.sapphireBg;
+            return(<div key={b.id} style={{background:bg,border:`1px solid ${color}30`,borderLeft:`4px solid ${color}`,padding:"13px 16px",marginBottom:8,borderRadius:6}}>
+              <div style={{fontFamily:FD,fontSize:15,color:C.ink,marginBottom:4}}>{b.days===0?"🎉 Today":"🎂 "+b.name+"'s "+(b.type==="birthday"?"Birthday":b.type)+" in "+b.days+" day"+(b.days>1?"s":"")}</div>
+              <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:10}}>{b.days<=1?"It's very soon — make sure you have a card or gift ready.":b.days<=7?"Consider buying a card or present this week before it's too late.":"You have "+b.days+" days — a good time to plan something thoughtful."}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>{
+                  setBirthdayActions(a=>({...a,[b.id]:"scheduled"}));
+                  const mx=Math.max(...events.map(e=>e.id),0);
+                  setEvents(ev=>[...ev,{id:mx+1,title:"Buy gift for "+b.name,date:fmt(new Date(new Date(b.next+"T12:00:00").getTime()-7*86400000)),time:"10:00",priority:"high",notes:b.type+" — "+b.name,source:"birthday"}]);
+                }} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>📅 Schedule</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"done"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Done</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"skip"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Dismiss</button>
+                <button onClick={()=>{setChatIn("Help me plan something for "+b.name+"'s "+b.type+" on "+b.next);setView("chat");}} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✦ Ask Eleanor</button>
+              </div>
+            </div>);
+          })}
+        </div>);})()}
+
+        {briefing.alerts?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Alerts & Flags — tap any to ask Eleanor</div>{briefing.alerts.map((a,i)=><div key={i} onClick={()=>{setChatIn("Tell me more about: "+a.title);setView("chat");}} style={{background:sevBg(a.severity),border:`1px solid ${sevColor(a.severity)}30`,borderLeft:`4px solid ${sevColor(a.severity)}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",position:"relative"}}><div style={{fontSize:14,fontFamily:FD,color:sevColor(a.severity),marginBottom:4,fontWeight:500}}>{a.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{a.detail}</div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:sevColor(a.severity),fontFamily:FM,opacity:0.6}}>tap to ask →</div></div>)}</div>}
         {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}</div>}
-        {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities</div>{briefing.opportunities.map((o,i)=><div key={i} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div></div>)}</div>}
-        {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations</div>{briefing.recommendations.map((r,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div></div>)}</div>}
+        {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities — tap any to ask Eleanor</div>{briefing.opportunities.map((o,i)=><div key={i} onClick={()=>{setChatIn("Help me with this opportunity: "+o.title);setView("chat");}} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",position:"relative"}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.emerald,fontFamily:FM,opacity:0.6}}>tap to ask →</div></div>)}</div>}
+        {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations — tap any to ask Eleanor</div>{briefing.recommendations.map((r,i)=><div key={i} onClick={()=>{setChatIn("Help me with: "+r.title);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`,cursor:"pointer",position:"relative"}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.inkFaint,fontFamily:FM}}>tap →</div></div>)}</div>}
         <button style={goldBtn(true)} onClick={()=>{setBriefing(null);generateBriefing();}}>↺ Refresh Briefing</button>
       </div>}
     </div>
@@ -1494,6 +1575,19 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   const ImportView=()=>(
     <div>
       <div style={SL}>Import Appointments</div>
+
+      {/* Context note box */}
+      <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:16}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>Help Eleanor understand what to extract</div>
+        <input
+          style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}
+          placeholder="e.g. 'My daughter is in Year 4' · 'Only extract my appointments' · 'Focus on July dates'"
+          defaultValue={importContext}
+          onBlur={e=>setImportContext(e.target.value)}
+          onChange={e=>{importContextRef.current=e.target.value;}}
+        />
+      </div>
+
       {/* visual method picker */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
         {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
@@ -1523,7 +1617,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image</strong> — a poster, flyer, event ticket, booking confirmation, screenshot, letter, or even a handwritten note. Eleanor will read the whole image and extract every date, time, and location she can find.</div>
         <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,letterSpacing:"0.06em",borderRadius:6}}>
           {imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter…"}
-          <input type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
+          <input type="file" accept="image/*" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
         </label>
         {imgPrev&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
         {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?"Reading image…":"Extract Appointments from Image"}</button>}
@@ -1893,7 +1987,15 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     }
 
     return(<div>
-      <div style={SL}>Calendar</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={SL}>Calendar</div>
+        <a href="https://calendar.google.com" target="_blank" rel="noreferrer" style={{fontSize:9,padding:"5px 12px",borderRadius:3,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",border:`1px solid ${C.sapphire}30`,textDecoration:"none"}}>📅 Open Google Calendar</a>
+      </div>
+
+      {/* iCal sync button */}
+      <button onClick={()=>setImpTab("calendar")||setView("import")} style={{width:"100%",padding:"10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>🔄</span> Sync Google Calendar via iCal
+      </button>
 
       {/* Month navigation */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -2019,6 +2121,107 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     </div>
   );
 
+  /* ── BIRTHDAYS VIEW ── */
+  const BirthdaysView=()=>{
+    const [newName,setNewName]=useState("");
+    const [newDate,setNewDate]=useState("");
+    const [newType,setNewType]=useState("birthday");
+
+    const upcoming=getBirthdayAlerts();
+    const typeIcons={birthday:"🎂",anniversary:"💍",celebration:"🎉",other:"⭐"};
+
+    return(<div>
+      <div style={SL}>Birthdays & Celebrations</div>
+
+      {/* Upcoming alerts */}
+      {upcoming.length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>Coming Up — Next 30 Days</div>
+        {upcoming.map(b=>{
+          const action=b.action;
+          const isSoon=b.days<=7;
+          const isToday=b.days===0;
+          const color=isToday?C.crimson:isSoon?C.gold:C.sapphire;
+          const bg=isToday?C.crimsonBg:isSoon?C.goldPale:C.sapphireBg;
+          return(
+            <div key={b.id} style={{background:bg,border:`1px solid ${color}30`,borderLeft:`4px solid ${color}`,borderRadius:6,padding:"14px 16px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <span style={{fontSize:24}}>{typeIcons[b.type]||"🎂"}</span>
+                  <div>
+                    <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{b.name}</div>
+                    <div style={{fontSize:10,color:color,fontFamily:FM,marginTop:1}}>
+                      {isToday?"🎉 Today!":isSoon?`In ${b.days} day${b.days>1?"s":""}`:b.days+" days"} · {new Date(b.next+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={()=>setBirthdays(bs=>bs.filter(x=>x.id!==b.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
+              </div>
+
+              {/* Eleanor suggestion */}
+              {!action&&isSoon&&<div style={{background:"rgba(255,255,255,0.6)",borderRadius:4,padding:"10px 12px",marginBottom:10,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6,fontStyle:"italic"}}>
+                ✦ Eleanor suggests: {b.days<=1?"It's very soon — have you got a card or gift?":b.days<=7?"Consider buying a card or present this week.":"You have time — plan something thoughtful for "+b.name+"."}
+              </div>}
+
+              {/* Action buttons */}
+              {!action&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>{
+                  setBirthdayActions(a=>({...a,[b.id]:"scheduled"}));
+                  const mx=Math.max(...events.map(e=>e.id),0);
+                  setEvents(ev=>[...ev,{id:mx+1,title:"Buy gift for "+b.name,date:fmt(new Date(new Date(b.next+"T12:00:00").getTime()-7*86400000)),time:"10:00",priority:"high",notes:b.type+" — "+b.name,source:"birthday"}]);
+                }} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>📅 Schedule Reminder</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"done"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Done</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"skip"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Skip</button>
+              </div>}
+
+              {action==="scheduled"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Reminder added to your schedule</div>}
+              {action==="done"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Marked as done</div>}
+              {action==="skip"&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Skipped</div>
+                <button onClick={()=>setBirthdayActions(a=>{const n={...a};delete n[b.id];return n;})} style={{fontSize:9,padding:"2px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,cursor:"pointer"}}>Undo</button>
+              </div>}
+            </div>
+          );
+        })}
+      </div>}
+
+      {/* All birthdays list */}
+      {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>All Dates</div>
+        {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).map(b=>(
+          <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <span>{typeIcons[b.type]||"🎂"}</span>
+              <div>
+                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{b.name}</div>
+                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}</div>
+              </div>
+            </div>
+            <button onClick={()=>setBirthdays(bs=>bs.filter(x=>x.id!==b.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
+          </div>
+        ))}
+      </div>}
+
+      {/* Add new */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:12}}>Add Birthday or Celebration</div>
+        <input style={inp} placeholder="Name e.g. Julie, Mum, Anniversary" value={newName} onChange={e=>setNewName(e.target.value)}/>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>Date (day and month):</div>
+        <input type="date" style={{...inp,marginBottom:12}} value={newDate?"2000-"+newDate:""} onChange={e=>{const d=e.target.value;if(d)setNewDate(d.slice(5));}}/>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {[["birthday","🎂 Birthday"],["anniversary","💍 Anniversary"],["celebration","🎉 Celebration"],["other","⭐ Other"]].map(([type,label])=>(
+            <button key={type} onClick={()=>setNewType(type)} style={{padding:"6px 12px",borderRadius:3,border:`1.5px solid ${newType===type?C.goldBorder:C.borderSoft}`,background:newType===type?C.goldPale:C.card,color:newType===type?C.gold:C.inkFaint,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{label}</button>
+          ))}
+        </div>
+        <button style={goldBtn()} onClick={()=>{
+          if(!newName.trim()||!newDate)return;
+          setBirthdays(bs=>[...bs,{id:Date.now(),name:newName.trim(),monthDay:newDate,type:newType}]);
+          setBirthdayActions(a=>{const n={...a};return n;});
+          setNewName("");setNewDate("");
+        }} disabled={!newName.trim()||!newDate}>Add Date</button>
+      </div>
+    </div>);
+  };
+
   /* ── REMINDERS VIEW ── */
   const RemindersView=()=>{
     const dayNames=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -2083,7 +2286,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             return(<button key={i} onClick={()=>setReminderDays(ds=>sel?ds.filter(x=>x!==val):[...ds,val])} style={{padding:"6px 10px",borderRadius:3,border:`1.5px solid ${sel?C.goldBorder:C.borderSoft}`,background:sel?C.goldPale:C.card,color:sel?C.gold:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.08em"}}>{d}</button>);
           })}
         </div>
-        <button style={goldBtn()} onClick={addReminder} disabled={!text.trim()}>Add Reminder</button>
+        <button style={goldBtn()} onClick={addReminder} disabled={!reminderText.trim()}>Add Reminder</button>
       </div>
 
       {/* Quick add suggestions */}
@@ -2133,8 +2336,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     </div>
   );
 
-  const BACK_VIEWS=["schedule","week","briefing","import","chat","add","wishlist","settings","calendar","reminders"];
-  const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event",wishlist:"Wishlist",settings:"Settings",calendar:"Calendar",reminders:"Reminders"};
+  const BACK_VIEWS=["schedule","week","briefing","import","chat","add","wishlist","settings","calendar","reminders","birthdays"];
+  const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event",wishlist:"Wishlist",settings:"Settings",calendar:"Calendar",reminders:"Reminders",birthdays:"Birthdays"};
 
   return(
     <div style={{fontFamily:FB,background:C.parchment,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:C.ink}}>
@@ -2154,7 +2357,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
         </div>
         {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
-          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>setView("schedule")},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
+          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical").length,l:"Critical",a:C.crimson,action:()=>{setCriticalOnly(true);setView("schedule");}},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
             <div key={i} onClick={s.action} style={{flex:1,padding:"13px 8px",textAlign:"center",background:C.card,borderRight:i<2?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
               <div style={{fontSize:24,fontFamily:FD,color:s.a,fontWeight:300,lineHeight:1}}>{s.n}</div>
               <div style={{fontSize:9,color:C.inkFaint,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:FM,marginTop:3}}>{s.l}</div>
@@ -2189,6 +2392,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="calendar"  && <CalendarView/>}
         {view==="settings"  && <SettingsView/>}
         {view==="reminders" && <RemindersView/>}
+        {view==="birthdays"  && <BirthdaysView/>}
       </div>
 
       {/* Travel Mode Modal */}
