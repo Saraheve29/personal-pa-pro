@@ -163,38 +163,20 @@ function ICalImport({onAdd}){
     if(!icalUrl.trim())return;
     setLoading(true);setError("");setEvents([]);
     localStorage.setItem("papa_ical_url",icalUrl.trim());
-    // Build proper Google Calendar iCal URL if user pasted secret key
+    // Fetch iCal via server-side proxy (avoids CORS issues with Google Calendar)
     let url=icalUrl.trim();
-    // If they pasted just the secret key (not a full URL)
     if(!url.startsWith("http")){
-      url=`https://calendar.google.com/calendar/ical/${encodeURIComponent(url)}/basic.ics`;
+      url="https://calendar.google.com/calendar/ical/"+encodeURIComponent(url)+"/basic.ics";
     }
-    const proxies=[
-      "https://api.allorigins.win/raw?url=",
-      "https://corsproxy.io/?",
-      "https://cors-anywhere.herokuapp.com/",
-    ];
-    let text="";
-    for(const proxy of proxies){
-      try{
-        const r=await fetch(proxy+encodeURIComponent(url),{signal:AbortSignal.timeout(12000)});
-        if(r.ok){
-          const t=await r.text();
-          if(t.includes("BEGIN:VCALENDAR")){text=t;break;}
-        }
-      }catch{}
-    }
-    // Last resort - try direct fetch (works if CORS allows)
-    if(!text){
-      try{
-        const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
-        if(r.ok)text=await r.text();
-      }catch{}
-    }
-    if(!text||!text.includes("BEGIN:VCALENDAR")){
-      setError("Could not load calendar. Please paste the full iCal URL from Google Calendar settings (it should start with https://calendar.google.com)");
-      setLoading(false);return;
-    }
+    const r=await fetch("/api/ical",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({url})
+    });
+    const data=await r.json();
+    if(data.error){setError(data.error);setLoading(false);return;}
+    const text=data.ical;
+    if(!text){setError("No calendar data received.");setLoading(false);return;}
     // Parse iCal
     const evs=[];
     const blocks=text.split("BEGIN:VEVENT");
