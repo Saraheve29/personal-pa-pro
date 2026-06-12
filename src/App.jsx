@@ -630,14 +630,23 @@ Rules:
     if(el)el.value="";
     setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
     setPaStatus("thinking");
-    // Merge events state with localStorage to ensure nothing is missed
+    // Merge events state with localStorage - take whichever has more
     let freshEvents=[];
     try{freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{}
-    // Use whichever has more events (state may have just-imported events not yet in localStorage)
-    const allEvents=events.length>=freshEvents.length?events:freshEvents;
-    const ctx=[...allEvents].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time} – ${e.title} (${e.priority})${e.notes?" ["+e.notes+"]":""}`).join("\n")||"No events scheduled.";
+    const allEvents=events.length>=freshEvents.length?[...events]:[...freshEvents];
+    const ctx=allEvents.length>0
+      ?allEvents.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>`${e.date} ${e.time||"anytime"} – ${e.title} (${e.priority})`).join("\n")
+      :"No events scheduled yet.";
+    console.log("Eleanor context events count:", allEvents.length, "\nFirst 3:", allEvents.slice(0,3).map(e=>e.title));
     try{
-      const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Thinko, Skyla), Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Write in natural flowing sentences — never bullet points. One question max at a time. Schedule:\n${ctx}\nConflicts:${cfls.length}. Today:${fmt(today)}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
+      const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer, Rover dog-sitter, Cambridgeshire. Warm, composed, precise. Never use bullet points. One question max at a time.
+
+CRITICAL: You have Sarah's COMPLETE schedule (${allEvents.length} events total). Search it carefully before saying you cannot find something. If asked about any event, holiday, appointment or date — look through ALL events below first.
+
+Sarah's complete schedule:
+${ctx}
+
+Today: ${fmt(today)}. Schedule conflicts: ${cfls.length}.`,messages:[...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
       if(eleanorVoiceOn)eleanorSpeak(raw);
       await new Promise(r=>setTimeout(r,850));setShowWave(false);
@@ -1699,7 +1708,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}} onClick={()=>setView("chat")}>
         <PaAvatar size={44} pulse={true}/>
         <div style={{flex:1}}>
-          <div style={{fontFamily:FD,fontSize:17,color:C.ink,fontStyle:"italic",lineHeight:1,marginBottom:3}}>Eleanor</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontFamily:FD,fontSize:17,color:C.ink,fontStyle:"italic",lineHeight:1}}>Eleanor</div>
+              <button onClick={()=>{if(window.confirm("Clear chat history?"))setMsgs([{role:"assistant",text:"Good day. I'm Eleanor — how may I assist you?",ts:new Date()}]);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"3px 8px",cursor:"pointer",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase"}}>Clear</button>
+            </div>
           <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Personal Executive Assistant</div>
           <StatusBadge status="idle"/>
         </div>
@@ -2234,17 +2246,43 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   );
 
   /* ── ADD EVENT ── */
-  const AddView=()=>(
-    <div>
+  const AddView=()=>{
+    const titleRef=useRef(null);
+    const dateRef=useRef(null);
+    const timeRef=useRef(null);
+    const priorityRef=useRef(null);
+    const sourceRef=useRef(null);
+    const notesRef=useRef(null);
+    function save(){
+      const title=titleRef.current?.value||"";
+      if(!title.trim())return;
+      const date=dateRef.current?.value||fmt(today);
+      const time=timeRef.current?.value||"";
+      const priority=priorityRef.current?.value||"medium";
+      const source=sourceRef.current?.value||"manual";
+      const notes=notesRef.current?.value||"";
+      const mx=Math.max(0,...events.map(e=>e.id));
+      setEvents(ev=>[...ev,{id:mx+1+Math.floor(Math.random()*1000),title,date,time,priority,notes,source}]);
+      setNewEv({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});
+      setView("home");
+    }
+    return(<div>
       <div style={SL}>New Appointment</div>
-      {[{ph:"Appointment title *",key:"title",type:"text"},{ph:"Date",key:"date",type:"date"},{ph:"Time",key:"time",type:"time"}].map(f=>(<input key={f.key} style={inp} type={f.type} placeholder={f.ph} value={newEv[f.key]} onChange={e=>setNewEv(n=>({...n,[f.key]:e.target.value}))}/>))}
-      {[{key:"priority",opts:[["critical","◆ Critical"],["high","◈ High"],["medium","◇ Medium"],["low","○ Low"]]},{key:"source",opts:[["manual","✦ Manual"],["email","✦ Email"],["whatsapp","✦ WhatsApp"],["rover","✦ Rover"]]}].map(s=>(<select key={s.key} style={{...inp}} value={newEv[s.key]} onChange={e=>setNewEv(n=>({...n,[s.key]:e.target.value}))}>{s.opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>))}
-      <input style={inp} placeholder="Notes (optional)" value={newEv.notes} onChange={e=>setNewEv(n=>({...n,notes:e.target.value}))}/>
+      <input ref={titleRef} style={inp} type="text" placeholder="Appointment title *" defaultValue={newEv.title}/>
+      <input ref={dateRef} style={inp} type="date" defaultValue={newEv.date}/>
+      <input ref={timeRef} style={inp} type="time" defaultValue={newEv.time}/>
+      <select ref={priorityRef} style={{...inp}} defaultValue={newEv.priority}>
+        {[["critical","◆ Critical"],["high","◈ High"],["medium","◇ Medium"],["low","○ Low"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+      </select>
+      <select ref={sourceRef} style={{...inp}} defaultValue={newEv.source}>
+        {[["manual","✦ Manual"],["email","✦ Email"],["whatsapp","✦ WhatsApp"],["rover","✦ Rover"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+      </select>
+      <input ref={notesRef} style={inp} placeholder="Notes (optional)" defaultValue={newEv.notes}/>
       <div style={{height:6}}/>
-      <button style={goldBtn()} onClick={()=>{if(!newEv.title)return;const mx=Math.max(...events.map(e=>e.id),0);setEvents(ev=>[...ev,{...newEv,id:mx+1}]);setNewEv({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});setView("home");}} disabled={!newEv.title}>Add to Schedule</button>
+      <button style={goldBtn()} onClick={save}>Add to Schedule</button>
       <button style={goldBtn(true)} onClick={()=>setView("home")}>Cancel</button>
-    </div>
-  );
+    </div>);
+  };
 
   /* ── CALENDAR VIEW ── */
   const CalendarView=()=>{
@@ -2675,7 +2713,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
           </>
           :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setView(v)} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
+            <button key={v} onClick={()=>{if(v==="home")setCriticalOnly(false);setView(v);}} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
           ))
         }
       </div>
