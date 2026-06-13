@@ -419,9 +419,12 @@ export default function App(){
   const [briefingVoiceOn,setBriefingVoiceOn]=useState(()=>localStorage.getItem("papa_briefing_voice")!=="false");
   const [autoBriefingDone,setAutoBriefingDone]=useState(()=>localStorage.getItem("papa_auto_brief_date")===new Date().toDateString());
   const [conflictWarning,setConflictWarning]=useState(null);
+  const [finances,setFinances]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_finances")||"[]");}catch{return [];}});
   const [tripAlerts,setTripAlerts]=useState([]);
   const [voiceText,setVoiceText]=useState("");
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
+  const [wishlistPaste,setWishlistPaste]=useState("");
+  const [wishlistPasteBusy,setWishlistPasteBusy]=useState(false);
   const [linkUrl,   setLinkUrl]   =useState("");
   const [checkerText,setCheckerText]=useState("");
   const [calMonth,setCalMonth]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
@@ -481,6 +484,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_birthday_actions",JSON.stringify(birthdayActions));}catch{}},[birthdayActions]);
   useEffect(()=>{try{localStorage.setItem("papa_event_notes",JSON.stringify(eventNotes));}catch{}},[eventNotes]);
   useEffect(()=>{try{localStorage.setItem("papa_dismissed_critical",JSON.stringify(dismissedCriticalIds));}catch{}},[dismissedCriticalIds]);
+  useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -724,12 +728,13 @@ CRITICAL: Read the full schedule carefully. Sort by date. Answer with the SOONES
     const allEvs=freshEvs.length>=events.length?freshEvs:events;
     const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
-    try{const raw=await callAI({system:`You are a discreet, highly intelligent Executive PA. Produce a private executive briefing. Return ONLY valid JSON, no markdown:\n{"headline":string,"today_summary":string,"alerts":[{"title":string,"detail":string,"severity":"high"|"medium"|"low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}\nToday:${fmt(today)}.`,messages:[{role:"user",content:`Schedule:\n${schedCtx}\n\nHolidays:\n${holCtx}\n\nConflicts:${cfls.length}.`}]});
+    const hour=new Date().getHours();
+    const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
+    try{const raw=await callAI({system:'You are Eleanor, a warm and highly intelligent Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a personal executive briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. how_are_you: warm good '+timeOfDay+' message asking how Sarah is, mentioning one specific upcoming thing to show you know her schedule. best_day_this_week: find the least busy day in the next 7 days with fewest events — good for scheduling something new or resting. Today:'+fmt(today)+'.',messages:[{role:"user",content:"Schedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
     const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
     setBriefing(parsed);
-    if(parsed.today_summary&&briefingVoiceOn){
-      const greeting="Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+". ";
-      setTimeout(()=>eleanorSpeak(greeting+parsed.today_summary),600);
+    if(parsed.how_are_you&&briefingVoiceOn){
+      setTimeout(()=>eleanorSpeak(parsed.how_are_you),600);
     }
     }catch{setBriefing({error:true});}
     setBriefBusy(false);
@@ -775,19 +780,25 @@ ${pasteText}`}]
     function handleImgMultiple(e){
     const files=Array.from(e.target.files);
     if(!files.length)return;
-    if(files.length===1){
-      setImgFile(files[0]);setImgRes(null);setImgB64(null);
+    setImgRes(null);setMultiImgQueue(files);
+    // Read ALL files immediately into base64 to avoid permission expiry
+    const readFile=(file)=>new Promise((res,rej)=>{
       const r=new FileReader();
-      r.onload=ev=>{setImgPrev(ev.target.result);const parts=ev.target.result.split(",");if(parts.length>=2)setImgB64(parts[1]);};
-      r.readAsDataURL(files[0]);
-    }else{
-      // Multiple files - process queue
-      setMultiImgQueue(files);setImgRes(null);
-      setImgFile(files[0]);
-      const r=new FileReader();
-      r.onload=ev=>{setImgPrev(ev.target.result);const parts=ev.target.result.split(",");if(parts.length>=2)setImgB64(parts[1]);};
-      r.readAsDataURL(files[0]);
-    }
+      r.onload=ev=>{const parts=ev.target.result.split(",");res({file,b64:parts[1]||"",prev:ev.target.result});};
+      r.onerror=rej;
+      r.readAsDataURL(file);
+    });
+    Promise.all(files.map(readFile)).then(results=>{
+      if(results.length>0){
+        setImgFile(results[0].file);
+        setImgPrev(results[0].prev);
+        setImgB64(results[0].b64);
+        if(results.length>1){
+          // Store all b64 data
+          setMultiImgQueue(results.map(r=>({...r,name:r.file.name})));
+        }
+      }
+    }).catch(err=>console.error("File read error:",err));
   }
 
   function handleImg(e){
@@ -811,39 +822,30 @@ ${pasteText}`}]
     setImgBusy(true);setImgRes(null);
     try{
       // Step 1: Use pre-read b64 from handleImg — avoids double-read ProgressEvent bug
-      const b64=imgB64||await new Promise((resolve,reject)=>{
-        const reader=new FileReader();
-        reader.onload=evt=>{
-          try{
-            const result=evt.target.result;
-            if(!result)return reject(new Error("Empty file result"));
-            const parts=result.split(",");
-            if(parts.length<2)return reject(new Error("Invalid file format"));
-            resolve(parts[1]);
-          }catch(e){reject(e);}
-        };
-        reader.onerror=evt=>reject(new Error("Cannot read file: "+(evt.target?.error?.message||"unknown")));
-        reader.onabort=()=>reject(new Error("File read aborted"));
-        reader.readAsDataURL(imgFile);
-      });
-
-      const mt=imgFile.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg";
-      console.log("Image read OK:",Math.round(b64.length/1024),"KB as",mt);
+      // Use pre-read b64 only - never re-read from file (Android permission expiry)
+      const b64=imgB64;
+      if(!b64){
+        setImgErr("Could not read image. Please try selecting it again.");
+        setImgBusy(false);return;
+      }
+      const mt=imgFile?.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg";
 
       // Step 2: Build prompt
-      const imgPrompt=`You are an AI with perfect vision. Read ALL text in this image carefully.
-This may be an NHS message, Rover booking, ticket, poster, letter, calendar, or any screenshot.
-Extract every date, time, event, appointment or booking visible.
+      const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this image carefully.
+This may be: NHS message, Rover booking, ticket, poster, letter, invoice, payslip, bank statement, benefit letter, or screenshot.
+Extract EVERY date, event, appointment AND financial amount visible.
 Return ONLY raw JSON — no markdown, no backticks:
-{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
+{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"income|expense|payment","date":string,"notes":string}],"summary":string}
 Rules:
-- title: clear description e.g. "NHS Therapy Appointment", "Dog Boarding — Sox"
-- date: convert all formats. "22 Jun 2026"="2026-06-22", "Mon 12 Oct"="2026-10-12"
+- title: clear description e.g. "NHS Therapy Appointment", "Dog Boarding — Ringo"
+- date: convert all formats. "22 Jun 2026"="2026-06-22"
 - No year: use ${today.getFullYear()} if future else ${today.getFullYear()+1}
-- time: "13:30"="13:30", "3pm"="15:00", unknown="09:00"  
-- notes: clinician name, pet name, price, reference, location. Max 100 chars
-- priority: medical/critical=critical, bookings=high, social=medium
-- NEVER return empty events — include any date you see`;
+- time: "13:30"="13:30", "3pm"="15:00", unknown="09:00"
+- financials: extract ANY money amounts — earnings, payments due, costs, fees, benefits
+- notes: name, price, reference, location. Max 100 chars
+- priority: medical=critical, bookings=high, social=medium
+- NEVER return empty events — include any date you see
+${importContext?"CONTEXT: "+importContext:""}`;
 
       // Step 3: Send to proxy
       const controller=new AbortController();
@@ -898,7 +900,11 @@ Rules:
         setImgRes({error:true,msg:"No dates found. Make sure dates are clearly visible in the image."});
       }else{
         parsed.events=parsed.events.filter(ev=>ev.title&&ev.date);
-        setImgRes(parsed);
+                setImgRes(parsed);
+        // Auto-save any financial items found
+        if(parsed.financials?.length){
+          setFinances(f=>[...f,...parsed.financials.map(fi=>({...fi,id:Date.now()+Math.random(),status:"pending",source:"image"}))]);
+        }
       }
     }catch(e){
       console.error("parseImg:",e);
@@ -1217,6 +1223,27 @@ Rules:
       setDocRes(parsed);
     }catch(e){setDocRes({error:true,msg:e.message});}
     setDocBusy(false);
+  }
+
+  // ── WISHLIST PASTE EXTRACT ──
+  async function extractWishlistFromText(){
+    const text=wishlistPaste.trim();
+    if(!text||wishlistPasteBusy)return;
+    setWishlistPasteBusy(true);
+    try{
+      const r=await callAI({
+        system:'Extract events, experiences or things the person is thinking of attending from this text. Return ONLY raw JSON: {"items":[{"title":string,"date":"YYYY-MM-DD or empty","venue":string,"price":string,"notes":string}]}. These are wishlist items not confirmed bookings.',
+        messages:[{role:"user",content:"Extract wishlist events from:\n\n"+text}]
+      });
+      const parsed=robustJSON(r);
+      if(parsed?.items?.length){
+        setWishlist(w=>[...w,...parsed.items.map(i=>({...i,id:Date.now()+Math.random(),source:"paste"}))]);
+        setWishlistPaste("");
+        const el=document.getElementById("wishlist-paste-input");
+        if(el)el.value="";
+      }
+    }catch(e){console.error(e);}
+    setWishlistPasteBusy(false);
   }
 
   // ── AUTO MORNING BRIEFING ──
@@ -1669,21 +1696,15 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     <div>
 
       {/* ══ INSTALL APP BUTTON — top of page ══ */}
-      {installed?(
-        <div style={{textAlign:"center",padding:"11px",background:C.emeraldBg,border:`1px solid ${C.emerald}40`,borderRadius:4,fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.16em",textTransform:"uppercase",marginBottom:12}}>✓ App Installed</div>
+      {installed?(null
       ):installPrompt?(
-        <button onClick={installApp} style={{width:"100%",padding:"14px",borderRadius:6,border:"none",background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,color:C.goldLight,fontFamily:FM,fontSize:11,letterSpacing:"0.2em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 3px 14px rgba(28,24,18,0.25)`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:12}}>
-          <span style={{fontSize:18}}>⬇</span><span>Install App on Your Phone</span>
+        <button onClick={installApp} style={{width:"100%",padding:"9px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:10}}>
+          <span>📲</span><span>Install App</span>
         </button>
       ):(
-        <div style={{background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,borderRadius:6,padding:"14px 16px",marginBottom:12}}>
-          <div style={{fontSize:11,color:C.goldLight,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:8}}>⬇ Install App on Your Phone</div>
-          <div style={{fontSize:12,color:"#C8B99A",fontFamily:FB,lineHeight:1.7}}>
-            <strong style={{color:C.goldLight}}>Android Chrome:</strong> tap ⋮ menu → "Add to Home Screen"
-          </div>
-          <div style={{fontSize:12,color:"#C8B99A",fontFamily:FB,lineHeight:1.7,marginTop:3}}>
-            <strong style={{color:C.goldLight}}>iPhone Safari:</strong> tap Share □↑ → "Add to Home Screen"
-          </div>
+        <div style={{background:C.card,borderRadius:4,padding:"7px 12px",marginBottom:10,border:`1px solid ${C.borderSoft}`,display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:11}}>📲</span>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Install: tap browser menu → Add to Home Screen</div>
         </div>
       )}
 
@@ -2015,6 +2036,61 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
         {briefing.today_summary&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:10}}>Today at a Glance</div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
         {briefing.weekly_balance&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:12}}>Schedule Balance</div><div style={{display:"flex",alignItems:"center",gap:16}}><div style={{textAlign:"center",minWidth:50}}><div style={{fontSize:34,fontFamily:FD,color:briefing.weekly_balance.score>=7?C.emerald:briefing.weekly_balance.score>=4?C.gold:C.crimson,fontWeight:300,lineHeight:1}}>{briefing.weekly_balance.score}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>/10</div></div><div style={{flex:1}}><div style={{height:3,background:C.borderSoft,borderRadius:2,marginBottom:10,overflow:"hidden"}}><div style={{height:3,width:`${briefing.weekly_balance.score*10}%`,background:`linear-gradient(90deg,${C.gold},${C.goldLight})`,borderRadius:2}}/></div><div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{briefing.weekly_balance.comment}</div></div></div></div>}
+        {/* Eleanor's personal greeting */}
+        {briefing.how_are_you&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.goldBorder}`}}>
+          <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
+        </div>}
+
+        {/* Best day this week */}
+        {briefing.best_day_this_week?.day_name&&<div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>Best Day to Schedule Something</div>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{briefing.best_day_this_week.day_name} — {briefing.best_day_this_week.date}</div>
+          <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginTop:3,lineHeight:1.5}}>{briefing.best_day_this_week.reason}</div>
+          <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{marginTop:8,padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event on This Day</button>
+        </div>}
+
+        {/* Financial summary in briefing */}
+        {(()=>{
+          const thisMonth=new Date().getMonth();
+          const thisYear=new Date().getFullYear();
+          const monthFinances=finances.filter(f=>{
+            if(!f.date)return false;
+            const d=new Date(f.date+"T12:00:00");
+            return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;
+          });
+          const income=monthFinances.filter(f=>f.type==="income"&&f.status!=="paid");
+          const expenses=monthFinances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+          const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
+          const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
+          if(!income.length&&!expenses.length)return null;
+          return(<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+            <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>💰 This Month's Finances</div>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {totalIn>0&&<div style={{flex:1,background:C.emeraldBg,borderRadius:4,padding:"10px 12px",border:`1px solid ${C.emerald}30`}}>
+                <div style={{fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Expected In</div>
+                <div style={{fontFamily:FD,fontSize:20,color:C.emerald}}>£{totalIn.toFixed(2)}</div>
+              </div>}
+              {totalOut>0&&<div style={{flex:1,background:C.crimsonBg,borderRadius:4,padding:"10px 12px",border:`1px solid ${C.crimson}30`}}>
+                <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Due Out</div>
+                <div style={{fontFamily:FD,fontSize:20,color:C.crimson}}>£{totalOut.toFixed(2)}</div>
+              </div>}
+            </div>
+            {[...income,...expenses].map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:f.type==="income"?C.emeraldBg:C.crimsonBg,borderLeft:`3px solid ${f.type==="income"?C.emerald:C.crimson}`,borderRadius:3,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <div style={{fontSize:14,fontFamily:FD,color:f.type==="income"?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
+                  <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:"paid"}:x))} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Paid</button>
+                  <button onClick={()=>{setChatIn("Remind me to pay "+f.label+" of £"+(f.amount||0).toFixed(2)+(f.date?" on "+f.date:""));setCriticalOnly(false);setView("chat");}} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>⏰</button>
+                </div>
+              </div>
+            ))}
+          </div>);
+        })()}
+
         {/* Birthday alerts in briefing */}
         {(()=>{const alerts=getBirthdayAlerts().filter(b=>b.days<=14&&b.action!=="done"&&b.action!=="skip");if(!alerts.length)return null;return(<div style={{marginBottom:18}}>
           <div style={SL}>🎂 Birthdays & Celebrations</div>
@@ -2653,9 +2729,47 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     <div>
       <div style={SL}>Events I'm Thinking About</div>
       <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:14}}>Eleanor will check dates, budget, travel and weather for each event.</div>
-      {wishlist.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.inkFaint}}>
+      {/* Add to wishlist - tabs */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:14}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:10}}>Add events you're thinking about</div>
+
+        {/* Manual add */}
+        <input id="wishlist-title" style={inp} placeholder="Event name e.g. Taylor Swift concert, Spa day..."/>
+        <input id="wishlist-date" style={inp} type="date"/>
+        <input id="wishlist-venue" style={inp} placeholder="Venue or location (optional)"/>
+        <input id="wishlist-price" style={inp} placeholder="Approximate price (optional)"/>
+        <button style={goldBtn()} onClick={()=>{
+          const title=document.getElementById("wishlist-title")?.value;
+          if(!title?.trim())return;
+          setWishlist(w=>[...w,{id:Date.now(),title:title.trim(),date:document.getElementById("wishlist-date")?.value||"",venue:document.getElementById("wishlist-venue")?.value||"",price:document.getElementById("wishlist-price")?.value||"",notes:""}]);
+          ["wishlist-title","wishlist-date","wishlist-venue","wishlist-price"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+        }}>＋ Add to Wishlist</button>
+
+        {/* Divider */}
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"12px 0"}}>
+          <div style={{flex:1,height:1,background:C.borderSoft}}/>
+          <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>OR PASTE TEXT</div>
+          <div style={{flex:1,height:1,background:C.borderSoft}}/>
+        </div>
+
+        {/* Paste text */}
+        <textarea
+          id="wishlist-paste-input"
+          style={{...inp,minHeight:80,resize:"vertical"}}
+          defaultValue={wishlistPaste}
+          placeholder={"Paste any text about events you'd like to attend...\ne.g. 'Thinking about going to Glastonbury next summer' or paste a festival listing"}
+        />
+        <div style={{display:"flex",gap:8}}>
+          <button style={goldBtn()} onClick={()=>{const el=document.getElementById("wishlist-paste-input");if(el)setWishlistPaste(el.value);extractWishlistFromText();}} disabled={wishlistPasteBusy}>
+            {wishlistPasteBusy?"Extracting…":"✦ Extract Events from Text"}
+          </button>
+          <button style={goldBtn(true)} onClick={()=>{setCriticalOnly(false);setView("import");}}>📎 Import</button>
+        </div>
+      </div>
+
+      {wishlist.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.inkFaint}}>
         <div style={{fontFamily:FD,fontSize:18,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your wishlist is empty.</div>
-        <div style={{fontSize:12,fontFamily:FB,color:C.inkFaint}}>Paste an event link in Import → Paste Link to add one.</div>
+        <div style={{fontSize:12,fontFamily:FB,color:C.inkFaint}}>Add events above or use Import → Paste Link.</div>
       </div>}
       {wishlist.map((item,idx)=>(
         <div key={item.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:12,boxShadow:`0 2px 10px ${C.shadow}`}}>
@@ -2678,18 +2792,24 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             {item.analysis.mapsUrl&&<a href={item.analysis.mapsUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"none"}}>🗺 Get Directions →</a>}
           </div>}
 
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             <button onClick={()=>analyseWishlistEvent(idx)} disabled={item.analysing} style={{flex:1,padding:"9px",border:"none",borderRadius:3,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
-              {item.analysing?"Analysing…":"✦ Analyse with Eleanor"}
+              {item.analysing?"Analysing…":"✦ Analyse"}
             </button>
             <button onClick={()=>{
-              const mx=Math.max(...events.map(e=>e.id),0);
-              setEvents(ev=>[...ev,{id:mx+1,title:item.title,date:item.date,time:"09:00",priority:"high",notes:item.venue||item.notes||"",source:"wishlist"}]);
+              // Export to schedule - only when user explicitly chooses
+              if(!window.confirm("Move '"+item.title+"' from Wishlist to your Schedule?")){return;}
+              const mx=Math.max(0,...events.map(e=>e.id));
+              setEvents(ev=>[...ev,{id:mx+1+Math.floor(Math.random()*1000),title:item.title,date:item.date||fmt(today),time:"09:00",priority:"high",notes:item.venue||item.notes||"",source:"wishlist"}]);
               setWishlist(w=>w.filter((_,i)=>i!==idx));
               setCriticalOnly(false);setView("home");
             }} style={{flex:1,padding:"9px",border:`1px solid ${C.goldBorder}`,borderRadius:3,background:"transparent",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
-              Add to Schedule
+              📅 Move to Schedule
             </button>
+            {item.date&&<a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(item.title)+"&dates="+item.date.replace(/-/g,"")+"&details="+encodeURIComponent(item.notes||item.venue||"")} target="_blank" rel="noreferrer" style={{flex:1,padding:"9px",border:`1px solid ${C.sapphire}40`,borderRadius:3,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",textDecoration:"none",textAlign:"center"}}>
+              📅 Google Cal
+            </a>}
+            <button onClick={()=>{if(window.confirm("Remove '"+item.title+"' from wishlist?"))setWishlist(w=>w.filter((_,i)=>i!==idx));}} style={{padding:"9px 12px",border:`1px solid ${C.crimson}30`,borderRadius:3,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>🗑</button>
           </div>
         </div>
       ))}
@@ -2895,32 +3015,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </button>
         </div>
 
-        {/* Premium ElevenLabs voice */}
-        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"12px",marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{fontFamily:FD,fontSize:14,color:C.gold,fontStyle:"italic"}}>✦ Premium Voice</div>
-            <button onClick={()=>{
-              const next=!premiumVoice;
-              setPremiumVoice(next);
-              localStorage.setItem("papa_premium_voice",String(next));
-              if(next&&eleanorVoiceOn)eleanorSpeak("Hello Sarah. Premium voice is now active.");
-            }} style={{padding:"5px 12px",borderRadius:3,border:`1.5px solid ${premiumVoice?C.goldBorder:C.borderSoft}`,background:premiumVoice?C.gold:C.card,color:premiumVoice?C.card:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>
-              {premiumVoice?"✦ Active":"Enable"}
-            </button>
-          </div>
-          <div style={{fontSize:11,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:8}}>Eleanor speaks with a natural, warm voice via ElevenLabs. Get your free API key at elevenlabs.io</div>
-          <input
-            id="elevenlabs-key-input"
-            style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:11,fontFamily:FM,background:C.card,color:C.ink,outline:"none",boxSizing:"border-box"}}
-            placeholder="Paste your ElevenLabs API key here..."
-            defaultValue={elevenLabsKey}
-            onBlur={e=>{
-              setElevenLabsKey(e.target.value);
-              localStorage.setItem("papa_11labs_key",e.target.value);
-            }}
-          />
-          {elevenLabsKey&&<div style={{fontSize:10,color:C.emerald,fontFamily:FM,marginTop:4}}>✓ API key saved</div>}
-        </div>
+
 
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>Standard voice uses your device's built-in voice for free.</div>
         <div style={{marginTop:14,borderTop:`1px solid ${C.borderSoft}`,paddingTop:12}}>
@@ -2970,12 +3065,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Home Address</div>
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Save your home address once. Eleanor uses it to show a 🗺 Travel button on every appointment in your Calendar — tap it to get directions and travel time in Google Maps.</div>
         <input
+          id="home-address-input"
           style={inp}
           placeholder="e.g. 14 High Street, March, PE15 9JY"
-          value={homeAddress}
-          onChange={e=>setHomeAddress(e.target.value)}
+          defaultValue={homeAddress}
+          onBlur={e=>{setHomeAddress(e.target.value);localStorage.setItem("papa_home_address",e.target.value);}}
         />
-        <button style={goldBtn()} onClick={()=>{localStorage.setItem("papa_home_address",homeAddress);alert("Address saved! Travel buttons will now appear on your calendar events.");}}>Save Address</button>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("home-address-input");if(el){setHomeAddress(el.value);localStorage.setItem("papa_home_address",el.value);}alert("Address saved!");}}> Save Address</button>
         {homeAddress&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",marginTop:4}}>✓ Address saved — travel buttons active</div>}
       </div>
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
