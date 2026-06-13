@@ -284,6 +284,144 @@ const ChatInput=React.memo(function ChatInput({onSend,disabled}){
   );
 });
 
+// ── ONBOARDING SCREEN ──
+function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
+  const [step,setStep]=React.useState(0);
+  const [name,setName]=React.useState("");
+  const [address,setAddress]=React.useState("");
+  const [travelMode,setTravelMode]=React.useState("transit");
+  const [notifGranted,setNotifGranted]=React.useState(false);
+
+  const steps=[
+    // Step 0 - Welcome
+    ()=>(<div style={{textAlign:"center",padding:"20px 0"}}>
+      {PA_PHOTO&&<div style={{width:100,height:100,borderRadius:"50%",overflow:"hidden",margin:"0 auto 20px",border:`3px solid ${C.goldBorder}`,boxShadow:`0 0 30px rgba(196,153,62,0.4)`}}>
+        <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
+      </div>}
+      <div style={{fontFamily:FD,fontSize:28,color:C.ink,fontStyle:"italic",marginBottom:8}}>Hello, I'm Eleanor</div>
+      <div style={{fontSize:14,color:C.inkLight,fontFamily:FB,lineHeight:1.7,marginBottom:24}}>Your Personal Executive Assistant. I'll help you manage your schedule, appointments, reminders and much more.</div>
+      <div style={{fontSize:12,color:C.inkFaint,fontFamily:FM,lineHeight:1.6}}>Let me take a moment to get to know you.</div>
+    </div>),
+
+    // Step 1 - Name
+    ()=>(<div style={{padding:"10px 0"}}>
+      <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>What's your name?</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>I'll use this to personalise your experience.</div>
+      <input
+        id="onboard-name"
+        style={{width:"100%",padding:"14px 16px",border:`1.5px solid ${C.goldBorder}`,borderRadius:6,fontSize:16,fontFamily:FD,background:"#FAF6EE",color:"#1C1812",outline:"none",boxSizing:"border-box",fontStyle:"italic"}}
+        placeholder="e.g. Sarah"
+        defaultValue={name}
+        onBlur={e=>setName(e.target.value)}
+      />
+    </div>),
+
+    // Step 2 - Home address
+    ()=>(<div style={{padding:"10px 0"}}>
+      <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>Where do you live?</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>Your home address helps me calculate travel time to appointments and plan your journeys.</div>
+      <input
+        id="onboard-address"
+        style={{width:"100%",padding:"14px 16px",border:`1.5px solid ${C.goldBorder}`,borderRadius:6,fontSize:14,fontFamily:FB,background:"#FAF6EE",color:"#1C1812",outline:"none",boxSizing:"border-box"}}
+        placeholder="e.g. 14 High Street, March, PE15 9JY"
+        defaultValue={address}
+        onBlur={e=>setAddress(e.target.value)}
+      />
+      <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginTop:8}}>You can always change this in Settings later.</div>
+    </div>),
+
+    // Step 3 - Travel mode
+    ()=>(<div style={{padding:"10px 0"}}>
+      <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>How do you usually travel?</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>I'll use this for journey planning and event briefings.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {[["transit","🚌","Public Transport","Bus, train, tram"],["walking","🚶","Walking","On foot"],["bicycling","🚲","Cycling","Bike"],["driving","🚗","Driving","Car or taxi"]].map(([mode,icon,label,sub])=>(
+          <button key={mode} onClick={()=>setTravelMode(mode)} style={{padding:"14px 16px",borderRadius:6,border:`2px solid ${travelMode===mode?C.goldBorder:"#DDD5C0"}`,background:travelMode===mode?"#F5EDD8":"#FFFDF8",cursor:"pointer",textAlign:"left",display:"flex",gap:14,alignItems:"center",transition:"all 0.15s"}}>
+            <span style={{fontSize:26}}>{icon}</span>
+            <div>
+              <div style={{fontSize:15,fontFamily:FD,color:"#1C1812",fontStyle:"italic"}}>{label}</div>
+              <div style={{fontSize:11,color:"#9A8F7A",fontFamily:FB}}>{sub}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>),
+
+    // Step 4 - Notifications
+    ()=>(<div style={{padding:"10px 0",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:16}}>🔔</div>
+      <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>Stay on top of everything</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.7,marginBottom:24}}>Allow notifications so Eleanor can remind you about appointments, reminders and important dates — even when the app is closed.</div>
+      {!notifGranted
+        ?<button onClick={async()=>{
+          const perm=await Notification.requestPermission();
+          if(perm==="granted")setNotifGranted(true);
+        }} style={{width:"100%",padding:"14px",borderRadius:6,border:"none",background:"linear-gradient(135deg,#9A7B3C,#C4993E)",color:"#FFFDF8",fontFamily:"'Tenor Sans',sans-serif",fontSize:12,letterSpacing:"0.2em",textTransform:"uppercase",cursor:"pointer",marginBottom:10}}>
+          ✦ Allow Notifications
+        </button>
+        :<div style={{padding:"14px",background:"#E8F5E9",borderRadius:6,color:"#2E7D32",fontFamily:FB,fontSize:13,marginBottom:10}}>✓ Notifications enabled — Eleanor will keep you informed</div>
+      }
+      <button onClick={()=>setStep(s=>s+1)} style={{background:"none",border:"none",color:"#9A8F7A",fontFamily:FB,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>
+        {notifGranted?"Continue":"Skip for now"}
+      </button>
+    </div>),
+
+    // Step 5 - All done
+    ()=>(<div style={{textAlign:"center",padding:"10px 0"}}>
+      {PA_PHOTO&&<div style={{width:80,height:80,borderRadius:"50%",overflow:"hidden",margin:"0 auto 16px",border:`2px solid ${C.goldBorder}`}}>
+        <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
+      </div>}
+      <div style={{fontFamily:FD,fontSize:24,color:C.ink,fontStyle:"italic",marginBottom:8}}>All set{name?", "+name:""}!</div>
+      <div style={{fontSize:14,color:C.inkLight,fontFamily:FB,lineHeight:1.7,marginBottom:6}}>I'm Eleanor, your Personal Executive Assistant. I'm here whenever you need me.</div>
+      <div style={{fontSize:13,color:C.inkFaint,fontFamily:FB,lineHeight:1.7}}>Start by importing your appointments or asking me anything in chat.</div>
+    </div>),
+  ];
+
+  function handleNext(){
+    // Save data from current step
+    if(step===1){const el=document.getElementById("onboard-name");if(el&&el.value)setName(el.value);}
+    if(step===2){const el=document.getElementById("onboard-address");if(el&&el.value)setAddress(el.value);}
+    if(step<steps.length-1){setStep(s=>s+1);}
+    else{
+      // Complete onboarding
+      const n=name||document.getElementById("onboard-name")?.value||"";
+      const a=address||document.getElementById("onboard-address")?.value||"";
+      if(n)localStorage.setItem("papa_user_name",n);
+      if(a)localStorage.setItem("papa_home_address",a);
+      localStorage.setItem("papa_travel_mode",travelMode);
+      localStorage.setItem("papa_user_context",`Name: ${n||"Sarah"}. ${a?"Home address: "+a+". ":""}Rover dog-sitter and app developer. Personal Assistant user.`);
+      localStorage.setItem("papa_onboarded","true");
+      onComplete({name:n,address:a,travelMode});
+    }
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#FAF6EE",zIndex:2000,display:"flex",flexDirection:"column",padding:"0"}}>
+      {/* Progress bar */}
+      <div style={{height:3,background:"#EBE4D2"}}>
+        <div style={{height:"100%",background:"linear-gradient(90deg,#9A7B3C,#C4993E)",width:((step+1)/steps.length*100)+"%",transition:"width 0.4s"}}/>
+      </div>
+
+      {/* Content */}
+      <div style={{flex:1,overflowY:"auto",padding:"32px 24px 24px"}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:9,color:"#9A7B3C",fontFamily:"'Tenor Sans',sans-serif",letterSpacing:"0.3em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
+        </div>
+        {steps[step]()}
+      </div>
+
+      {/* Bottom buttons */}
+      <div style={{padding:"16px 24px 32px",background:"#FAF6EE",borderTop:"1px solid #EBE4D2"}}>
+        {step!==4&&<button onClick={handleNext} style={{width:"100%",padding:"15px",borderRadius:6,border:"none",background:"linear-gradient(135deg,#9A7B3C,#C4993E)",color:"#FFFDF8",fontFamily:"'Tenor Sans',sans-serif",fontSize:12,letterSpacing:"0.2em",textTransform:"uppercase",cursor:"pointer",marginBottom:10,boxShadow:"0 4px 16px rgba(154,123,60,0.3)"}}>
+          {step===steps.length-1?"Enter Personal PA Pro →":"Continue →"}
+        </button>}
+        {step>0&&step!==steps.length-1&&<button onClick={()=>setStep(s=>s-1)} style={{width:"100%",padding:"11px",borderRadius:6,border:"1px solid #DDD5C0",background:"transparent",color:"#9A8F7A",fontFamily:"'Tenor Sans',sans-serif",fontSize:11,letterSpacing:"0.15em",textTransform:"uppercase",cursor:"pointer"}}>← Back</button>}
+      </div>
+    </div>
+  );
+}
+
 function BriefingLoader(){
   const [step,setStep]=React.useState(0);
   const steps=[
@@ -418,16 +556,31 @@ export default function App(){
   const [eleanorVoiceOn,setEleanorVoiceOn]=useState(()=>localStorage.getItem("papa_voice_on")!=="false");
   const [briefingVoiceOn,setBriefingVoiceOn]=useState(()=>localStorage.getItem("papa_briefing_voice")!=="false");
   const [autoBriefingDone,setAutoBriefingDone]=useState(()=>localStorage.getItem("papa_auto_brief_date")===new Date().toDateString());
+  const [notifPermission,setNotifPermission]=useState(()=>typeof Notification!=="undefined"?Notification.permission:"default");
+  const [onboarded,setOnboarded]=useState(()=>localStorage.getItem("papa_onboarded")==="true");
+  const [searchQuery,setSearchQuery]=useState("");
+  const [showSearch,setShowSearch]=useState(false);
+  const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [apiError,setApiError]=useState(null);
+  const [onboardStep,setOnboardStep]=useState(0);
+  const [swRegistered,setSwRegistered]=useState(false);
   const [conflictWarning,setConflictWarning]=useState(null);
+  const [dismissedConflicts,setDismissedConflicts]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_conflicts")||"[]");}catch{return [];}});
   const [finances,setFinances]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_finances")||"[]");}catch{return [];}});
   const [tripAlerts,setTripAlerts]=useState([]);
   const [voiceText,setVoiceText]=useState("");
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
   const [wishlistPaste,setWishlistPaste]=useState("");
+  const [wishlistImportMode,setWishlistImportMode]=useState(null);
+  const [wishlistImgFile,setWishlistImgFile]=useState(null);
+  const [wishlistImgB64,setWishlistImgB64]=useState(null);
+  const [wishlistImportBusy,setWishlistImportBusy]=useState(false);
+  const [wishlistImportRes,setWishlistImportRes]=useState(null);
   const [wishlistPasteBusy,setWishlistPasteBusy]=useState(false);
   const [linkUrl,   setLinkUrl]   =useState("");
   const [checkerText,setCheckerText]=useState("");
   const [calMonth,setCalMonth]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [selectedDay,setSelectedDay]=useState(fmt(today));
   const [reminderText,setReminderText]=useState("");
   const [eventWx,setEventWx]=useState({});
   const [eventBriefs,setEventBriefs]=useState({});
@@ -435,7 +588,6 @@ export default function App(){
   const [eventExpanded,setEventExpanded]=useState({});
   const [reminderTime,setReminderTime]=useState("08:00");
   const [reminderDays,setReminderDays]=useState(["0","1","2","3","4","5","6"]);
-  const [selectedDay,setSelectedDay]=useState(fmt(today));
   const [checkerFile,setCheckerFile]=useState(null);
   const [checkerBusy,setCheckerBusy]=useState(false);
   const [checkerRes, setCheckerRes] =useState(null);
@@ -485,6 +637,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_event_notes",JSON.stringify(eventNotes));}catch{}},[eventNotes]);
   useEffect(()=>{try{localStorage.setItem("papa_dismissed_critical",JSON.stringify(dismissedCriticalIds));}catch{}},[dismissedCriticalIds]);
   useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
+  useEffect(()=>{try{localStorage.setItem("papa_dismissed_conflicts",JSON.stringify(dismissedConflicts));}catch{}},[dismissedConflicts]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -635,8 +788,23 @@ export default function App(){
   }
 
   async function callAI(body){
-    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,...body})});
-    const d=await r.json();return d.content?.find(b=>b.type==="text")?.text||"";
+    if(!navigator.onLine){
+      setApiError("You're offline. Eleanor needs an internet connection to think. Your schedule is still available.");
+      return "";
+    }
+    try{
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,...body})});
+      const d=await r.json();
+      if(!r.ok){
+        setApiError("Eleanor couldn't respond right now. Please try again in a moment.");
+        return "";
+      }
+      setApiError(null);
+      return d.content?.find(b=>b.type==="text")?.text||"";
+    }catch(e){
+      setApiError("Connection issue. Please check your internet and try again.");
+      return "";
+    }
   }
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
@@ -1225,6 +1393,70 @@ Rules:
     setDocBusy(false);
   }
 
+  // ── SHARE EVENT ──
+  function shareEvent(e){
+    const text=`${e.title}
+${e.date}${e.time?" at "+e.time:""}
+${e.notes||""}`.trim();
+    if(navigator.share){
+      navigator.share({title:e.title,text,url:window.location.href}).catch(()=>{});
+    }else{
+      const wa="https://wa.me/?text="+encodeURIComponent(text);
+      window.open(wa,"_blank");
+    }
+  }
+
+  // ── WEEKLY SUNDAY REVIEW ──
+  useEffect(()=>{
+    const dayOfWeek=new Date().getDay(); // 0=Sunday
+    const hour=new Date().getHours();
+    const lastReview=localStorage.getItem("papa_weekly_review_date");
+    const thisWeekKey=fmt(today)+"-week";
+    if(dayOfWeek===0&&hour>=18&&lastReview!==thisWeekKey&&events.length>0){
+      localStorage.setItem("papa_weekly_review_date",thisWeekKey);
+      // Auto-open chat with weekly review
+      setTimeout(async()=>{
+        const weekAhead=[...events].filter(e=>{
+          const d=new Date(e.date+"T12:00:00");
+          const n=new Date();
+          return d>=n&&d<=new Date(n.getTime()+7*86400000);
+        }).map(e=>e.date+" "+e.title).join(", ");
+        const review=await callAI({
+          system:"You are Eleanor. Give a warm, encouraging Sunday evening weekly review. Mention what's coming up this week, any preparation needed, and one positive thought for Sarah. Keep it personal and under 100 words.",
+          messages:[{role:"user",content:"Week ahead: "+weekAhead+". Today: "+fmt(today)+"."}]
+        });
+        if(review){
+          setMsgs(m=>[...m,{role:"assistant",text:"🌙 Sunday Review: "+review,ts:new Date()}]);
+          setCriticalOnly(false);setView("chat");
+        }
+      },2000);
+    }
+  },[]);
+
+  // ── WISHLIST IMPORT FROM IMAGE/PDF/EMAIL ──
+  async function wishlistImport(type,content,b64,mime){
+    setWishlistImportBusy(true);setWishlistImportRes(null);
+    try{
+      const sys='You are Eleanor helping Sarah find events, holidays, experiences or things she might like to attend. Extract ALL potential events from this content. Return ONLY raw JSON: {"items":[{"title":string,"date":"YYYY-MM-DD or empty","venue":string,"price":string,"notes":string,"type":"holiday|concert|event|trip|experience|other"}]}. These are wishlist items — things she might want to attend, NOT confirmed bookings.';
+      let messages;
+      if(type==="image"&&b64){
+        messages=[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime||"image/jpeg",data:b64}},{type:"text",text:"Extract events and experiences I might want to attend from this image."}]}];
+      }else if(type==="pdf"&&b64){
+        messages=[{role:"user",content:[{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Extract events, holidays, experiences I might want to attend from this."}]}];
+      }else{
+        messages=[{role:"user",content:"Extract events and experiences from:\n\n"+content}];
+      }
+      const raw=await callAI({system:sys,messages,max_tokens:2000});
+      const parsed=robustJSON(raw);
+      if(parsed?.items?.length){
+        setWishlistImportRes(parsed.items);
+      }else{
+        setWishlistImportRes([]);
+      }
+    }catch(e){console.error(e);setWishlistImportRes([]);}
+    setWishlistImportBusy(false);
+  }
+
   // ── WISHLIST PASTE EXTRACT ──
   async function extractWishlistFromText(){
     const text=wishlistPaste.trim();
@@ -1245,6 +1477,114 @@ Rules:
     }catch(e){console.error(e);}
     setWishlistPasteBusy(false);
   }
+
+  // ── OFFLINE DETECTION ──
+  useEffect(()=>{
+    const goOnline=()=>setIsOnline(true);
+    const goOffline=()=>setIsOnline(false);
+    window.addEventListener("online",goOnline);
+    window.addEventListener("offline",goOffline);
+    return()=>{window.removeEventListener("online",goOnline);window.removeEventListener("offline",goOffline);};
+  },[]);
+
+  // ── RECURRING EVENTS ──
+  // Expand recurring events into actual dates (up to 90 days ahead)
+  useEffect(()=>{
+    const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+    if(!recurring.length)return;
+    const toAdd=[];
+    const existingKeys=new Set(events.map(e=>e.date+"_"+e.title));
+    recurring.forEach(r=>{
+      let d=new Date();
+      const end=new Date(d.getTime()+90*86400000);
+      while(d<=end){
+        const ds=fmt(d);
+        const key=ds+"_"+r.title;
+        if(!existingKeys.has(key)){
+          toAdd.push({id:Date.now()+Math.random()*10000,title:r.title,date:ds,time:r.time||"09:00",priority:r.priority||"medium",notes:r.notes||"",source:"recurring"});
+          existingKeys.add(key);
+        }
+        // Advance by frequency
+        if(r.freq==="daily")d.setDate(d.getDate()+1);
+        else if(r.freq==="weekly")d.setDate(d.getDate()+7);
+        else if(r.freq==="fortnightly")d.setDate(d.getDate()+14);
+        else if(r.freq==="monthly")d.setMonth(d.getMonth()+1);
+        else d=new Date(end.getTime()+1); // stop
+      }
+    });
+    if(toAdd.length>0)setEvents(ev=>[...ev,...toAdd]);
+  },[]);
+
+  // ── SERVICE WORKER & NOTIFICATIONS ──
+  useEffect(()=>{
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.register("/sw.js").then(reg=>{
+        setSwRegistered(true);
+        // Schedule periodic sync if supported
+        if("periodicSync" in reg){
+          reg.periodicSync.register("reminder-check",{minInterval:60*60*1000}).catch(()=>{});
+        }
+      }).catch(()=>{});
+    }
+  },[]);
+
+  async function requestNotifications(){
+    if(typeof Notification==="undefined")return false;
+    const perm=await Notification.requestPermission();
+    setNotifPermission(perm);
+    return perm==="granted";
+  }
+
+  function scheduleNotification(title,body,fireAt,tag){
+    if(notifPermission!=="granted")return;
+    const delay=new Date(fireAt).getTime()-Date.now();
+    if(delay<0)return;
+    if(delay<2*60*1000){
+      // Fire immediately if within 2 minutes
+      new Notification(title,{body,icon:"/icon-192.png",tag});
+      return;
+    }
+    // Store for service worker to fire
+    const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
+    scheduled.push({title,body,fireAt:new Date(fireAt).toISOString(),tag});
+    localStorage.setItem("papa_scheduled_notifs",JSON.stringify(scheduled));
+  }
+
+  // Check scheduled notifications on load and every minute
+  useEffect(()=>{
+    function checkNotifs(){
+      if(notifPermission!=="granted")return;
+      const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
+      const now=Date.now();
+      const remaining=[];
+      scheduled.forEach(n=>{
+        if(new Date(n.fireAt).getTime()<=now){
+          new Notification(n.title,{body:n.body,icon:"/icon-192.png",tag:n.tag});
+        }else{
+          remaining.push(n);
+        }
+      });
+      localStorage.setItem("papa_scheduled_notifs",JSON.stringify(remaining));
+    }
+    checkNotifs();
+    const interval=setInterval(checkNotifs,60000);
+    return()=>clearInterval(interval);
+  },[notifPermission]);
+
+  // Schedule reminder notifications
+  useEffect(()=>{
+    if(notifPermission!=="granted")return;
+    reminders.forEach(r=>{
+      if(!r.active)return;
+      const now=new Date();
+      const [h,m]=r.time.split(":").map(Number);
+      const fireToday=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
+      const dayIdx=now.getDay().toString();
+      if(r.days.includes(dayIdx)&&fireToday>now){
+        scheduleNotification("⏰ "+r.text,r.text+" — Eleanor reminder",fireToday,"reminder-"+r.id);
+      }
+    });
+  },[reminders,notifPermission]);
 
   // ── AUTO MORNING BRIEFING ──
   useEffect(()=>{
@@ -1528,6 +1868,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
             {isC&&<span style={chip(C.crimson,C.crimsonBg)}>⚠ Conflict</span>}
             <button onClick={getEleanorBrief} disabled={briefBusy||!!brief} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:brief?C.goldPale:C.card,color:C.gold,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.goldBorder}`,cursor:"pointer"}}>✦ Brief Me</button>
+            <button onClick={()=>shareEvent(e)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.card,color:C.inkFaint,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.borderSoft}`,cursor:"pointer"}}>📤 Share</button>
             {homeAddress&&!travelMode&&<button onClick={()=>setShowTravelModal(true)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🗺 Travel</button>}
             {link&&travelMode&&travelMode!=="transit"&&<a href={link} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,textDecoration:"none"}}>🗺 {modeLabel}</a>}
             {travelMode==="transit"&&homeAddress&&<button onClick={()=>setEventExpanded(x=>({...x,[e.id]:!expanded}))} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🚌 Transport {expanded?"▲":"▼"}</button>}
@@ -1707,6 +2048,47 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Install: tap browser menu → Add to Home Screen</div>
         </div>
       )}
+
+      {/* Offline banner */}
+      {!isOnline&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+        <span style={{fontSize:16}}>📵</span>
+        <div>
+          <div style={{fontSize:13,fontFamily:FD,color:C.crimson}}>You're offline</div>
+          <div style={{fontSize:11,color:C.inkMid,fontFamily:FB}}>Your schedule is still available. Eleanor needs internet to respond.</div>
+        </div>
+      </div>}
+
+      {/* API error banner */}
+      {apiError&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>{apiError}</div>
+        <button onClick={()=>setApiError(null)} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>}
+
+      {/* Search overlay */}
+      {showSearch&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10,boxShadow:`0 4px 16px ${C.shadow}`}}>
+        <input
+          id="search-input"
+          style={{...inp,marginBottom:searchQuery?10:0}}
+          placeholder="Search events, appointments, notes..."
+          autoFocus
+          onChange={e=>setSearchQuery(e.target.value)}
+        />
+        {searchQuery&&(()=>{
+          const q=searchQuery.toLowerCase();
+          const results=events.filter(e=>e.title.toLowerCase().includes(q)||e.notes?.toLowerCase().includes(q)||e.date.includes(q)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,10);
+          return results.length>0?(
+            <div>{results.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} onClick={()=>{setShowSearch(false);setSearchQuery("");setCriticalOnly(false);setView("calendar");setSelectedDay(e.date);}} style={{padding:"9px 12px",background:C.parchment,borderRadius:3,marginBottom:4,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e.title}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.date} {e.time&&"· "+e.time}</div>
+                </div>
+                <span style={chip(p.color,p.bg)}>{p.glyph}</span>
+              </div>
+            );})}</div>
+          ):<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,textAlign:"center",padding:"8px 0"}}>No events found for "{searchQuery}"</div>;
+        })()}
+      </div>}
 
       {/* ══ HERO 0 — SCHEDULE CHECKER ══ */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:"18px 18px 16px",marginBottom:10,boxShadow:`0 4px 20px ${C.shadow}`}}>
@@ -1933,6 +2315,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <button onClick={()=>setView("reminders")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⏰ Reminders</button>
         <button onClick={()=>setView("birthdays")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🎂 Birthdays</button>
         <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
+        <button onClick={()=>setShowSearch(s=>!s)} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:showSearch?C.goldPale:C.card,color:showSearch?C.gold:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🔍</button>
       </div>
 
     </div>
@@ -2615,6 +2998,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
   /* ── CALENDAR VIEW ── */
   const CalendarView=()=>{
+    // selectedDay and setSelectedDay are from App state
     const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
     const firstDay=(y,m)=>new Date(y,m,1).getDay();
     const monthName=new Intl.DateTimeFormat("en-GB",{month:"long"}).format(new Date(calMonth.y,calMonth.m,1));
@@ -2744,27 +3128,49 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           setWishlist(w=>[...w,{id:Date.now(),title:title.trim(),date:document.getElementById("wishlist-date")?.value||"",venue:document.getElementById("wishlist-venue")?.value||"",price:document.getElementById("wishlist-price")?.value||"",notes:""}]);
           ["wishlist-title","wishlist-date","wishlist-venue","wishlist-price"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
         }}>＋ Add to Wishlist</button>
+      </div>
 
-        {/* Divider */}
-        <div style={{display:"flex",alignItems:"center",gap:8,margin:"12px 0"}}>
-          <div style={{flex:1,height:1,background:C.borderSoft}}/>
-          <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>OR PASTE TEXT</div>
-          <div style={{flex:1,height:1,background:C.borderSoft}}/>
+      {/* Wishlist Import - screenshot, email, PDF, text */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:14}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:10}}>Find events from a screenshot, email or document</div>
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          {[["text","📝 Text"],["image","📸 Photo"],["pdf","📄 PDF"],["email","📧 Email"]].map(([type,label])=>(
+            <button key={type} onClick={()=>{setWishlistImportMode(type);setWishlistImportRes(null);setWishlistImgFile(null);setWishlistImgB64(null);}} style={{flex:1,padding:"7px 2px",borderRadius:3,border:`1.5px solid ${wishlistImportMode===type?C.goldBorder:C.borderSoft}`,background:wishlistImportMode===type?C.goldPale:C.card,color:wishlistImportMode===type?C.gold:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.06em",textTransform:"uppercase",cursor:"pointer"}}>{label}</button>
+          ))}
         </div>
-
-        {/* Paste text */}
-        <textarea
-          id="wishlist-paste-input"
-          style={{...inp,minHeight:80,resize:"vertical"}}
-          defaultValue={wishlistPaste}
-          placeholder={"Paste any text about events you'd like to attend...\ne.g. 'Thinking about going to Glastonbury next summer' or paste a festival listing"}
-        />
-        <div style={{display:"flex",gap:8}}>
-          <button style={goldBtn()} onClick={()=>{const el=document.getElementById("wishlist-paste-input");if(el)setWishlistPaste(el.value);extractWishlistFromText();}} disabled={wishlistPasteBusy}>
-            {wishlistPasteBusy?"Extracting…":"✦ Extract Events from Text"}
-          </button>
-          <button style={goldBtn(true)} onClick={()=>{setCriticalOnly(false);setView("import");}}>📎 Import</button>
-        </div>
+        {(wishlistImportMode==="text"||wishlistImportMode==="email")&&<div>
+          <textarea id="wishlist-import-text" style={{...inp,minHeight:90,resize:"vertical"}} placeholder={wishlistImportMode==="email"?"Paste the email here...":"Paste any text about events or holidays..."}/>
+          <button style={goldBtn()} onClick={()=>{const el=document.getElementById("wishlist-import-text");if(el)wishlistImport("text",el.value);}} disabled={wishlistImportBusy}>{wishlistImportBusy?"Searching…":"✦ Find Events"}</button>
+        </div>}
+        {wishlistImportMode==="image"&&<div>
+          <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
+            {wishlistImgFile?"✦ "+wishlistImgFile.name:"📸 Tap to upload screenshot or photo"}
+            <input type="file" accept="image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+          </label>
+          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("image",null,wishlistImgB64,wishlistImgFile?.type)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in Photo"}</button>}
+        </div>}
+        {wishlistImportMode==="pdf"&&<div>
+          <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
+            {wishlistImgFile?"✦ "+wishlistImgFile.name:"📄 Tap to upload PDF"}
+            <input type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+          </label>
+          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("pdf",null,wishlistImgB64)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in PDF"}</button>}
+        </div>}
+        {wishlistImportBusy&&<div style={{textAlign:"center",padding:"14px",color:C.gold,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase"}} className="shimmer">Eleanor is searching…</div>}
+        {wishlistImportRes?.length===0&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,padding:"8px 0",textAlign:"center"}}>No events found. Try pasting more detail.</div>}
+        {wishlistImportRes?.length>0&&<div style={{marginTop:10}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Found {wishlistImportRes.length} events</div>
+          {wishlistImportRes.map((item,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{item.title}</div>
+                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{[item.date,item.venue,item.price].filter(Boolean).join(" · ")}</div>
+              </div>
+              <button onClick={()=>{setWishlist(w=>[...w,{...item,id:Date.now()+Math.random()}]);setWishlistImportRes(r=>r.filter((_,j)=>j!==i));}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,marginLeft:8}}>＋ Add</button>
+            </div>
+          ))}
+          <button style={goldBtn()} onClick={()=>{setWishlist(w=>[...w,...wishlistImportRes.map(i=>({...i,id:Date.now()+Math.random()}))]);setWishlistImportRes(null);}}>Add All</button>
+        </div>}
       </div>
 
       {wishlist.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.inkFaint}}>
@@ -3085,6 +3491,60 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           ))}
         </div>
       </div>
+      {/* Recurring Events */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Recurring Events</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Events that repeat automatically — dog boarding, benefits, school runs.</div>
+        {(()=>{
+          const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+          return(<div>
+            {recurring.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{r.title}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.time} · {r.freq}</div>
+                </div>
+                <button onClick={()=>{const arr=JSON.parse(localStorage.getItem("papa_recurring")||"[]");arr.splice(i,1);localStorage.setItem("papa_recurring",JSON.stringify(arr));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:6,flexDirection:"column",marginTop:8}}>
+              <input id="rec-title" style={inp} placeholder="Event name"/>
+              <input id="rec-time" style={inp} type="time" defaultValue="09:00"/>
+              <select id="rec-freq" style={inp}>
+                {[["daily","Every day"],["weekly","Every week"],["fortnightly","Every 2 weeks"],["monthly","Every month"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+              <button style={goldBtn()} onClick={()=>{
+                const title=document.getElementById("rec-title")?.value;
+                if(!title?.trim())return;
+                const time=document.getElementById("rec-time")?.value||"09:00";
+                const freq=document.getElementById("rec-freq")?.value||"weekly";
+                const arr=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+                arr.push({title:title.trim(),time,freq,priority:"medium"});
+                localStorage.setItem("papa_recurring",JSON.stringify(arr));
+                document.getElementById("rec-title").value="";
+              }}>Add Recurring Event</button>
+            </div>
+          </div>);
+        })()}
+      </div>
+
+      {/* Notifications */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Notifications</div>
+          {notifPermission==="granted"
+            ?<div style={{fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Enabled</div>
+            :<button onClick={requestNotifications} style={{padding:"7px 14px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Enable</button>
+          }
+        </div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{notifPermission==="granted"?"Eleanor will notify you about reminders, upcoming events and birthdays.":"Allow notifications so Eleanor can remind you even when the app is closed."}</div>
+      </div>
+
+      {/* Privacy Policy */}
+      <div style={{textAlign:"center",marginBottom:14}}>
+        <button onClick={()=>setView("privacy")} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"underline"}}>Privacy Policy</button>
+      </div>
+
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Clear All Data</div>
         <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Remove all events, chat history and settings.</div>
@@ -3095,6 +3555,38 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
   const BACK_VIEWS=["schedule","week","briefing","import","chat","add","wishlist","settings","calendar","reminders","birthdays"];
   const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event",wishlist:"Wishlist",settings:"Settings",calendar:"Calendar",reminders:"Reminders",birthdays:"Birthdays"};
+
+  // Show onboarding for new users
+  if(!onboarded){
+    return(<OnboardingScreen
+      PA_PHOTO={PA_PHOTO} C={C} FD={FD} FB={FB} FM={FM}
+      onComplete={({name,address,travelMode:tm})=>{
+        if(address){setHomeAddress(address);localStorage.setItem("papa_home_address",address);}
+        if(tm){setTravelMode(tm);localStorage.setItem("papa_travel_mode",tm);}
+        if(name){
+          const ctx="Name: "+name+". "+(address?"Home: "+address+". ":"")+"Rover dog-sitter. App developer.";
+          setUserContext(ctx);localStorage.setItem("papa_user_context",ctx);
+        }
+        localStorage.setItem("papa_onboarded","true");
+        setOnboarded(true);
+        setMsgs([{role:"assistant",text:"Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+(name?", "+name:"")+". I'm Eleanor, your Personal Executive Assistant. I'm ready to help. How can I assist you today?",ts:new Date()}]);
+        if(typeof Notification!=="undefined"&&Notification.permission==="default")requestNotifications();
+      }}
+    />);
+  }
+
+  // Privacy policy
+  if(view==="privacy"){return(<div style={{maxWidth:480,margin:"0 auto",minHeight:"100dvh",background:C.parchment,padding:"24px",fontFamily:FB}}>
+    <button onClick={()=>setView("home")} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:12,cursor:"pointer",marginBottom:24,letterSpacing:"0.1em",textTransform:"uppercase"}}>← Back</button>
+    <div style={{fontFamily:FD,fontSize:24,color:C.ink,fontStyle:"italic",marginBottom:4}}>Privacy Policy</div>
+    <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:24}}>Last updated: June 2026</div>
+    {[["Data Storage","All your data — appointments, reminders, notes, preferences — is stored locally on your device only. We do not store any personal data on our servers."],["AI Processing","When you use Eleanor's AI features, your text is sent securely to Anthropic's API for processing. No conversation history is stored by us."],["Voice","When using premium voice, text is sent to ElevenLabs for text-to-speech conversion only. Standard voice is processed entirely on your device."],["Notifications","Push notifications are handled by your device's system. No notification data is sent to our servers."],["Calendar","If you connect Google Calendar via iCal, your calendar URL is stored locally. Calendar data is fetched directly from Google."],["No Tracking","We do not use analytics, advertising trackers, or any third-party tracking. We do not sell or share your data."],["Contact","For privacy questions, contact us through the Google Play Store listing."]].map(([title,text],i)=>(
+      <div key={i} style={{marginBottom:20}}>
+        <div style={{fontFamily:FD,fontSize:15,color:C.ink,fontStyle:"italic",marginBottom:5}}>{title}</div>
+        <div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.7}}>{text}</div>
+      </div>
+    ))}
+  </div>);}
 
   return(
     <div style={{fontFamily:FB,background:C.parchment,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:C.ink}}>
@@ -3200,7 +3692,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
           <div style={{display:"flex",gap:8,flexDirection:"column"}}>
             <button onClick={()=>{setConflictWarning(null);sendChat("I just added "+conflictWarning.event.title+" on "+conflictWarning.event.date+". What do you think about potential conflicts?");setCriticalOnly(false);setView("chat");}} style={{padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>✦ Ask Eleanor to Advise</button>
-            <button onClick={()=>setConflictWarning(null)} style={{padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Keep Event Anyway</button>
+            <button onClick={()=>{
+              if(conflictWarning.key)setDismissedConflicts(d=>[...d,conflictWarning.key]);
+              setConflictWarning(null);
+            }} style={{padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Keep Event & Don't Warn Again</button>
           </div>
         </div>
       </div>}
