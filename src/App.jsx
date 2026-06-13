@@ -558,6 +558,9 @@ export default function App(){
   const [autoBriefingDone,setAutoBriefingDone]=useState(()=>localStorage.getItem("papa_auto_brief_date")===new Date().toDateString());
   const [notifPermission,setNotifPermission]=useState(()=>typeof Notification!=="undefined"?Notification.permission:"default");
   const [onboarded,setOnboarded]=useState(()=>localStorage.getItem("papa_onboarded")==="true");
+  const [weeklyGoals,setWeeklyGoals]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_weekly_goals")||"null");}catch{return null;}});
+  const [showGoalsModal,setShowGoalsModal]=useState(false);
+  const [goalInput,setGoalInput]=useState(["","",""]);
   const [searchQuery,setSearchQuery]=useState("");
   const [showSearch,setShowSearch]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
@@ -638,6 +641,7 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_dismissed_critical",JSON.stringify(dismissedCriticalIds));}catch{}},[dismissedCriticalIds]);
   useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
   useEffect(()=>{try{localStorage.setItem("papa_dismissed_conflicts",JSON.stringify(dismissedConflicts));}catch{}},[dismissedConflicts]);
+  useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -898,7 +902,12 @@ CRITICAL: Read the full schedule carefully. Sort by date. Answer with the SOONES
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
     const hour=new Date().getHours();
     const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
-    try{const raw=await callAI({system:'You are Eleanor, a warm and highly intelligent Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a personal executive briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. how_are_you: warm good '+timeOfDay+' message asking how Sarah is, mentioning one specific upcoming thing to show you know her schedule. best_day_this_week: find the least busy day in the next 7 days with fewest events — good for scheduling something new or resting. Today:'+fmt(today)+'.',messages:[{role:"user",content:"Schedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
+    // Build EXACT date-to-day mapping so Eleanor cannot get days wrong
+    const dayCalendar=Array.from({length:14},(_,i)=>{
+      const d=new Date(today.getTime()+i*86400000);
+      return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+    }).join("\n");
+    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL RULE: You MUST use ONLY the exact date-to-day mapping provided — NEVER calculate or assume what day a date falls on. If you say "tomorrow" check the mapping first. how_are_you: warm good '+timeOfDay+' message. best_day_this_week: least busy day in next 7 days from the mapping.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING — use this precisely, never deviate:\n"+dayCalendar+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
     const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
@@ -1405,6 +1414,18 @@ ${e.notes||""}`.trim();
       window.open(wa,"_blank");
     }
   }
+
+  // ── WEEKLY GOALS ──
+  useEffect(()=>{
+    const dayOfWeek=new Date().getDay(); // 0=Sunday
+    const thisWeekKey="goals-"+fmt(today);
+    const lastGoalsKey=localStorage.getItem("papa_goals_week");
+
+    if(dayOfWeek===0&&lastGoalsKey!==thisWeekKey){
+      // Sunday - check if last week's goals are done, then ask for new ones
+      setTimeout(()=>setShowGoalsModal(true),2000);
+    }
+  },[]);
 
   // ── WEEKLY SUNDAY REVIEW ──
   useEffect(()=>{
@@ -2430,6 +2451,24 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{briefing.best_day_this_week.day_name} — {briefing.best_day_this_week.date}</div>
           <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginTop:3,lineHeight:1.5}}>{briefing.best_day_this_week.reason}</div>
           <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{marginTop:8,padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event on This Day</button>
+        </div>}
+
+        {/* Weekly Goals in briefing */}
+        {weeklyGoals?.goals?.length>0&&weeklyGoals.status!=="dismissed"&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:9,color:C.sapphire,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>✦ This Week's Goals</div>
+            <button onClick={()=>setShowGoalsModal(true)} style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"3px 8px",cursor:"pointer"}}>Update</button>
+          </div>
+          {weeklyGoals.goals.map((g,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:weeklyGoals.done?.[i]?C.emeraldBg:C.parchment,border:`1px solid ${weeklyGoals.done?.[i]?C.emerald:C.borderSoft}`,borderLeft:`3px solid ${weeklyGoals.done?.[i]?C.emerald:C.sapphire}`,borderRadius:3,marginBottom:6}}>
+              <div style={{flex:1,fontSize:12,fontFamily:FB,color:weeklyGoals.done?.[i]?C.emerald:C.ink,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",lineHeight:1.4}}>{g}</div>
+              <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:8}}>
+                {!weeklyGoals.done?.[i]&&<button onClick={()=>setWeeklyGoals(wg=>({...wg,done:{...wg.done,[i]:true}}))} style={{padding:"4px 8px",borderRadius:2,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,fontSize:8,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Done</button>}
+                <button onClick={()=>setWeeklyGoals(wg=>({...wg,goals:wg.goals.filter((_,j)=>j!==i),done:Object.fromEntries(Object.entries(wg.done||{}).filter(([k])=>k!==String(i)))}))} style={{padding:"4px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer"}}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={()=>{setCriticalOnly(false);setView("briefing");setShowGoalsModal(true);}} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:"0"}}>+ Add goal</button>
         </div>}
 
         {/* Financial summary in briefing */}
@@ -3643,6 +3682,55 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="reminders" && <RemindersView/>}
         {view==="birthdays"  && <BirthdaysView/>}
       </div>
+
+      {/* Weekly Goals Modal */}
+      {showGoalsModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+        <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
+          {/* Check last week's goals first */}
+          {weeklyGoals&&weeklyGoals.status!=="reviewed"&&new Date().getDay()===0?(<div>
+            <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic",marginBottom:6}}>Last week's goals</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:16}}>How did you get on?</div>
+            {(weeklyGoals.goals||[]).map((g,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:8}}>
+                <div style={{fontSize:13,fontFamily:FB,color:C.ink,flex:1,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",color:weeklyGoals.done?.[i]?C.inkFaint:C.ink}}>{g}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setWeeklyGoals(wg=>({...wg,done:{...wg.done,[i]:true}}))} style={{padding:"4px 10px",borderRadius:3,border:"none",background:weeklyGoals.done?.[i]?C.emerald:C.borderSoft,color:weeklyGoals.done?.[i]?"white":C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Done</button>
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:14}}>
+              <button onClick={()=>{setWeeklyGoals(wg=>({...wg,status:"reviewed"}));}} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Set This Week's Goals →</button>
+            </div>
+          </div>):(<div>
+            <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic",marginBottom:4}}>✦ This week's goals</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:16,lineHeight:1.6}}>What are 3 things you'd like to achieve this week? Eleanor will find the best days to schedule them.</div>
+            {[0,1,2].map(i=>(
+              <input key={i} id={`goal-${i}`} style={{...inp,marginBottom:8}} placeholder={["Goal 1 e.g. Finish app feature","Goal 2 e.g. School trip research","Goal 3 e.g. Self-care day"][i]} defaultValue={goalInput[i]}/>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:6}}>
+              <button onClick={async()=>{
+                const goals=[0,1,2].map(i=>document.getElementById("goal-"+i)?.value||"").filter(Boolean);
+                if(!goals.length){setShowGoalsModal(false);return;}
+                // Find best days
+                const weekKey="goals-"+fmt(today);
+                localStorage.setItem("papa_goals_week",weekKey);
+                const newGoals={goals,done:{},status:"active",week:weekKey,scheduledDays:{}};
+                setWeeklyGoals(newGoals);
+                setShowGoalsModal(false);
+                // Ask Eleanor to find best days
+                const eventsThisWeek=events.filter(e=>{
+                  const d=new Date(e.date+"T12:00:00");
+                  return d>=today&&d<=new Date(today.getTime()+7*86400000);
+                });
+                const dayMap=Array.from({length:7},(_,i)=>{const d=new Date(today.getTime()+i*86400000);return fmt(d)+" "+d.toLocaleDateString("en-GB",{weekday:"long"})+" ("+eventsThisWeek.filter(e=>e.date===fmt(d)).length+" events)";}).join(", ");
+                sendChat("I have 3 goals this week: "+goals.join("; ")+". Based on my schedule this week ("+dayMap+"), which are the best days to work on each goal? Please suggest a day for each one.");
+                setCriticalOnly(false);setView("chat");
+              }} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>✦ Set Goals & Ask Eleanor</button>
+              <button onClick={()=>setShowGoalsModal(false)} style={{padding:"11px 16px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,cursor:"pointer"}}>Later</button>
+            </div>
+          </div>)}
+        </div>
+      </div>}
 
       {/* Trip Alert Banner */}
       {tripAlerts.length>0&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1001,background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,padding:"14px 20px",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
