@@ -979,44 +979,38 @@ PROACTIVE TRIGGERS:
 CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       // Strip markdown formatting from Eleanor's response
       const clean=raw.replace(/\*\*(.*?)\*\*/g,"$1").replace(/\*(.*?)\*/g,"$1").replace(/#{1,3} /g,"").trim();
-      // Typewriter effect — Eleanor types her response naturally
+      // Add message immediately, then typewriter shows it being typed
+      const finalMsg={role:"assistant",text:clean,ts:new Date()};
       setPaStatus("speaking");
-      await typewriterEffect(clean,()=>{
+      // Start typewriter - message added after it completes
+      typewriterEffect(clean,()=>{
         setShowWave(false);
+        setPaStatus("idle");
+        setMsgs(m=>{
+          const updated=[...m,{role:"assistant",text:clean,ts:new Date()}];
+          const assistantCount=updated.filter(x=>x.role==="assistant").length;
+          if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(updated);
+          if(assistantCount>0&&assistantCount%3===0){
+            const recentTranscript=updated.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
+            callAI({
+              system:'Extract any NEW important facts from this exchange. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 per category. Empty arrays if nothing new.',
+              messages:[{role:"user",content:recentTranscript}]
+            }).then(r=>{
+              try{
+                const p=JSON.parse(r.replace(/```json|```/g,"").trim());
+                if(p.facts?.length>0||p.pending_tasks?.length>0||p.preferences?.length>0){
+                  const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+                  const upd={...existing,facts:[...(existing.facts||[]),...(p.facts||[])].slice(-25),pending_tasks:[...(existing.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),preferences:[...(existing.preferences||[]),...(p.preferences||[])].slice(-15)};
+                  localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+                  setPersistentMemory(upd);
+                }
+              }catch{}
+            }).catch(()=>{});
+          }
+          return updated;
+        });
+        if(eleanorVoiceOn)eleanorSpeak(clean);
       });
-      if(eleanorVoiceOn)eleanorSpeak(clean);
-      setMsgs(m=>{
-        const updated=[...m,{role:"assistant",text:clean,ts:new Date()}];
-        const assistantCount=updated.filter(x=>x.role==="assistant").length;
-        // Auto-save full session every 10 messages
-        if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(updated);
-        // Quick background fact extraction every 3 messages
-        if(assistantCount>0&&assistantCount%3===0){
-          const recentTranscript=updated.slice(-6).map(m=>(m.role==="user"?"Sarah":"Eleanor")+": "+m.text).join("\n");
-          callAI({
-            system:'Extract any NEW important facts from this exchange. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 per category. Empty arrays if nothing new.',
-            messages:[{role:"user",content:recentTranscript}]
-          }).then(r=>{
-            try{
-              const p=JSON.parse(r.replace(/```json|```/g,"").trim());
-              const hasNew=(p.facts?.length>0||p.pending_tasks?.length>0||p.preferences?.length>0);
-              if(hasNew){
-                const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
-                const updated2={
-                  ...existing,
-                  facts:[...(existing.facts||[]),...(p.facts||[])].slice(-25),
-                  pending_tasks:[...(existing.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),
-                  preferences:[...(existing.preferences||[]),...(p.preferences||[])].slice(-15),
-                };
-                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated2));
-                setPersistentMemory(updated2);
-              }
-            }catch{}
-          }).catch(()=>{});
-        }
-        return updated;
-      });
-      setPaStatus("idle");
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
   }
 
@@ -1542,24 +1536,32 @@ Rules:
   }
 
   // ── TYPEWRITER EFFECT ──
-  async function typewriterEffect(text, onComplete){
+  const typewriterRef=React.useRef(null);
+  function typewriterEffect(text,onComplete){
+    // Cancel any existing typewriter
+    if(typewriterRef.current)clearTimeout(typewriterRef.current);
     setIsStreaming(true);
     setStreamedText("");
     const words=text.split(" ");
+    let i=0;
     let current="";
-    for(let i=0;i<words.length;i++){
+    function nextWord(){
+      if(i>=words.length){
+        setIsStreaming(false);
+        setStreamedText("");
+        if(onComplete)onComplete();
+        return;
+      }
       current+=(i>0?" ":"")+words[i];
       setStreamedText(current);
-      // Natural pauses — longer after punctuation
       const word=words[i];
-      const delay=word.endsWith(".")||word.endsWith("!")||word.endsWith("?")?120+Math.random()*80:
-                  word.endsWith(",")||word.endsWith(";")?60+Math.random()*40:
-                  18+Math.random()*22;
-      await new Promise(r=>setTimeout(r,delay));
+      const delay=word.endsWith(".")||word.endsWith("!")||word.endsWith("?")?90+Math.random()*60:
+                  word.endsWith(",")||word.endsWith(";")?45+Math.random()*30:
+                  15+Math.random()*15;
+      i++;
+      typewriterRef.current=setTimeout(nextWord,delay);
     }
-    setIsStreaming(false);
-    setStreamedText("");
-    if(onComplete)onComplete();
+    nextWord();
   }
 
   // ── SHARE EVENT ──
