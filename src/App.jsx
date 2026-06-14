@@ -654,22 +654,24 @@ export default function App(){
     try{ localStorage.setItem("papa_events",JSON.stringify(events)); }catch{}
   },[events]);
 
+  // Consolidated storage - all saves in one effect per state
   useEffect(()=>{try{localStorage.setItem("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
   useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
   useEffect(()=>{try{localStorage.setItem("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
   useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
-  useEffect(()=>{try{localStorage.setItem("papa_birthday_actions",JSON.stringify(birthdayActions));}catch{}},[birthdayActions]);
-  useEffect(()=>{try{localStorage.setItem("papa_event_notes",JSON.stringify(eventNotes));}catch{}},[eventNotes]);
-  useEffect(()=>{try{localStorage.setItem("papa_dismissed_critical",JSON.stringify(dismissedCriticalIds));}catch{}},[dismissedCriticalIds]);
   useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
-  useEffect(()=>{try{localStorage.setItem("papa_dismissed_conflicts",JSON.stringify(dismissedConflicts));}catch{}},[dismissedConflicts]);
   useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
+  useEffect(()=>{try{const s={eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts};Object.entries({papa_event_notes:eventNotes,papa_birthday_actions:birthdayActions,papa_dismissed_critical:dismissedCriticalIds,papa_dismissed_conflicts:dismissedConflicts}).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));}catch{}},[eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts]);
+  // Save messages debounced to avoid too many writes
+  const msgSaveTimer=React.useRef(null);
   useEffect(()=>{
-    try{
-      // Save last 30 messages only
-      const toSave=msgs.slice(-30).map(m=>({...m,ts:m.ts?.toISOString?m.ts.toISOString():m.ts}));
-      localStorage.setItem("papa_msgs",JSON.stringify(toSave));
-    }catch{}
+    if(msgSaveTimer.current)clearTimeout(msgSaveTimer.current);
+    msgSaveTimer.current=setTimeout(()=>{
+      try{
+        const toSave=msgs.slice(-30).map(m=>({...m,ts:m.ts?.toISOString?m.ts.toISOString():m.ts}));
+        localStorage.setItem("papa_msgs",JSON.stringify(toSave));
+      }catch{}
+    },1000);
   },[msgs]);
 
   // Save msgs to localStorage whenever they change
@@ -894,12 +896,7 @@ Rules:
       if((persistentMemory.preferences||[]).length>0)memParts.push("SARAH'S PREFERENCES:\n"+persistentMemory.preferences.map(p=>"- "+p).join("\n"));
       const memFacts=memParts.join("\n\n");
       const lastSession=sessionSummary?"LAST CONVERSATION:\n"+sessionSummary:"";
-      const sessionHistory=(()=>{
-        try{
-          const hist=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
-          return hist.length>0?"PREVIOUS WEEK CONTEXT:\n"+hist.slice(0,2).map(s=>s.date+": "+s.text).join("\n"):"";
-        }catch{return "";}
-      })();
+      const sessionHistory=(()=>{try{const h=JSON.parse(localStorage.getItem("papa_session_history")||"[]");return h.length>0?"PREVIOUS SESSIONS:\n"+h.slice(0,2).map(s=>s.date+": "+s.text).join("\n"):"";}catch{return "";}})();
       const activeReminders=reminders.length>0?"ACTIVE REMINDERS:\n"+reminders.map(r=>"- "+r.text+" at "+r.time).join("\n"):"";
       const upcomingBdays=getBirthdayAlerts().filter(b=>b.days<=30).map(b=>"- "+b.name+" in "+b.days+" days ("+b.next+")").join("\n");
       // Build weather context string
@@ -986,19 +983,29 @@ CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,mes
       typewriterEffect(clean,()=>{
         setShowWave(false);
         setPaStatus("idle");
+        if(eleanorVoiceOn)eleanorSpeak(clean);
+        // Add message to chat
         setMsgs(m=>{
           const updated=[...m,{role:"assistant",text:clean,ts:new Date()}];
           const assistantCount=updated.filter(x=>x.role==="assistant").length;
-          if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(updated);
+          if(assistantCount>0&&assistantCount%10===0){
+            setTimeout(()=>saveSessionSummary(updated),100);
+          }
+          return updated;
+        });
+        // Background memory extraction - completely outside setMsgs
+        setTimeout(()=>{
+          const allMsgs=JSON.parse(localStorage.getItem("papa_msgs")||"[]");
+          const assistantCount=allMsgs.filter(x=>x.role==="assistant").length;
           if(assistantCount>0&&assistantCount%3===0){
-            const recentTranscript=updated.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
+            const recentTranscript=allMsgs.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
             callAI({
-              system:'Extract any NEW important facts from this exchange. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 per category. Empty arrays if nothing new.',
+              system:'Extract NEW facts only. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 each. Empty arrays if nothing new.',
               messages:[{role:"user",content:recentTranscript}]
             }).then(r=>{
               try{
                 const p=JSON.parse(r.replace(/```json|```/g,"").trim());
-                if(p.facts?.length>0||p.pending_tasks?.length>0||p.preferences?.length>0){
+                if(p.facts?.length||p.pending_tasks?.length||p.preferences?.length){
                   const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
                   const upd={...existing,facts:[...(existing.facts||[]),...(p.facts||[])].slice(-25),pending_tasks:[...(existing.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),preferences:[...(existing.preferences||[]),...(p.preferences||[])].slice(-15)};
                   localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
@@ -1007,9 +1014,7 @@ CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,mes
               }catch{}
             }).catch(()=>{});
           }
-          return updated;
-        });
-        if(eleanorVoiceOn)eleanorSpeak(clean);
+        },500);
       });
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
   }
@@ -1535,33 +1540,19 @@ Rules:
     setDocBusy(false);
   }
 
-  // ── TYPEWRITER EFFECT ──
+  // ── TYPEWRITER EFFECT - safe version ──
   const typewriterRef=React.useRef(null);
   function typewriterEffect(text,onComplete){
-    // Cancel any existing typewriter
     if(typewriterRef.current)clearTimeout(typewriterRef.current);
     setIsStreaming(true);
-    setStreamedText("");
-    const words=text.split(" ");
-    let i=0;
-    let current="";
-    function nextWord(){
-      if(i>=words.length){
-        setIsStreaming(false);
-        setStreamedText("");
-        if(onComplete)onComplete();
-        return;
-      }
-      current+=(i>0?" ":"")+words[i];
-      setStreamedText(current);
-      const word=words[i];
-      const delay=word.endsWith(".")||word.endsWith("!")||word.endsWith("?")?90+Math.random()*60:
-                  word.endsWith(",")||word.endsWith(";")?45+Math.random()*30:
-                  15+Math.random()*15;
-      i++;
-      typewriterRef.current=setTimeout(nextWord,delay);
-    }
-    nextWord();
+    setStreamedText(text);
+    // Simple delay instead of word-by-word to avoid mobile crashes
+    const readTime=Math.min(Math.max(text.split(" ").length*40,800),3000);
+    typewriterRef.current=setTimeout(()=>{
+      setIsStreaming(false);
+      setStreamedText("");
+      if(onComplete)onComplete();
+    },readTime);
   }
 
   // ── SHARE EVENT ──
