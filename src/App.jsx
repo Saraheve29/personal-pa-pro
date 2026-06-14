@@ -674,10 +674,7 @@ export default function App(){
     },1000);
   },[msgs]);
 
-  // Save msgs to localStorage whenever they change
-  useEffect(()=>{
-    try{ localStorage.setItem("papa_msgs",JSON.stringify(msgs)); }catch{}
-  },[msgs]);
+  // msgs saved via debounced effect below
 
   // Google OAuth state
   const [googleTokens, setGoogleTokens] = useState(()=>{
@@ -1569,43 +1566,10 @@ ${e.notes||""}`.trim();
   }
 
   // ── WEEKLY GOALS ──
-  useEffect(()=>{
-    const dayOfWeek=new Date().getDay(); // 0=Sunday
-    const thisWeekKey="goals-"+fmt(today);
-    const lastGoalsKey=localStorage.getItem("papa_goals_week");
-
-    if(dayOfWeek===0&&lastGoalsKey!==thisWeekKey){
-      // Sunday - check if last week's goals are done, then ask for new ones
-      setTimeout(()=>setShowGoalsModal(true),2000);
-    }
-  },[]);
+  // Weekly goals auto-show disabled - caused crash
 
   // ── WEEKLY SUNDAY REVIEW ──
-  useEffect(()=>{
-    const dayOfWeek=new Date().getDay(); // 0=Sunday
-    const hour=new Date().getHours();
-    const lastReview=localStorage.getItem("papa_weekly_review_date");
-    const thisWeekKey=fmt(today)+"-week";
-    if(dayOfWeek===0&&hour>=18&&lastReview!==thisWeekKey&&events.length>0){
-      localStorage.setItem("papa_weekly_review_date",thisWeekKey);
-      // Auto-open chat with weekly review
-      setTimeout(async()=>{
-        const weekAhead=[...events].filter(e=>{
-          const d=new Date(e.date+"T12:00:00");
-          const n=new Date();
-          return d>=n&&d<=new Date(n.getTime()+7*86400000);
-        }).map(e=>e.date+" "+e.title).join(", ");
-        const review=await callAI({
-          system:"You are Eleanor. Give a warm, encouraging Sunday evening weekly review. Mention what's coming up this week, any preparation needed, and one positive thought for Sarah. Keep it personal and under 100 words.",
-          messages:[{role:"user",content:"Week ahead: "+weekAhead+". Today: "+fmt(today)+"."}]
-        });
-        if(review){
-          setMsgs(m=>[...m,{role:"assistant",text:"🌙 Sunday Review: "+review,ts:new Date()}]);
-          setCriticalOnly(false);setView("chat");
-        }
-      },2000);
-    }
-  },[]);
+  // Weekly review - disabled auto-nav on mobile
 
   // ── WISHLIST IMPORT FROM IMAGE/PDF/EMAIL ──
   async function wishlistImport(type,content,b64,mime){
@@ -1697,29 +1661,32 @@ ${e.notes||""}`.trim();
   // ── RECURRING EVENTS ──
   // Expand recurring events into actual dates (up to 90 days ahead)
   useEffect(()=>{
-    const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
-    if(!recurring.length)return;
-    const toAdd=[];
-    const existingKeys=new Set(events.map(e=>e.date+"_"+e.title));
-    recurring.forEach(r=>{
-      let d=new Date();
-      const end=new Date(d.getTime()+90*86400000);
-      while(d<=end){
-        const ds=fmt(d);
-        const key=ds+"_"+r.title;
-        if(!existingKeys.has(key)){
-          toAdd.push({id:Date.now()+Math.random()*10000,title:r.title,date:ds,time:r.time||"09:00",priority:r.priority||"medium",notes:r.notes||"",source:"recurring"});
-          existingKeys.add(key);
+    try{
+      const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+      if(!recurring.length)return;
+      const toAdd=[];
+      const existingKeys=new Set(events.map(e=>e.date+"_"+e.title.slice(0,20)));
+      recurring.forEach(r=>{
+        let d=new Date();
+        let safety=0;
+        const end=new Date(d.getTime()+90*86400000);
+        while(d<=end&&safety<200){
+          safety++;
+          const ds=fmt(d);
+          const key=ds+"_"+r.title.slice(0,20);
+          if(!existingKeys.has(key)){
+            toAdd.push({id:Date.now()+Math.random()*10000,title:r.title,date:ds,time:r.time||"09:00",priority:r.priority||"medium",notes:"",source:"recurring"});
+            existingKeys.add(key);
+          }
+          if(r.freq==="daily")d.setDate(d.getDate()+1);
+          else if(r.freq==="weekly")d.setDate(d.getDate()+7);
+          else if(r.freq==="fortnightly")d.setDate(d.getDate()+14);
+          else if(r.freq==="monthly")d.setMonth(d.getMonth()+1);
+          else break;
         }
-        // Advance by frequency
-        if(r.freq==="daily")d.setDate(d.getDate()+1);
-        else if(r.freq==="weekly")d.setDate(d.getDate()+7);
-        else if(r.freq==="fortnightly")d.setDate(d.getDate()+14);
-        else if(r.freq==="monthly")d.setMonth(d.getMonth()+1);
-        else d=new Date(end.getTime()+1); // stop
-      }
-    });
-    if(toAdd.length>0)setEvents(ev=>[...ev,...toAdd]);
+      });
+      if(toAdd.length>0)setEvents(ev=>[...ev,...toAdd.slice(0,50)]);
+    }catch(e){console.warn("Recurring events error:",e);}
   },[]);
 
   // ── SERVICE WORKER & NOTIFICATIONS ──
@@ -1794,21 +1761,7 @@ ${e.notes||""}`.trim();
   },[reminders,notifPermission]);
 
   // ── AUTO MORNING BRIEFING ──
-  useEffect(()=>{
-    const hour=new Date().getHours();
-    const todayStr=new Date().toDateString();
-    const lastBrief=localStorage.getItem("papa_auto_brief_date");
-    // Auto-trigger briefing if before 10am and not already done today
-    if(hour>=6&&hour<10&&lastBrief!==todayStr&&events.length>0){
-      localStorage.setItem("papa_auto_brief_date",todayStr);
-      setAutoBriefingDone(true);
-      setTimeout(()=>{
-        setView("briefing");
-        // Small delay then generate
-        setTimeout(generateBriefing,800);
-      },1500);
-    }
-  },[]);
+  // Auto-morning briefing disabled - caused crash on mobile load
 
   // ── PRE-TRIP ALERTS ──
   useEffect(()=>{
