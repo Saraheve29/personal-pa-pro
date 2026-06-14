@@ -474,6 +474,9 @@ const GLOBAL_CSS=`
   @keyframes wave3{from{height:24%}to{height:68%}}
   @keyframes wave4{from{height:18%}to{height:82%}}
   @keyframes typingDot{0%,100%{transform:translateY(0);opacity:0.35}50%{transform:translateY(-5px);opacity:1}}
+  @keyframes pulse{0%,100%{transform:scale(0.7);opacity:0.4}50%{transform:scale(1.1);opacity:1}}
+  @keyframes memoryPulse{0%,100%{opacity:0.5}50%{opacity:1}}
+  @keyframes typingCursor{0%,100%{opacity:1}50%{opacity:0}}
   @keyframes bubblePop{0%{opacity:0;transform:scale(0.93) translateY(6px)}100%{opacity:1;transform:scale(1) translateY(0)}}
   @keyframes heroFadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
   .ev-card{animation:fadeUp 0.3s ease both;}
@@ -502,14 +505,32 @@ export default function App(){
       const saved=localStorage.getItem("papa_msgs");
       if(saved){
         const parsed=JSON.parse(saved);
-        return parsed.map(m=>({...m,ts:new Date(m.ts)}));
+        if(parsed.length>0)return parsed.map(m=>({...m,ts:new Date(m.ts)}));
       }
     }catch{}
-    return [{role:"assistant",text:"Good morning. I'm Eleanor, your Personal Assistant. How may I assist you?",ts:new Date()}];
+    // Smart greeting based on memory and time of day
+    const hour=new Date().getHours();
+    const tod=hour<12?"morning":hour<17?"afternoon":"evening";
+    let mem={};
+    try{mem=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");}catch{}
+    const lastSession=localStorage.getItem("papa_last_session")||"";
+    const hasMem=(mem.facts||[]).length>0||(mem.pending_tasks||[]).length>0;
+    let greeting;
+    if(hasMem&&(mem.pending_tasks||[]).length>0){
+      greeting="Good "+tod+". I've reviewed my notes and I'm fully up to date. I still have \""+mem.pending_tasks[0]+"\" noted as pending from our last conversation. How can I help you today?";
+    }else if(hasMem&&lastSession){
+      greeting="Good "+tod+". I've reviewed my notes from our previous conversations and I'm ready. How may I assist you today?";
+    }else{
+      greeting="Good "+tod+". I'm Eleanor, your Personal Executive Assistant. How may I assist you today?";
+    }
+    return [{role:"assistant",text:greeting,ts:new Date()}];
   });
   const [chatIn,    setChatIn]   =useState("");
   const [paStatus,  setPaStatus] =useState("idle");
   const [showWave,  setShowWave] =useState(false);
+  const [streamedText,setStreamedText]=useState("");
+  const [isStreaming,setIsStreaming]=useState(false);
+  const [editingMemory,setEditingMemory]=useState(null);
   const [newEv,     setNewEv]    =useState({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});
   const [pasteText, setPasteText]=useState("");
   const [importContext,setImportContext]=useState("");
@@ -564,6 +585,7 @@ export default function App(){
   const [searchQuery,setSearchQuery]=useState("");
   const [showSearch,setShowSearch]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [weekWeather,setWeekWeather]=useState(null);
   const [apiError,setApiError]=useState(null);
   const [onboardStep,setOnboardStep]=useState(0);
   const [swRegistered,setSwRegistered]=useState(false);
@@ -642,6 +664,13 @@ export default function App(){
   useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
   useEffect(()=>{try{localStorage.setItem("papa_dismissed_conflicts",JSON.stringify(dismissedConflicts));}catch{}},[dismissedConflicts]);
   useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
+  useEffect(()=>{
+    try{
+      // Save last 30 messages only
+      const toSave=msgs.slice(-30).map(m=>({...m,ts:m.ts?.toISOString?m.ts.toISOString():m.ts}));
+      localStorage.setItem("papa_msgs",JSON.stringify(toSave));
+    }catch{}
+  },[msgs]);
 
   // Save msgs to localStorage whenever they change
   useEffect(()=>{
@@ -738,7 +767,16 @@ export default function App(){
   function addEvs(list,src){
     setEvents(ev=>{
       const mx=Math.max(0,...ev.map(e=>e.id));
-      const newEvs=list.map((e,i)=>({...e,id:mx+i+1+(Math.floor(Math.random()*10000)),source:src}));
+      // Deduplicate - skip events within 1 day of same title
+      const existingKeys=new Set(ev.map(e=>e.title.toLowerCase().trim().slice(0,20)+"_"+e.date));
+      const filtered=list.filter(e=>{
+        const key=e.title.toLowerCase().trim().slice(0,20)+"_"+e.date;
+        if(existingKeys.has(key))return false;
+        existingKeys.add(key);
+        return true;
+      });
+      if(!filtered.length)return ev;
+      const newEvs=filtered.map((e,i)=>({...e,id:mx+i+1+(Math.floor(Math.random()*10000)),source:src}));
       // Check first event for conflicts
       if(newEvs.length>0){
         const clashes=ev.filter(e=>e.date===newEvs[0].date);
@@ -849,44 +887,133 @@ Rules:
       const futureCtx=futureEvents.length>0
         ?futureEvents.map((e,i)=>(i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n")
         :"No upcoming events";
-      const memFacts=(persistentMemory.facts||[]).length>0?"THINGS ELEANOR REMEMBERS:\n"+persistentMemory.facts.map(f=>"- "+f).join("\n"):"";
+      const memParts=[];
+      if((persistentMemory.facts||[]).length>0)memParts.push("ELEANOR REMEMBERS:\n"+persistentMemory.facts.map(f=>"- "+f).join("\n"));
+      if((persistentMemory.pending_tasks||[]).length>0)memParts.push("PENDING TASKS ELEANOR NOTED:\n"+persistentMemory.pending_tasks.map(t=>"- "+t).join("\n"));
+      if((persistentMemory.emotional_notes||[]).length>0)memParts.push("RECENT EMOTIONAL CONTEXT:\n"+persistentMemory.emotional_notes.map(n=>"- "+n).join("\n"));
+      if((persistentMemory.preferences||[]).length>0)memParts.push("SARAH'S PREFERENCES:\n"+persistentMemory.preferences.map(p=>"- "+p).join("\n"));
+      const memFacts=memParts.join("\n\n");
       const lastSession=sessionSummary?"LAST CONVERSATION:\n"+sessionSummary:"";
+      const sessionHistory=(()=>{
+        try{
+          const hist=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
+          return hist.length>0?"PREVIOUS WEEK CONTEXT:\n"+hist.slice(0,2).map(s=>s.date+": "+s.text).join("\n"):"";
+        }catch{return "";}
+      })();
       const activeReminders=reminders.length>0?"ACTIVE REMINDERS:\n"+reminders.map(r=>"- "+r.text+" at "+r.time).join("\n"):"";
       const upcomingBdays=getBirthdayAlerts().filter(b=>b.days<=30).map(b=>"- "+b.name+" in "+b.days+" days ("+b.next+")").join("\n");
+      // Build weather context string
+      const weatherCtx=weekWeather?.length>0
+        ?"7-DAY WEATHER FORECAST (March, Cambridgeshire):\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°C/"+w.min+"°C, rain "+w.rain+"%, wind "+w.wind+"km/h").join("\n")
+        :"Weather: unavailable";
+
+      // Build finances context
+      const thisMonth=new Date().getMonth();
+      const thisYear=new Date().getFullYear();
+      const monthFin=finances.filter(f=>f.status!=="paid"&&f.date&&new Date(f.date+"T12:00:00").getMonth()===thisMonth&&new Date(f.date+"T12:00:00").getFullYear()===thisYear);
+      const finCtx=monthFin.length>0?"THIS MONTH'S FINANCES:\n"+monthFin.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+" ("+f.type+") due "+f.date).join("\n"):"";
+
+      // Build weekly goals context
+      const goalsCtx=weeklyGoals?.goals?.length>0?"THIS WEEK'S GOALS:\n"+weeklyGoals.goals.map((g,i)=>"- "+g+(weeklyGoals.done?.[i]?" [DONE]":"")).join("\n"):"";
+
+      // Recent past events (last 2 weeks) for context
+      const pastEvs=allEvents.filter(e=>e.date<fmt(today)&&e.date>=fmt(new Date(today.getTime()-14*86400000))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+      const pastCtx=pastEvs.length>0?"RECENT PAST EVENTS:\n"+pastEvs.map(e=>"- "+e.date+" "+e.title).join("\n"):"";
+
       const contextContent=[
         "DATE/TIME: "+dateStr+" at "+timeStr,
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
+        pastCtx,
         lastSession,
+        sessionHistory,
         memFacts,
         activeReminders,
         upcomingBdays?"UPCOMING BIRTHDAYS:\n"+upcomingBdays:"",
+        weatherCtx,
+        finCtx,
+        goalsCtx,
         "ABOUT SARAH: "+userContext,
         "CONFLICTS: "+cfls.length
       ].filter(Boolean).join("\n\n");
-      const contextMsg={role:"user",content:"[ELEANOR MEMORY SYNC - READ THIS FIRST]\n"+contextContent+"\n[END SYNC]"};
-      const raw=await callAI({system:`You are Eleanor, a discreet and impeccably professional Personal Executive Assistant. You serve Sarah — single mother, indie app developer (Skyla, Thinko, GigNest apps), Rover dog-sitter, living in March, Cambridgeshire. Children: Maleeka and Maliki. Warm, composed, precise. Never use bullet points. One question max at a time. Never use markdown formatting like ** or *.
+      // Detect patterns in events
+      const roverEvents=allEvents.filter(e=>e.title.toLowerCase().includes("ringo")||e.title.toLowerCase().includes("boarding")||e.source==="rover");
+      const patternNotes=[];
+      if(roverEvents.length>=2)patternNotes.push("Pattern detected: "+roverEvents.length+" Rover/dog boarding bookings in schedule");
+      const recurringCheck={};
+      allEvents.forEach(e=>{const key=e.title.toLowerCase().trim().slice(0,15);recurringCheck[key]=(recurringCheck[key]||0)+1;});
+      Object.entries(recurringCheck).filter(([,v])=>v>=3).forEach(([k])=>patternNotes.push("Recurring pattern: '"+k+"' appears "+recurringCheck[k]+" times"));
 
-TODAY IS: ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}. This is definitive — never contradict this.
+      const contextMsg={role:"user",content:"[ELEANOR MEMORY SYNC - READ THIS FIRST]\n"+contextContent+(patternNotes.length?"\n\nPATTERNS NOTICED:\n"+patternNotes.join("\n"):"")+"\n[END SYNC]"};
+      // Trim conversation to last 20 messages to avoid token limits
+      const trimmedMsgs=msgs.slice(-20);
+      const raw=await callAI({system:`You are Eleanor — a warm, brilliant, deeply trusted Personal Executive Assistant to Sarah. You are not a generic AI. You know Sarah's life intimately and care about her wellbeing.
 
-SCHEDULE RULES:
-- Always sort events by date, closest first
-- Before answering ANY question about dates/events, check the ELEANOR MEMORY SYNC block injected in this conversation
-- When asked "next holiday" or "next event" — find the earliest future date in the schedule
-- Never mention school on weekends or UK bank holidays
-- UK school holidays 2026: summer starts 21 July. Half term 25-29 May. Easter 3-17 April.
-- Sarah's children Maleeka and Maliki are school age
+SARAH: Single mother, indie app developer (Skyla, Thinko, GigNest), Rover dog-sitter, March, Cambridgeshire, UK. Children: Maleeka and Maliki (school age). Has ME/CFS. Benefits include Carer's Allowance. Dog: Ringo.
 
-CRITICAL: Read the full schedule carefully. Sort by date. Answer with the SOONEST upcoming event first.`,messages:[contextMsg,...msgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
-      await new Promise(r=>setTimeout(r,350));setPaStatus("speaking");setShowWave(true);
-      if(eleanorVoiceOn)eleanorSpeak(raw);
-      await new Promise(r=>setTimeout(r,850));setShowWave(false);
+TODAY: ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}. NEVER contradict this date.
+
+YOUR CHARACTER:
+- Warm and calm — especially if Sarah seems tired or overwhelmed, acknowledge it gently
+- Proactive — spot things before she asks. Trip mentioned? Offer packing list. Deadline near? Flag it.
+- Specific — always use exact dates, times, amounts from the schedule. Never be vague.
+- Personal — reference her memory: "As I noted..." or "You mentioned last time..."
+- Concise — one clear paragraph. One proactive follow-up max. Never bullet points. Never ** or *.
+- Use Sarah by name naturally. Use Maleeka and Maliki when relevant.
+
+SCHEDULE INTELLIGENCE:
+- Read ELEANOR MEMORY SYNC block before every answer — complete schedule is there
+- Sort ALL events by date — SOONEST first always
+- Never mention school events on weekends or bank holidays
+- UK school holidays 2026: Easter 3-17 April, Summer from 21 July
+- Cross-reference 7-DAY WEATHER FORECAST for outdoor activity questions
+- Notice patterns in bookings and flag them helpfully
+
+PROACTIVE TRIGGERS:
+- Date mentioned by Sarah → immediately check if she is free
+- Trip or holiday → offer packing list, weather, travel time
+- She seems stressed → suggest rest day, acknowledge the load she carries
+- Approaching deadline → flag before she asks
+- Scheduling clash spotted → warn immediately
+- Rover booking pattern → suggest setting up recurring
+
+CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       // Strip markdown formatting from Eleanor's response
       const clean=raw.replace(/\*\*(.*?)\*\*/g,"$1").replace(/\*(.*?)\*/g,"$1").replace(/#{1,3} /g,"").trim();
+      // Typewriter effect — Eleanor types her response naturally
+      setPaStatus("speaking");
+      await typewriterEffect(clean,()=>{
+        setShowWave(false);
+      });
+      if(eleanorVoiceOn)eleanorSpeak(clean);
       setMsgs(m=>{
         const updated=[...m,{role:"assistant",text:clean,ts:new Date()}];
-        // Auto-save session summary every 10 assistant messages
         const assistantCount=updated.filter(x=>x.role==="assistant").length;
+        // Auto-save full session every 10 messages
         if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(updated);
+        // Quick background fact extraction every 3 messages
+        if(assistantCount>0&&assistantCount%3===0){
+          const recentTranscript=updated.slice(-6).map(m=>(m.role==="user"?"Sarah":"Eleanor")+": "+m.text).join("\n");
+          callAI({
+            system:'Extract any NEW important facts from this exchange. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 per category. Empty arrays if nothing new.',
+            messages:[{role:"user",content:recentTranscript}]
+          }).then(r=>{
+            try{
+              const p=JSON.parse(r.replace(/```json|```/g,"").trim());
+              const hasNew=(p.facts?.length>0||p.pending_tasks?.length>0||p.preferences?.length>0);
+              if(hasNew){
+                const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+                const updated2={
+                  ...existing,
+                  facts:[...(existing.facts||[]),...(p.facts||[])].slice(-25),
+                  pending_tasks:[...(existing.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),
+                  preferences:[...(existing.preferences||[]),...(p.preferences||[])].slice(-15),
+                };
+                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated2));
+                setPersistentMemory(updated2);
+              }
+            }catch{}
+          }).catch(()=>{});
+        }
         return updated;
       });
       setPaStatus("idle");
@@ -907,7 +1034,10 @@ CRITICAL: Read the full schedule carefully. Sort by date. Answer with the SOONES
       const d=new Date(today.getTime()+i*86400000);
       return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
     }).join("\n");
-    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL RULE: You MUST use ONLY the exact date-to-day mapping provided — NEVER calculate or assume what day a date falls on. If you say "tomorrow" check the mapping first. how_are_you: warm good '+timeOfDay+' message. best_day_this_week: least busy day in next 7 days from the mapping.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING — use this precisely, never deviate:\n"+dayCalendar+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
+    const wxBriefCtx=weekWeather?.length>0
+      ?"7-DAY WEATHER:\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°/"+w.min+"°, rain "+w.rain+"%").join("\n")
+      :"";
+    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
     const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
@@ -1327,16 +1457,25 @@ Rules:
         const busyDays=results.filter(r=>!r.isFree);
         const clashDays=results.filter(r=>r.hasConflict);
         const freeDays=results.filter(r=>r.isFree);
-        setCheckerRes({
-          isRange:true,
-          rangeStart:extracted.dates[0].date,
-          rangeEnd:extracted.dates[1].date,
-          totalDays:results.length,
-          freeDays:freeDays.length,
-          busyDays,
-          clashDays,
-          allResults:results
-        });
+        // Find alternative free periods nearby
+        const rangeEnd=new Date(extracted.dates[1].date+"T12:00:00");
+        const alternatives=[];
+        for(let i=1;i<=14;i++){
+          const altStart=new Date(rangeEnd.getTime()+i*86400000);
+          const altEnd=new Date(altStart.getTime()+(datesToCheck.length-1)*86400000);
+          const altDays=[];
+          let cur=new Date(altStart);
+          while(cur<=altEnd){
+            const ds=fmt(cur);
+            altDays.push({date:ds,busy:events.filter(e=>e.date===ds).length>0});
+            cur.setDate(cur.getDate()+1);
+          }
+          if(altDays.every(d=>!d.busy)){
+            alternatives.push({start:fmt(altStart),end:fmt(altEnd),label:altStart.toLocaleDateString("en-GB",{day:"numeric",month:"long"})+" – "+altEnd.toLocaleDateString("en-GB",{day:"numeric",month:"long"})});
+            if(alternatives.length>=2)break;
+          }
+        }
+        setCheckerRes({isRange:true,rangeStart:extracted.dates[0].date,rangeEnd:extracted.dates[1].date,totalDays:results.length,freeDays:freeDays.length,busyDays,clashDays,allResults:results,alternatives});
       } else {
         setCheckerRes({dates:results});
       }
@@ -1400,6 +1539,27 @@ Rules:
       setDocRes(parsed);
     }catch(e){setDocRes({error:true,msg:e.message});}
     setDocBusy(false);
+  }
+
+  // ── TYPEWRITER EFFECT ──
+  async function typewriterEffect(text, onComplete){
+    setIsStreaming(true);
+    setStreamedText("");
+    const words=text.split(" ");
+    let current="";
+    for(let i=0;i<words.length;i++){
+      current+=(i>0?" ":"")+words[i];
+      setStreamedText(current);
+      // Natural pauses — longer after punctuation
+      const word=words[i];
+      const delay=word.endsWith(".")||word.endsWith("!")||word.endsWith("?")?120+Math.random()*80:
+                  word.endsWith(",")||word.endsWith(";")?60+Math.random()*40:
+                  18+Math.random()*22;
+      await new Promise(r=>setTimeout(r,delay));
+    }
+    setIsStreaming(false);
+    setStreamedText("");
+    if(onComplete)onComplete();
   }
 
   // ── SHARE EVENT ──
@@ -1498,6 +1658,39 @@ ${e.notes||""}`.trim();
     }catch(e){console.error(e);}
     setWishlistPasteBusy(false);
   }
+
+  // ── WEEKLY WEATHER FETCH ──
+  useEffect(()=>{
+    async function fetchWeekWeather(){
+      try{
+        const startDate=fmt(today);
+        const endDate=fmt(new Date(today.getTime()+6*86400000));
+        const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=52.55&longitude=0.09&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Europe/London&start_date=${startDate}&end_date=${endDate}`);
+        const d=await r.json();
+        if(!d.daily)return;
+        const icons=["☀️","⛅","⛅","⛅","🌫","🌫","🌦","🌦","🌧","🌧","🌧","🌧","❄️","❄️","❄️","❄️","🌦","🌦","🌦","🌦","🌦","🌦","🌦","🌦","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","⛈","☀️","⛅"];
+        const descs=["Sunny","Mainly sunny","Partly cloudy","Overcast","Foggy","Icy fog","Light drizzle","Drizzle","Rain","Heavy rain","Freezing rain","Heavy freezing rain","Light snow","Snow","Heavy snow","Blizzard","Rain shower","Heavy rain shower","Snow shower","Heavy snow shower","Thunderstorm","Heavy thunderstorm"];
+        const getIcon=code=>icons[Math.min(code,icons.length-1)]||"⛅";
+        const getDesc=code=>{if(code<=1)return"Sunny";if(code<=3)return"Partly cloudy";if(code<=48)return"Foggy";if(code<=67)return"Rain";if(code<=77)return"Snow";if(code<=82)return"Showers";return"Thunderstorm";};
+        const week=d.daily.time.map((date,i)=>({
+          date,
+          day:new Date(date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"}),
+          icon:getIcon(d.daily.weathercode[i]),
+          desc:getDesc(d.daily.weathercode[i]),
+          max:Math.round(d.daily.temperature_2m_max[i]),
+          min:Math.round(d.daily.temperature_2m_min[i]),
+          rain:d.daily.precipitation_probability_max[i],
+          wind:Math.round(d.daily.windspeed_10m_max[i]),
+          code:d.daily.weathercode[i]
+        }));
+        setWeekWeather(week);
+      }catch(e){console.warn("Weather fetch failed:",e);}
+    }
+    fetchWeekWeather();
+    // Refresh weather every hour
+    const interval=setInterval(fetchWeekWeather,3600000);
+    return()=>clearInterval(interval);
+  },[]);
 
   // ── OFFLINE DETECTION ──
   useEffect(()=>{
@@ -1658,20 +1851,32 @@ ${e.notes||""}`.trim();
         system:"Summarise this conversation in 3-4 sentences capturing: key topics discussed, any decisions made, dates mentioned, tasks Eleanor was asked to do, and anything unresolved. Be specific with dates and names.",
         messages:[{role:"user",content:"Summarise this conversation:\n\n"+transcript}]
       });
+      // Keep last 2 weeks of session summaries
+      const prevSessions=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
+      const currentSession=localStorage.getItem("papa_last_session")||"";
+      if(currentSession){
+        const dated={text:currentSession,date:new Date().toLocaleDateString("en-GB"),week:fmt(today)};
+        const updated=[dated,...prevSessions].slice(0,4); // keep last 4 sessions
+        localStorage.setItem("papa_session_history",JSON.stringify(updated));
+      }
       localStorage.setItem("papa_last_session",summary);
       setSessionSummary(summary);
       const memR=await callAI({
-        system:'Extract key facts to remember about Sarah from this conversation. Return ONLY raw JSON: {"facts":["fact1","fact2"]}. Only include NEW information. Max 5 facts.',
+        system:"You are Eleanor's memory system. Extract important facts from this conversation to remember about Sarah. Return ONLY raw JSON: {\"facts\":[\"fact1\"],\"pending_tasks\":[\"task1\"],\"emotional_notes\":[\"note1\"],\"preferences\":[\"pref1\"]}. facts: specific things to remember (names, dates, preferences, health info). pending_tasks: things Eleanor said she would do or follow up on. emotional_notes: if Sarah seemed stressed, tired, happy, worried. preferences: how Sarah likes things done. Only NEW information. Max 5 per category.",
         messages:[{role:"user",content:transcript}]
       });
       try{
         const parsed=JSON.parse(memR.replace(/```json|```/g,"").trim());
-        if(parsed.facts?.length){
-          const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
-          const updated={...existing,facts:[...(existing.facts||[]),...parsed.facts].slice(-20)};
-          localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
-          setPersistentMemory(updated);
-        }
+        const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+        const updated={
+          ...existing,
+          facts:[...(existing.facts||[]),...(parsed.facts||[])].slice(-25),
+          pending_tasks:[...(existing.pending_tasks||[]),...(parsed.pending_tasks||[])].slice(-10),
+          emotional_notes:[...(parsed.emotional_notes||[])].slice(-5),
+          preferences:[...(existing.preferences||[]),...(parsed.preferences||[])].slice(-15),
+        };
+        localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+        setPersistentMemory(updated);
       }catch{}
     }catch(e){console.warn("Memory save failed:",e);}
   }
@@ -2111,6 +2316,26 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         })()}
       </div>}
 
+      {/* Today's weather strip */}
+      {weekWeather?.[0]&&<div style={{background:C.card,borderRadius:6,padding:"10px 14px",marginBottom:10,border:`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontSize:24}}>{weekWeather[0].icon}</span>
+          <div>
+            <div style={{fontSize:13,fontFamily:FD,color:C.ink,fontStyle:"italic"}}>{weekWeather[0].desc} · {weekWeather[0].max}°/{weekWeather[0].min}°</div>
+            <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>March, Cambridgeshire · Rain {weekWeather[0].rain}% · Wind {weekWeather[0].wind}km/h</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          {weekWeather.slice(1,4).map((w,i)=>(
+            <div key={i} style={{textAlign:"center"}}>
+              <div style={{fontSize:14}}>{w.icon}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.day.slice(0,3)}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.max}°</div>
+            </div>
+          ))}
+        </div>
+      </div>}
+
       {/* ══ HERO 0 — SCHEDULE CHECKER ══ */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:"18px 18px 16px",marginBottom:10,boxShadow:`0 4px 20px ${C.shadow}`}}>
         <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
@@ -2161,6 +2386,12 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 </div>
                 {r.sameDay.map((e,j)=><div key={j} style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginTop:3}}>{e.time} — {e.title}</div>)}
               </div>
+            ))}
+          </div>}
+          {checkerRes.alternatives?.length>0&&<div style={{marginTop:10}}>
+            <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>✓ Free Alternative Dates</div>
+            {checkerRes.alternatives.map((a,i)=>(
+              <div key={i} style={{padding:"10px 12px",background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`3px solid ${C.emerald}`,borderRadius:3,marginBottom:6,fontSize:13,fontFamily:FD,color:C.ink}}>{a.label}</div>
             ))}
           </div>}
           <button onClick={()=>{setCheckerRes(null);setCheckerText("");setCheckerFile(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 0",marginTop:8}}>Clear results</button>
@@ -2452,6 +2683,35 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginTop:3,lineHeight:1.5}}>{briefing.best_day_this_week.reason}</div>
           <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{marginTop:8,padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event on This Day</button>
         </div>}
+
+        {/* Week busyness indicator */}
+        {(()=>{
+          const weekEvs=Array.from({length:7},(_,i)=>{
+            const d=new Date(today.getTime()+i*86400000);
+            const ds=fmt(d);
+            const evCount=events.filter(e=>e.date===ds).length;
+            const hasCritical=events.some(e=>e.date===ds&&e.priority==="critical");
+            return{day:d.toLocaleDateString("en-GB",{weekday:"short"}),date:ds,count:evCount,hasCritical};
+          });
+          const total=weekEvs.reduce((s,d)=>s+d.count,0);
+          const level=total===0?"Clear week":total<=3?"Light week":total<=7?"Moderate week":total<=12?"Busy week":"Very demanding week";
+          const color=total===0?C.emerald:total<=3?C.emerald:total<=7?C.gold:total<=12?C.gold:C.crimson;
+          return(<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>Week at a Glance</div>
+              <div style={{fontSize:11,color,fontFamily:FM,fontWeight:500}}>{level}</div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              {weekEvs.map((d,i)=>(
+                <div key={i} onClick={()=>{setSelectedDay(d.date);setCriticalOnly(false);setView("calendar");}} style={{flex:1,textAlign:"center",cursor:"pointer"}}>
+                  <div style={{height:Math.max(4,d.count*8),background:d.hasCritical?C.crimson:d.count>0?C.gold:C.borderSoft,borderRadius:2,marginBottom:4,transition:"height 0.3s"}}/>
+                  <div style={{fontSize:8,color:C.inkFaint,fontFamily:FM}}>{d.day}</div>
+                  {d.count>0&&<div style={{fontSize:8,color:d.hasCritical?C.crimson:C.gold,fontFamily:FM}}>{d.count}</div>}
+                </div>
+              ))}
+            </div>
+          </div>);
+        })()}
 
         {/* Weekly Goals in briefing */}
         {weeklyGoals?.goals?.length>0&&weeklyGoals.status!=="dismissed"&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
@@ -2951,6 +3211,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
           </div>
         </div>
+        {/* Memory indicator */}
+        {((persistentMemory.facts||[]).length>0||(persistentMemory.pending_tasks||[]).length>0)&&<div style={{marginTop:6,padding:"6px 10px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:C.gold,animation:"memoryPulse 2s ease-in-out infinite"}}/>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+            Eleanor has {(persistentMemory.facts||[]).length} memories · {(persistentMemory.pending_tasks||[]).length} pending tasks
+          </div>
+        </div>}
+
         {/* Action buttons row */}
         <div style={{display:"flex",gap:6,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
           <button onClick={()=>{
@@ -2976,10 +3244,28 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>);
         })}
         {paStatus==="thinking"&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}><PaAvatar size={30} pulse={true}/><div style={{padding:"12px 16px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.borderSoft}`,boxShadow:`0 2px 10px ${C.shadow}`}}><TypingDots/></div></div>}
+        {isStreaming&&streamedText&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}>
+          <PaAvatar size={30} speaking={true}/>
+          <div style={{padding:"12px 16px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.goldBorder}`,boxShadow:`0 2px 10px ${C.shadow}`,maxWidth:"78%",position:"relative"}}>
+            <div style={{fontSize:14,color:C.ink,fontFamily:FB,lineHeight:1.7}}>{streamedText}<span style={{display:"inline-block",width:2,height:14,background:C.gold,marginLeft:2,animation:"typingCursor 0.7s ease-in-out infinite",verticalAlign:"middle"}}/></div>
+          </div>
+        </div>}
         {paStatus==="speaking"&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}><PaAvatar size={30} speaking={true}/><div style={{padding:"10px 14px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.goldBorder}`,boxShadow:`0 2px 12px rgba(196,153,62,0.18)`,display:"flex",alignItems:"center",gap:8}}><Waveform active={true}/><span style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.1em"}}>Eleanor is responding…</span></div></div>}
         <div ref={chatEnd}/>
       </div>
-      {msgs.length<=1&&paStatus==="idle"&&<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>{["What's on today?","Any conflicts?","Free time this week?","Holiday advice"].map(q=>(<button key={q} onClick={()=>sendChat(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.1em",cursor:"pointer"}}>{q}</button>))}</div>}
+      {msgs.length<=1&&paStatus==="idle"&&(()=>{
+        const nextEv=events.filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date))[0];
+        const hasTrip=events.some(e=>{const d=Math.ceil((new Date(e.date+"T12:00:00")-new Date())/86400000);return d>0&&d<=7&&["holiday","trip","clacton","haven","museum","coach"].some(k=>e.title.toLowerCase().includes(k));});
+        const chips=[
+          nextEv?"What's coming up?":"What's on today?",
+          hasTrip?"Help me prepare for my trip":"Any conflicts?",
+          weeklyGoals?.goals?.length>0?"How am I doing on my goals?":"What should I achieve this week?",
+          weekWeather?"Best day this week for going out?":"Free time this week?",
+        ];
+        return(<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+          {chips.map(q=>(<button key={q} onClick={()=>sendChat(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.08em",cursor:"pointer"}}>{q}</button>))}
+        </div>);
+      })()}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
         <ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/>
       </div>
@@ -3480,15 +3766,73 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Last Session Summary</div>
           <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>{sessionSummary}</div>
         </div>}
-        {(persistentMemory.facts||[]).length>0&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>Things Eleanor Remembers</div>
-          {(persistentMemory.facts||[]).map((f,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:C.parchment,borderRadius:3,marginBottom:4,fontSize:12,color:C.inkMid,fontFamily:FB}}>
-              <span>• {f}</span>
-              <button onClick={()=>{const updated={...persistentMemory,facts:(persistentMemory.facts||[]).filter((_,j)=>j!==i)};setPersistentMemory(updated);localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11}}>✕</button>
+        {[["facts","Things Eleanor Remembers"],["pending_tasks","Pending Tasks"],["preferences","Your Preferences"],["emotional_notes","Recent Emotional Context"]].map(([key,label])=>(
+          <div key={key} style={{marginBottom:12}}>
+            <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>{label}</div>
+            {(persistentMemory[key]||[]).length===0&&<div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,fontStyle:"italic",padding:"4px 0"}}>Nothing saved yet</div>}
+            {(persistentMemory[key]||[]).map((f,i)=>(
+              <div key={i} style={{marginBottom:4}}>
+                {editingMemory?.key===key&&editingMemory?.index===i?(
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <input
+                      id={`mem-edit-${key}-${i}`}
+                      defaultValue={f}
+                      style={{...inp,flex:1,fontSize:11,padding:"5px 8px",marginBottom:0}}
+                      autoFocus
+                    />
+                    <button onClick={()=>{
+                      const val=document.getElementById(`mem-edit-${key}-${i}`)?.value||f;
+                      const arr=[...(persistentMemory[key]||[])];
+                      arr[i]=val;
+                      const updated={...persistentMemory,[key]:arr};
+                      setPersistentMemory(updated);
+                      localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                      setEditingMemory(null);
+                    }} style={{padding:"5px 10px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>Save</button>
+                    <button onClick={()=>setEditingMemory(null)} style={{padding:"5px 8px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer"}}>✕</button>
+                  </div>
+                ):(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.parchment,borderRadius:3,fontSize:12,color:C.inkMid,fontFamily:FB}}>
+                    <span style={{flex:1,lineHeight:1.4}}>• {f}</span>
+                    <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:8}}>
+                      <button onClick={()=>setEditingMemory({key,index:i})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:2,padding:"2px 7px",color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Edit</button>
+                      <button onClick={()=>{const updated={...persistentMemory,[key]:(persistentMemory[key]||[]).filter((_,j)=>j!==i)};setPersistentMemory(updated);localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* Add new memory */}
+            <div style={{display:"flex",gap:6,marginTop:4}}>
+              <input id={`mem-add-${key}`} style={{...inp,flex:1,fontSize:11,padding:"5px 8px",marginBottom:0}} placeholder={"Add to "+label.toLowerCase()+"..."}/>
+              <button onClick={()=>{
+                const val=document.getElementById(`mem-add-${key}`)?.value?.trim();
+                if(!val)return;
+                const updated={...persistentMemory,[key]:[...(persistentMemory[key]||[]),val]};
+                setPersistentMemory(updated);
+                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                const el=document.getElementById(`mem-add-${key}`);
+                if(el)el.value="";
+              }} style={{padding:"5px 12px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0,letterSpacing:"0.1em",textTransform:"uppercase"}}>＋</button>
             </div>
-          ))}
-        </div>}
+          </div>
+        ))}
+        {/* Session history */}
+        {(()=>{
+          try{
+            const hist=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
+            if(!hist.length)return null;
+            return(<div style={{marginTop:10,borderTop:`1px solid ${C.borderSoft}`,paddingTop:10}}>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Previous Sessions</div>
+              {hist.map((s,i)=>(
+                <div key={i} style={{padding:"7px 10px",background:C.parchment,borderRadius:3,marginBottom:6}}>
+                  <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginBottom:2}}>{s.date}</div>
+                  <div style={{fontSize:11,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{s.text}</div>
+                </div>
+              ))}
+            </div>);
+          }catch{return null;}
+        })()}
         {!sessionSummary&&!(persistentMemory.facts||[]).length&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic"}}>Eleanor will start building memory after your first conversation.</div>}
         <button onClick={()=>{if(window.confirm("Clear Eleanor's memory? She will start fresh.")){setPersistentMemory({});setSessionSummary("");localStorage.removeItem("papa_persistent_memory");localStorage.removeItem("papa_last_session");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson,marginTop:4}}>Clear Memory</button>
       </div>
@@ -3608,7 +3952,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         }
         localStorage.setItem("papa_onboarded","true");
         setOnboarded(true);
-        setMsgs([{role:"assistant",text:"Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+(name?", "+name:"")+". I'm Eleanor, your Personal Executive Assistant. I'm ready to help. How can I assist you today?",ts:new Date()}]);
+        const hasMem=(persistentMemory.facts||[]).length>0||(persistentMemory.pending_tasks||[]).length>0;
+        const memGreet=hasMem?" I've reviewed my notes from our previous conversations and I'm fully up to date.":"";
+        setMsgs([{role:"assistant",text:"Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+(name?", "+name:"")+". I'm Eleanor, your Personal Executive Assistant."+memGreet+" How can I assist you today?",ts:new Date()}]);
         if(typeof Notification!=="undefined"&&Notification.permission==="default")requestNotifications();
       }}
     />);
