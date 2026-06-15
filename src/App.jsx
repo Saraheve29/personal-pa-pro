@@ -1349,6 +1349,21 @@ Rules:
     if((!checkerText.trim()&&!checkerFile)||checkerBusy)return;
     setCheckerBusy(true);setCheckerRes(null);
     try{
+      // First check if this is a natural language question vs a date to check
+      const isQuestion=/when|what|next|upcoming|any|do i have|am i free|am i busy|show me|list|find/i.test(checkerText)&&!checkerFile;
+
+      if(isQuestion){
+        // Answer directly from schedule using Eleanor
+        const futureEvs=[...events].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
+        const schedCtx=futureEvs.map(e=>e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"})+")"+(e.time?" "+e.time:"")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n");
+        const answer=await callAI({
+          system:`You are Eleanor. Answer this question about Sarah's schedule concisely and accurately. Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}. Use exact dates and day names from the schedule provided. Be specific — give the exact date and day name.`,
+          messages:[{role:"user",content:"My schedule:\n"+schedCtx+"\n\nQuestion: "+checkerText}]
+        });
+        setCheckerRes({isAnswer:true,answer,question:checkerText});
+        setCheckerBusy(false);return;
+      }
+
       let messages;
       if(checkerFile){
         const b64=await new Promise((res,rej)=>{
@@ -2202,25 +2217,21 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         })()}
       </div>}
 
-      {/* Today's weather strip */}
-      {weekWeather?.[0]&&<div style={{background:C.card,borderRadius:6,padding:"10px 14px",marginBottom:10,border:`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          <span style={{fontSize:24}}>{weekWeather[0].icon}</span>
-          <div>
-            <div style={{fontSize:13,fontFamily:FD,color:C.ink,fontStyle:"italic"}}>{weekWeather[0].desc} · {weekWeather[0].max}°/{weekWeather[0].min}°</div>
-            <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>March, Cambridgeshire · Rain {weekWeather[0].rain}% · Wind {weekWeather[0].wind}km/h</div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          {weekWeather.slice(1,4).map((w,i)=>(
-            <div key={i} style={{textAlign:"center"}}>
-              <div style={{fontSize:14}}>{w.icon}</div>
-              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.day.slice(0,3)}</div>
-              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.max}°</div>
+      {/* Greeting + compact weather */}
+      {(()=>{
+        const hour=new Date().getHours();
+        const tod=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
+        const userName=localStorage.getItem("papa_user_name")||"Sarah";
+        return(
+          <div style={{textAlign:"center",marginBottom:14,paddingTop:4}}>
+            <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10}}>
+              <div style={{fontFamily:FD,fontSize:24,color:C.ink,fontStyle:"italic"}}>{tod}, <span style={{color:C.gold}}>{userName}</span>.</div>
+              {weekWeather?.[0]&&<span style={{fontSize:26}}>{weekWeather[0].icon}</span>}
             </div>
-          ))}
-        </div>
-      </div>}
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginTop:3}}>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}{weekWeather?.[0]?` · ${weekWeather[0].max}° ${weekWeather[0].desc}`:""}</div>
+          </div>
+        );
+      })()}
 
       {/* ══ HERO 0 — SCHEDULE CHECKER ══ */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:"18px 18px 16px",marginBottom:10,boxShadow:`0 4px 20px ${C.shadow}`}}>
@@ -2234,7 +2245,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <textarea
           id="checker-textarea"
           style={{width:"100%",padding:"11px 14px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",resize:"none",minHeight:70,boxSizing:"border-box",marginBottom:8,lineHeight:1.6}}
-          placeholder={"Paste any dates, a message or text...\ne.g. 'Can you make Saturday 19th July?' or paste a letter with dates"}
+          placeholder={"Ask anything or paste dates to check...\ne.g. 'When is my next holiday?' · 'Am I free 20th July?' · 'What's on this week?'"}
           defaultValue={checkerText}
         />
         <div style={{display:"flex",gap:8,marginBottom:checkerFile?8:0}}>
@@ -2249,6 +2260,11 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {checkerFile&&<button onClick={()=>setCheckerFile(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>✕ Remove file</button>}
 
         {/* Results */}
+        {checkerRes?.isAnswer&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"16px",marginTop:12}}>
+          <div style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✦ Eleanor</div>
+          <div style={{fontSize:14,color:C.ink,fontFamily:FB,lineHeight:1.7}}>{checkerRes.answer}</div>
+          <button onClick={()=>{setCheckerRes(null);setCheckerText("");const el=document.getElementById("checker-textarea");if(el)el.value="";}} style={{marginTop:10,background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Clear</button>
+        </div>}
         {checkerRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"11px 14px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:10}}>{checkerRes.msg}</div>}
         {/* Range result */}
         {checkerRes?.isRange&&<div style={{marginTop:12}}>
