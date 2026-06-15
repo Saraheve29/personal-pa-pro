@@ -1,17 +1,23 @@
 {
   "name": "Personal PA Pro",
   "short_name": "PA Pro",
-  "description": "Your private luxury executive assistant",
+  "description": "Your Personal Executive Assistant",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F4EDD8",
-  "theme_color": "#C4993E",
+  "background_color": "#FAF6EE",
+  "theme_color": "#9A7B3C",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%23F4EDD8'/><text y='380' x='80' font-size='360' fill='%23C4993E'>✦</text></svg>",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
