@@ -1646,10 +1646,15 @@ ${e.notes||""}`.trim();
   },[]);
 
   async function requestNotifications(){
-    if(typeof Notification==="undefined")return false;
-    const perm=await Notification.requestPermission();
-    setNotifPermission(perm);
-    return perm==="granted";
+    try{
+      if(typeof Notification==="undefined")return false;
+      const perm=await Notification.requestPermission();
+      setNotifPermission(perm);
+      return perm==="granted";
+    }catch(e){
+      console.warn("Notification permission error:",e);
+      return false;
+    }
   }
 
   function scheduleNotification(title,body,fireAt,tag){
@@ -1657,7 +1662,12 @@ ${e.notes||""}`.trim();
     const delay=new Date(fireAt).getTime()-Date.now();
     if(delay<0)return;
     if(delay<2*60*1000){
-      new Notification(title,{body,icon:"/icon-192.png",tag});
+      // Use service worker for notifications on mobile (required by Android Chrome)
+      if(navigator.serviceWorker?.controller){
+        navigator.serviceWorker.ready.then(reg=>reg.showNotification(title,{body,icon:"/icon-192.png",tag})).catch(()=>{});
+      } else if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
+        try{new Notification(title,{body,icon:"/icon-192.png",tag});}catch(e){console.warn("Notification failed:",e);}
+      }
       return;
     }
     const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
@@ -1673,7 +1683,11 @@ ${e.notes||""}`.trim();
       const remaining=[];
       scheduled.forEach(n=>{
         if(new Date(n.fireAt).getTime()<=now){
-          new Notification(n.title,{body:n.body,icon:"/icon-192.png",tag:n.tag});
+          if(navigator.serviceWorker?.controller){
+            navigator.serviceWorker.ready.then(reg=>reg.showNotification(n.title,{body:n.body,icon:"/icon-192.png",tag:n.tag})).catch(()=>{});
+          } else {
+            try{new Notification(n.title,{body:n.body,icon:"/icon-192.png",tag:n.tag});}catch(e){console.warn("Notification failed:",e);}
+          }
         }else{
           remaining.push(n);
         }
@@ -1686,17 +1700,19 @@ ${e.notes||""}`.trim();
   },[notifPermission]);
 
   useEffect(()=>{
-    if(notifPermission!=="granted")return;
-    reminders.forEach(r=>{
-      if(!r.active)return;
-      const now=new Date();
-      const [h,m]=r.time.split(":").map(Number);
-      const fireToday=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
-      const dayIdx=now.getDay().toString();
-      if(r.days.includes(dayIdx)&&fireToday>now){
-        scheduleNotification("⏰ "+r.text,r.text+" — Eleanor reminder",fireToday,"reminder-"+r.id);
-      }
-    });
+    try{
+      if(notifPermission!=="granted")return;
+      reminders.forEach(r=>{
+        if(!r.active)return;
+        const now=new Date();
+        const [h,m]=(r.time||"09:00").split(":").map(Number);
+        const fireToday=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
+        const dayIdx=now.getDay().toString();
+        if((r.days||[]).includes(dayIdx)&&fireToday>now){
+          scheduleNotification("⏰ "+r.text,r.text+" — Eleanor reminder",fireToday,"reminder-"+r.id);
+        }
+      });
+    }catch(e){console.warn("Reminder scheduling error:",e);}
   },[reminders,notifPermission]);
 
 
