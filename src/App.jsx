@@ -48,10 +48,8 @@ const getConflicts=evs=>{
     for(let i=0;i<day.length;i++){
       for(let j=i+1;j<day.length;j++){
         const a=day[i],b=day[j];
-        // duplicate: same title and date
         if(a.title.toLowerCase()===b.title.toLowerCase()){
           out.push([a.id,b.id,"duplicate"]);
-        // time conflict: same time slot
         } else if(a.time&&b.time&&a.time===b.time){
           out.push([a.id,b.id,"conflict"]);
         }
@@ -64,8 +62,8 @@ const getConflicts=evs=>{
 /* ── COMPONENTS ── */
 /* ── SWAP THIS PATH when you have a real photo ── */
 const PA_PHOTO = "/eleanor.jpg";
+const PA_FALLBACK = true; // Show initials if photo fails
 
-// ── ERROR BOUNDARY ──
 class ErrorBoundary extends React.Component{
   constructor(p){super(p);this.state={hasError:false,error:null};}
   static getDerivedStateFromError(e){return{hasError:true,error:e};}
@@ -87,14 +85,16 @@ class ErrorBoundary extends React.Component{
 }
 
 function PaAvatar({size=52,pulse=false,speaking=false}){
+  const [imgErr,setImgErr]=React.useState(false);
   return(
     <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
       <div style={{position:"absolute",inset:-4,borderRadius:"50%",background:`conic-gradient(${C.goldBright},${C.goldLight},${C.goldBorder},${C.gold},${C.goldBright})`,opacity:speaking?0.9:0.5,animation:speaking?"paRing 1.8s linear infinite":pulse?"paRingIdle 3s ease-in-out infinite":"none",boxShadow:speaking?`0 0 18px ${C.goldLight}`:pulse?`0 0 10px ${C.goldPale}`:"none"}}/>
       <div style={{position:"absolute",inset:2,borderRadius:"50%",background:`linear-gradient(145deg,${C.cream},${C.creamDeep})`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`inset 0 1px 3px ${C.shadow}`,overflow:"hidden"}}>
         {PA_PHOTO
-          ? <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:"50%"}}/>
-          : <span style={{fontFamily:FD,fontSize:size*0.38,color:C.gold,fontStyle:"italic",lineHeight:1,userSelect:"none"}}>PA</span>
+          ? <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:"50%"}} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+          : null
         }
+        <span style={{fontFamily:FD,fontSize:size*0.38,color:C.gold,fontStyle:"italic",lineHeight:1,userSelect:"none",display:PA_PHOTO?"none":"flex",alignItems:"center",justifyContent:"center",width:"100%",height:"100%"}}>PA</span>
       </div>
       {speaking&&<div style={{position:"absolute",bottom:1,right:1,width:10,height:10,borderRadius:"50%",background:C.emerald,border:`2px solid ${C.card}`,boxShadow:`0 0 6px ${C.emerald}`}}/>}
     </div>
@@ -184,7 +184,6 @@ function ICalImport({onAdd}){
     if(!icalUrl.trim())return;
     setLoading(true);setError("");setEvents([]);
     localStorage.setItem("papa_ical_url",icalUrl.trim());
-    // Fetch iCal via server-side proxy (avoids CORS issues with Google Calendar)
     let url=icalUrl.trim();
     if(!url.startsWith("http")){
       url="https://calendar.google.com/calendar/ical/"+encodeURIComponent(url)+"/basic.ics";
@@ -198,7 +197,6 @@ function ICalImport({onAdd}){
     if(data.error){setError(data.error);setLoading(false);return;}
     const text=data.ical;
     if(!text){setError("No calendar data received.");setLoading(false);return;}
-    // Parse iCal
     const evs=[];
     const blocks=text.split("BEGIN:VEVENT");
     for(let i=1;i<blocks.length;i++){
@@ -209,14 +207,12 @@ function ICalImport({onAdd}){
       const desc=get("DESCRIPTION")||"";
       const loc=get("LOCATION")||"";
       if(!dtstart)continue;
-      // Parse date
       let date="",time="09:00";
       const d=dtstart.replace(/[TZ]/g,"");
       if(d.length>=8){
         date=d.slice(0,4)+"-"+d.slice(4,6)+"-"+d.slice(6,8);
         if(d.length>=12)time=d.slice(8,10)+":"+d.slice(10,12);
       }
-      // Only future events
       if(date&&date>=fmt(today)){
         evs.push({title:summary,date,time,priority:"medium",notes:(loc||desc).slice(0,100),source:"calendar"});
       }
@@ -279,7 +275,6 @@ function ICalImport({onAdd}){
   </div>);
 }
 
-// Isolated chat input - never re-renders with parent App
 const ChatInput=React.memo(function ChatInput({onSend,disabled}){
   const ref=React.useRef(null);
   function send(){
@@ -305,7 +300,6 @@ const ChatInput=React.memo(function ChatInput({onSend,disabled}){
   );
 });
 
-// ── ONBOARDING SCREEN ──
 function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
   const [step,setStep]=React.useState(0);
   const [name,setName]=React.useState("");
@@ -314,7 +308,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
   const [notifGranted,setNotifGranted]=React.useState(false);
 
   const steps=[
-    // Step 0 - Welcome
     ()=>(<div style={{textAlign:"center",padding:"20px 0"}}>
       {PA_PHOTO&&<div style={{width:100,height:100,borderRadius:"50%",overflow:"hidden",margin:"0 auto 20px",border:`3px solid ${C.goldBorder}`,boxShadow:`0 0 30px rgba(196,153,62,0.4)`}}>
         <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
@@ -324,7 +317,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
       <div style={{fontSize:12,color:C.inkFaint,fontFamily:FM,lineHeight:1.6}}>Let me take a moment to get to know you.</div>
     </div>),
 
-    // Step 1 - Name
     ()=>(<div style={{padding:"10px 0"}}>
       <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>What's your name?</div>
       <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>I'll use this to personalise your experience.</div>
@@ -337,7 +329,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
       />
     </div>),
 
-    // Step 2 - Home address
     ()=>(<div style={{padding:"10px 0"}}>
       <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>Where do you live?</div>
       <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>Your home address helps me calculate travel time to appointments and plan your journeys.</div>
@@ -351,7 +342,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
       <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginTop:8}}>You can always change this in Settings later.</div>
     </div>),
 
-    // Step 3 - Travel mode
     ()=>(<div style={{padding:"10px 0"}}>
       <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>How do you usually travel?</div>
       <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:20}}>I'll use this for journey planning and event briefings.</div>
@@ -368,7 +358,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
       </div>
     </div>),
 
-    // Step 4 - Notifications
     ()=>(<div style={{padding:"10px 0",textAlign:"center"}}>
       <div style={{fontSize:40,marginBottom:16}}>🔔</div>
       <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>Stay on top of everything</div>
@@ -387,7 +376,6 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
       </button>
     </div>),
 
-    // Step 5 - All done
     ()=>(<div style={{textAlign:"center",padding:"10px 0"}}>
       {PA_PHOTO&&<div style={{width:80,height:80,borderRadius:"50%",overflow:"hidden",margin:"0 auto 16px",border:`2px solid ${C.goldBorder}`}}>
         <img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
@@ -399,12 +387,10 @@ function OnboardingScreen({onComplete,PA_PHOTO,C,FD,FB,FM}){
   ];
 
   function handleNext(){
-    // Save data from current step
     if(step===1){const el=document.getElementById("onboard-name");if(el&&el.value)setName(el.value);}
     if(step===2){const el=document.getElementById("onboard-address");if(el&&el.value)setAddress(el.value);}
     if(step<steps.length-1){setStep(s=>s+1);}
     else{
-      // Complete onboarding
       const n=name||document.getElementById("onboard-name")?.value||"";
       const a=address||document.getElementById("onboard-address")?.value||"";
       if(n)localStorage.setItem("papa_user_name",n);
@@ -529,7 +515,6 @@ function AppInner(){
         if(parsed.length>0)return parsed.map(m=>({...m,ts:new Date(m.ts)}));
       }
     }catch{}
-    // Smart greeting based on memory and time of day
     const hour=new Date().getHours();
     const tod=hour<12?"morning":hour<17?"afternoon":"evening";
     let mem={};
@@ -653,7 +638,6 @@ function AppInner(){
   const [linkBusy,  setLinkBusy]  =useState(false);
   const [linkRes,   setLinkRes]   =useState(null);
   const [calEvs,    setCalEvs]   =useState(null);
-  // PWA install prompt
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);
   useEffect(()=>{
@@ -670,12 +654,10 @@ function AppInner(){
     setInstallPrompt(null);
   }
 
-  // Save events to localStorage whenever they change
   useEffect(()=>{
     try{ localStorage.setItem("papa_events",JSON.stringify(events)); }catch{}
   },[events]);
 
-  // Consolidated storage - all saves in one effect per state
   useEffect(()=>{try{localStorage.setItem("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
   useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
   useEffect(()=>{try{localStorage.setItem("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
@@ -683,7 +665,6 @@ function AppInner(){
   useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
   useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
   useEffect(()=>{try{const s={eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts};Object.entries({papa_event_notes:eventNotes,papa_birthday_actions:birthdayActions,papa_dismissed_critical:dismissedCriticalIds,papa_dismissed_conflicts:dismissedConflicts}).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));}catch{}},[eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts]);
-  // Save messages debounced to avoid too many writes
   const msgSaveTimer=React.useRef(null);
   useEffect(()=>{
     if(msgSaveTimer.current)clearTimeout(msgSaveTimer.current);
@@ -695,9 +676,7 @@ function AppInner(){
     },1000);
   },[msgs]);
 
-  // msgs saved via debounced effect below
 
-  // Google OAuth state
   const [googleTokens, setGoogleTokens] = useState(()=>{
     try{const t=localStorage.getItem("papa_google_tokens");return t?JSON.parse(t):null;}catch{return null;}
   });
@@ -706,7 +685,6 @@ function AppInner(){
   });
   const [googleBusy, setGoogleBusy] = useState(false);
 
-  // Handle OAuth callback
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const code=params.get("oauth_code")||params.get("code");
@@ -738,7 +716,6 @@ function AppInner(){
       if(tokens.error){alert("Auth failed: "+tokens.error);setGoogleBusy(false);return;}
       localStorage.setItem("papa_google_tokens",JSON.stringify(tokens));
       setGoogleTokens(tokens);
-      // Get profile
       const pr=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:tokens.access_token,action:"gmail_profile"})});
       const profile=await pr.json();
       localStorage.setItem("papa_google_profile",JSON.stringify(profile));
@@ -787,7 +764,6 @@ function AppInner(){
   function addEvs(list,src){
     setEvents(ev=>{
       const mx=Math.max(0,...ev.map(e=>e.id));
-      // Deduplicate - skip events within 1 day of same title
       const existingKeys=new Set(ev.map(e=>e.title.toLowerCase().trim().slice(0,20)+"_"+e.date));
       const filtered=list.filter(e=>{
         const key=e.title.toLowerCase().trim().slice(0,20)+"_"+e.date;
@@ -797,7 +773,6 @@ function AppInner(){
       });
       if(!filtered.length)return ev;
       const newEvs=filtered.map((e,i)=>({...e,id:mx+i+1+(Math.floor(Math.random()*10000)),source:src}));
-      // Check first event for conflicts
       if(newEvs.length>0){
         const clashes=ev.filter(e=>e.date===newEvs[0].date);
         const dayBefore=fmt(new Date(new Date(newEvs[0].date+"T12:00:00").getTime()-86400000));
@@ -812,30 +787,19 @@ function AppInner(){
   }
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
-  // Robust JSON extractor - handles truncated, malformed, escaped JSON
   function robustJSON(raw){
     if(!raw)return null;
-    // Remove markdown fences
     let s=raw.replace(/```json/g,"").replace(/```/g,"").trim();
-    // Find outermost { }
     const start=s.indexOf("{");
     const end=s.lastIndexOf("}");
     if(start<0)return null;
     let sub=start>=0&&end>start?s.slice(start,end+1):s;
-    // Try direct parse
     try{return JSON.parse(sub);}catch{}
-    // Fix common issues:
-    // 1. Remove trailing commas before } or ]
     sub=sub.replace(/,(\s*[}\]])/g,"$1");
-    // 2. Fix unquoted property names
     sub=sub.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,'$1"$2"$3');
-    // 3. Fix single quotes
     sub=sub.replace(/'/g,'"');
     try{return JSON.parse(sub);}catch{}
-    // 4. Truncation repair - find last complete array element
-    // Remove trailing incomplete string
     sub=sub.replace(/,?\s*"[^"]*$/,"");
-    // Count and close unclosed brackets
     let opens=0,openSq=0;
     for(const ch of sub){
       if(ch==="{")opens++;
@@ -888,7 +852,6 @@ Rules:
     if(el)el.value="";
     setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
     setPaStatus("thinking");
-    // Merge events state with localStorage - take whichever has more
     let freshEvents=[];
     try{freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{}
     const allEvents=events.length>=freshEvents.length?[...events]:[...freshEvents];
@@ -897,12 +860,10 @@ Rules:
       :"No events scheduled yet.";
     console.log("Eleanor context events count:", allEvents.length, "\nFirst 3:", allEvents.slice(0,3).map(e=>e.title));
     try{
-      // Build fresh context - inject as a system-level context message
       const now=new Date();
       const dateStr=now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
       const timeStr=now.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
       
-      // Sort events chronologically - future events first
       const futureEvents=[...allEvents].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
       const futureCtx=futureEvents.length>0
         ?futureEvents.map((e,i)=>(i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n")
@@ -917,21 +878,17 @@ Rules:
       const sessionHistory=(()=>{try{const h=JSON.parse(localStorage.getItem("papa_session_history")||"[]");return h.length>0?"PREVIOUS SESSIONS:\n"+h.slice(0,2).map(s=>s.date+": "+s.text).join("\n"):"";}catch{return "";}})();
       const activeReminders=reminders.length>0?"ACTIVE REMINDERS:\n"+reminders.map(r=>"- "+r.text+" at "+r.time).join("\n"):"";
       const upcomingBdays=getBirthdayAlerts().filter(b=>b.days<=30).map(b=>"- "+b.name+" in "+b.days+" days ("+b.next+")").join("\n");
-      // Build weather context string
       const weatherCtx=weekWeather?.length>0
         ?"7-DAY WEATHER FORECAST (March, Cambridgeshire):\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°C/"+w.min+"°C, rain "+w.rain+"%, wind "+w.wind+"km/h").join("\n")
         :"Weather: unavailable";
 
-      // Build finances context
       const thisMonth=new Date().getMonth();
       const thisYear=new Date().getFullYear();
       const monthFin=finances.filter(f=>f.status!=="paid"&&f.date&&new Date(f.date+"T12:00:00").getMonth()===thisMonth&&new Date(f.date+"T12:00:00").getFullYear()===thisYear);
       const finCtx=monthFin.length>0?"THIS MONTH'S FINANCES:\n"+monthFin.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+" ("+f.type+") due "+f.date).join("\n"):"";
 
-      // Build weekly goals context
       const goalsCtx=weeklyGoals?.goals?.length>0?"THIS WEEK'S GOALS:\n"+weeklyGoals.goals.map((g,i)=>"- "+g+(weeklyGoals.done?.[i]?" [DONE]":"")).join("\n"):"";
 
-      // Recent past events (last 2 weeks) for context
       const pastEvs=allEvents.filter(e=>e.date<fmt(today)&&e.date>=fmt(new Date(today.getTime()-14*86400000))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
       const pastCtx=pastEvs.length>0?"RECENT PAST EVENTS:\n"+pastEvs.map(e=>"- "+e.date+" "+e.title).join("\n"):"";
 
@@ -950,17 +907,14 @@ Rules:
         "ABOUT SARAH: "+userContext,
         "CONFLICTS: "+cfls.length
       ].filter(Boolean).join("\n\n");
-      // Detect patterns in events - generic for any user
       const patternNotes=[];
       const titleFreq={};
       const dayFreq={};
       const monthFreq={};
       allEvents.forEach(e=>{
-        // Title frequency - anything appearing 2+ times
         const key=e.title.toLowerCase().trim().slice(0,25);
         titleFreq[key]=(titleFreq[key]||[]); 
         titleFreq[key].push(e.date);
-        // Day of week frequency
         const dow=new Date(e.date+"T12:00:00").getDay();
         const dowName=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][dow];
         dayFreq[key]=dayFreq[key]||{};
@@ -968,7 +922,6 @@ Rules:
       });
       Object.entries(titleFreq).forEach(([title,dates])=>{
         if(dates.length<2)return;
-        // Check if same day of week (weekly pattern)
         const days=Object.entries(dayFreq[title]||{}).filter(([,v])=>v>=2);
         if(days.length>0){
           patternNotes.push(`Recurring pattern: "${title}" appears ${dates.length} times, often on ${days[0][0]}s`);
@@ -976,7 +929,6 @@ Rules:
           patternNotes.push(`Recurring pattern: "${title}" appears ${dates.length} times in schedule`);
         }
       });
-      // Check for monthly patterns (e.g. benefits, payments)
       allEvents.forEach(e=>{
         const dom=new Date(e.date+"T12:00:00").getDate();
         if([1,7,14,15,21,28].includes(dom)){
@@ -989,7 +941,6 @@ Rules:
       });
 
       const contextMsg={role:"user",content:"[ELEANOR MEMORY SYNC - READ THIS FIRST]\n"+contextContent+(patternNotes.length?"\n\nPATTERNS NOTICED:\n"+patternNotes.join("\n"):"")+"\n[END SYNC]"};
-      // Trim conversation to last 20 messages to avoid token limits
       const trimmedMsgs=msgs.slice(-20);
       const raw=await callAI({system:`You are Eleanor — a warm, brilliant, deeply trusted Personal Executive Assistant to Sarah. You are not a generic AI. You know Sarah's life intimately and care about her wellbeing.
 
@@ -1022,48 +973,37 @@ PROACTIVE TRIGGERS:
 - Rover booking pattern → suggest setting up recurring
 
 CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
-      // Strip markdown formatting from Eleanor's response
       const clean=raw.replace(/\*\*(.*?)\*\*/g,"$1").replace(/\*(.*?)\*/g,"$1").replace(/#{1,3} /g,"").trim();
-      // Add message immediately, then typewriter shows it being typed
+      if(!clean){
+        setMsgs(m=>[...m,{role:"assistant",text:"I'm sorry, I didn't receive a response. Please try again.",ts:new Date()}]);
+        setPaStatus("idle");setShowWave(false);
+        return;
+      }
       const finalMsg={role:"assistant",text:clean,ts:new Date()};
       setPaStatus("speaking");
-      // Start typewriter - message added after it completes
-      typewriterEffect(clean,()=>{
-        setShowWave(false);
-        setPaStatus("idle");
-        if(eleanorVoiceOn)eleanorSpeak(clean);
-        // Add message to chat
-        setMsgs(m=>{
-          const updated=[...m,{role:"assistant",text:clean,ts:new Date()}];
-          const assistantCount=updated.filter(x=>x.role==="assistant").length;
-          if(assistantCount>0&&assistantCount%10===0){
-            setTimeout(()=>saveSessionSummary(updated),100);
-          }
-          return updated;
-        });
-        // Background memory extraction - completely outside setMsgs
-        setTimeout(()=>{
-          const allMsgs=JSON.parse(localStorage.getItem("papa_msgs")||"[]");
-          const assistantCount=allMsgs.filter(x=>x.role==="assistant").length;
-          if(assistantCount>0&&assistantCount%3===0){
-            const recentTranscript=allMsgs.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
-            callAI({
-              system:'Extract NEW facts only. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 each. Empty arrays if nothing new.',
-              messages:[{role:"user",content:recentTranscript}]
-            }).then(r=>{
-              try{
-                const p=JSON.parse(r.replace(/```json|```/g,"").trim());
-                if(p.facts?.length||p.pending_tasks?.length||p.preferences?.length){
-                  const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
-                  const upd={...existing,facts:[...(existing.facts||[]),...(p.facts||[])].slice(-25),pending_tasks:[...(existing.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),preferences:[...(existing.preferences||[]),...(p.preferences||[])].slice(-15)};
-                  localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
-                  setPersistentMemory(upd);
-                }
-              }catch{}
-            }).catch(()=>{});
-          }
-        },500);
-      });
+      setMsgs(m=>[...m,{role:"assistant",text:clean,ts:new Date()}]);
+      setPaStatus("idle");
+      setShowWave(false);
+      if(eleanorVoiceOn)eleanorSpeak(clean);
+      setTimeout(()=>{
+        const allMsgs=JSON.parse(localStorage.getItem("papa_msgs")||"[]");
+        const assistantCount=allMsgs.filter(x=>x.role==="assistant").length;
+        if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(allMsgs);
+        if(assistantCount>0&&assistantCount%3===0){
+          const recent=allMsgs.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
+          callAI({system:'Extract NEW facts only. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 each. Empty arrays if nothing new.',messages:[{role:"user",content:recent}]}).then(r=>{
+            try{
+              const p=JSON.parse(r.replace(/```json|```/g,"").trim());
+              if(p.facts?.length||p.pending_tasks?.length||p.preferences?.length){
+                const ex=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+                const upd={...ex,facts:[...(ex.facts||[]),...(p.facts||[])].slice(-25),pending_tasks:[...(ex.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),preferences:[...(ex.preferences||[]),...(p.preferences||[])].slice(-15)};
+                localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+                setPersistentMemory(upd);
+              }
+            }catch{}
+          }).catch(()=>{});
+        }
+      },500);
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
   }
 
@@ -1076,7 +1016,6 @@ CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,mes
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
     const hour=new Date().getHours();
     const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
-    // Build EXACT date-to-day mapping so Eleanor cannot get days wrong
     const dayCalendar=Array.from({length:14},(_,i)=>{
       const d=new Date(today.getTime()+i*86400000);
       return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
@@ -1135,7 +1074,6 @@ ${pasteText}`}]
     const files=Array.from(e.target.files);
     if(!files.length)return;
     setImgRes(null);setMultiImgQueue(files);
-    // Read ALL files immediately into base64 to avoid permission expiry
     const readFile=(file)=>new Promise((res,rej)=>{
       const r=new FileReader();
       r.onload=ev=>{const parts=ev.target.result.split(",");res({file,b64:parts[1]||"",prev:ev.target.result});};
@@ -1148,7 +1086,6 @@ ${pasteText}`}]
         setImgPrev(results[0].prev);
         setImgB64(results[0].b64);
         if(results.length>1){
-          // Store all b64 data
           setMultiImgQueue(results.map(r=>({...r,name:r.file.name})));
         }
       }
@@ -1163,7 +1100,6 @@ ${pasteText}`}]
     r.onload=ev=>{
       const result=ev.target.result;
       setImgPrev(result);
-      // Store b64 now so parseImg doesn't need to re-read
       const parts=result.split(",");
       if(parts.length>=2) setImgB64(parts[1]);
     };
@@ -1175,8 +1111,6 @@ ${pasteText}`}]
     if(!imgFile||imgBusy)return;
     setImgBusy(true);setImgRes(null);
     try{
-      // Step 1: Use pre-read b64 from handleImg — avoids double-read ProgressEvent bug
-      // Use pre-read b64 only - never re-read from file (Android permission expiry)
       const b64=imgB64;
       if(!b64){
         setImgErr("Could not read image. Please try selecting it again.");
@@ -1184,7 +1118,6 @@ ${pasteText}`}]
       }
       const mt=imgFile?.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg";
 
-      // Step 2: Build prompt
       const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this image carefully.
 This may be: NHS message, Rover booking, ticket, poster, letter, invoice, payslip, bank statement, benefit letter, or screenshot.
 Extract EVERY date, event, appointment AND financial amount visible.
@@ -1201,7 +1134,6 @@ Rules:
 - NEVER return empty events — include any date you see
 ${importContext?"CONTEXT: "+importContext:""}`;
 
-      // Step 3: Send to proxy
       const controller=new AbortController();
       const timer=setTimeout(()=>controller.abort(),30000);
       let response;
@@ -1222,7 +1154,6 @@ ${importContext?"CONTEXT: "+importContext:""}`;
         });
       }finally{clearTimeout(timer);}
 
-      // Step 4: Parse response
       const text=await response.text();
       let d;
       try{d=JSON.parse(text);}catch{
@@ -1236,12 +1167,10 @@ ${importContext?"CONTEXT: "+importContext:""}`;
       const raw=d.content?.find(b=>b.type==="text")?.text||"";
       if(!raw){setImgRes({error:true,msg:"No response from AI."});setImgBusy(false);return;}
 
-      // Step 5: Extract JSON robustly
       let parsed=null;
       const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
       if(s>=0&&e>s){
         try{parsed=JSON.parse(raw.slice(s,e+1));}catch{
-          // Try to repair truncated JSON
           let sub=raw.slice(s,e+1).replace(/,?\s*"[^"]*$/,"");
           let opens=0,openSq=0;
           for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
@@ -1255,7 +1184,6 @@ ${importContext?"CONTEXT: "+importContext:""}`;
       }else{
         parsed.events=parsed.events.filter(ev=>ev.title&&ev.date);
                 setImgRes(parsed);
-        // Auto-save any financial items found
         if(parsed.financials?.length){
           setFinances(f=>[...f,...parsed.financials.map(fi=>({...fi,id:Date.now()+Math.random(),status:"pending",source:"image"}))]);
         }
@@ -1271,22 +1199,18 @@ ${importContext?"CONTEXT: "+importContext:""}`;
     setImgBusy(false);
   }
 
-    // ── LINK READER ──
   async function readLink(){
     if(!linkUrl.trim()||linkBusy)return;
     setLinkBusy(true);setLinkRes(null);
     try{
-      // Fetch page via proxy
       const proxyUrl="https://api.allorigins.win/raw?url="+encodeURIComponent(linkUrl.trim());
       const r=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
       const html=await r.text();
-      // Strip HTML tags, get text content
       const text=html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"")
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"")
         .replace(/<[^>]+>/g," ")
         .replace(/\s+/g," ")
         .slice(0,3000);
-      // Send to AI
       const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,
           system:'Extract event details from this webpage text. Return ONLY raw JSON: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"high","notes":string}],"summary":string,"venue":string,"price":string}',
@@ -1304,13 +1228,11 @@ ${importContext?"CONTEXT: "+importContext:""}`;
     setLinkBusy(false);
   }
 
-  // ── WISHLIST ANALYSIS ──
   async function analyseWishlistEvent(idx){
     const item=wishlist[idx];
     if(!item||item.analysing)return;
     setWishlist(w=>w.map((x,i)=>i===idx?{...x,analysing:true}:x));
     try{
-      // Check weather
       let weatherInfo="";
       if(item.date){
         try{
@@ -1324,12 +1246,9 @@ ${importContext?"CONTEXT: "+importContext:""}`;
           }
         }catch{}
       }
-      // Check clashes
       const clashEvs=events.filter(e=>e.date===item.date);
       const clashInfo=clashEvs.length?"Clashes: "+clashEvs.map(e=>e.title).join(", "):"No clashes";
-      // Travel time via Google Maps embed link
       const mapsUrl=homeAddress?"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(item.venue||item.title):"";
-      // AI analysis
       const aiR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:600,
           system:"You are Eleanor, a professional PA. Give a brief practical assessment of this event in 2-3 sentences covering: whether to go, any concerns, and one recommendation. Be warm but direct.",
@@ -1344,7 +1263,6 @@ ${importContext?"CONTEXT: "+importContext:""}`;
     }
   }
 
-  // ── PASTE EMAIL ──
   async function parseEmail(){
     if(!emailText.trim()||emailBusy)return;
     setEmailBusy(true);setEmailRes(null);
@@ -1374,7 +1292,6 @@ Rules:
     setEmailBusy(false);
   }
 
-  // ── HANDLE THIS ──
   async function handleThis(){
     if((!handleText.trim()&&!handleDocFile)||handleBusy)return;
     setHandleBusy(true);setHandleRes(null);
@@ -1408,9 +1325,7 @@ Rules:
     setHandleBusy(false);
   }
 
-  // ── BIRTHDAY HELPERS ──
   function nextOccurrence(monthDay){
-    // monthDay format: "MM-DD"
     const [m,d]=monthDay.split("-").map(Number);
     const now=new Date();
     let year=now.getFullYear();
@@ -1430,7 +1345,6 @@ Rules:
     }).filter(b=>b.days<=30).sort((a,b)=>a.days-b.days);
   }
 
-  // ── SCHEDULE CHECKER ──
   async function checkSchedule(){
     if((!checkerText.trim()&&!checkerFile)||checkerBusy)return;
     setCheckerBusy(true);setCheckerRes(null);
@@ -1452,7 +1366,6 @@ Rules:
         messages=[{role:"user",content:checkerText}];
       }
 
-      // First extract dates from the input
       const extractR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,
           system:`Extract all dates from this text or document. Return ONLY raw JSON: {"dates":[{"date":"YYYY-MM-DD","label":string,"time":"HH:MM or null"}]}. Today is ${fmt(today)}.`,
@@ -1469,7 +1382,6 @@ Rules:
         setCheckerBusy(false);return;
       }
 
-      // Check ALL dates in range - if two dates given, fill in every day between them
       let datesToCheck=[];
       if(extracted.dates.length===2){
         const d1=new Date(extracted.dates[0].date+"T12:00:00");
@@ -1499,12 +1411,10 @@ Rules:
           verdict:hasConflict?"clash":isFree?"free":sameDay.length<=1?"busy":"very busy"};
       });
 
-      // If it was a range query, show a summary instead of every single day
       if(extracted.dates.length===2&&datesToCheck.length>2){
         const busyDays=results.filter(r=>!r.isFree);
         const clashDays=results.filter(r=>r.hasConflict);
         const freeDays=results.filter(r=>r.isFree);
-        // Find alternative free periods nearby
         const rangeEnd=new Date(extracted.dates[1].date+"T12:00:00");
         const alternatives=[];
         for(let i=1;i<=14;i++){
@@ -1530,7 +1440,6 @@ Rules:
     setCheckerBusy(false);
   }
 
-  // ── PDF UPLOAD & EXTRACT ──
   async function parsePdf(){
     if(!pdfFile||pdfBusy)return;
     setPdfBusy(true);setPdfRes(null);
@@ -1559,7 +1468,6 @@ Rules:
     setPdfBusy(false);
   }
 
-  // ── DOCUMENT UPLOAD ──
   async function parseDoc(){
     if(!docFile||docBusy)return;
     setDocBusy(true);setDocRes(null);
@@ -1588,13 +1496,11 @@ Rules:
     setDocBusy(false);
   }
 
-  // ── TYPEWRITER EFFECT - safe version ──
   const typewriterRef=React.useRef(null);
   function typewriterEffect(text,onComplete){
     if(typewriterRef.current)clearTimeout(typewriterRef.current);
     setIsStreaming(true);
     setStreamedText(text);
-    // Simple delay instead of word-by-word to avoid mobile crashes
     const readTime=Math.min(Math.max(text.split(" ").length*40,800),3000);
     typewriterRef.current=setTimeout(()=>{
       setIsStreaming(false);
@@ -1603,7 +1509,6 @@ Rules:
     },readTime);
   }
 
-  // ── SHARE EVENT ──
   function shareEvent(e){
     const text=`${e.title}
 ${e.date}${e.time?" at "+e.time:""}
@@ -1616,13 +1521,8 @@ ${e.notes||""}`.trim();
     }
   }
 
-  // ── WEEKLY GOALS ──
-  // Weekly goals auto-show disabled - caused crash
 
-  // ── WEEKLY SUNDAY REVIEW ──
-  // Weekly review - disabled auto-nav on mobile
 
-  // ── WISHLIST IMPORT FROM IMAGE/PDF/EMAIL ──
   async function wishlistImport(type,content,b64,mime){
     setWishlistImportBusy(true);setWishlistImportRes(null);
     try{
@@ -1646,7 +1546,6 @@ ${e.notes||""}`.trim();
     setWishlistImportBusy(false);
   }
 
-  // ── WISHLIST PASTE EXTRACT ──
   async function extractWishlistFromText(){
     const text=wishlistPaste.trim();
     if(!text||wishlistPasteBusy)return;
@@ -1667,7 +1566,6 @@ ${e.notes||""}`.trim();
     setWishlistPasteBusy(false);
   }
 
-  // ── WEEKLY WEATHER FETCH ──
   useEffect(()=>{
     async function fetchWeekWeather(){
       try{
@@ -1695,12 +1593,10 @@ ${e.notes||""}`.trim();
       }catch(e){console.warn("Weather fetch failed:",e);}
     }
     fetchWeekWeather();
-    // Refresh weather every hour
     const interval=setInterval(fetchWeekWeather,3600000);
     return()=>clearInterval(interval);
   },[]);
 
-  // ── OFFLINE DETECTION ──
   useEffect(()=>{
     const goOnline=()=>setIsOnline(true);
     const goOffline=()=>setIsOnline(false);
@@ -1709,8 +1605,6 @@ ${e.notes||""}`.trim();
     return()=>{window.removeEventListener("online",goOnline);window.removeEventListener("offline",goOffline);};
   },[]);
 
-  // ── RECURRING EVENTS ──
-  // Expand recurring events into actual dates (up to 90 days ahead)
   useEffect(()=>{
     try{
       const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
@@ -1740,12 +1634,10 @@ ${e.notes||""}`.trim();
     }catch(e){console.warn("Recurring events error:",e);}
   },[]);
 
-  // ── SERVICE WORKER & NOTIFICATIONS ──
   useEffect(()=>{
     if("serviceWorker" in navigator){
       navigator.serviceWorker.register("/sw.js").then(reg=>{
         setSwRegistered(true);
-        // Schedule periodic sync if supported
         if("periodicSync" in reg){
           reg.periodicSync.register("reminder-check",{minInterval:60*60*1000}).catch(()=>{});
         }
@@ -1765,9 +1657,2395 @@ ${e.notes||""}`.trim();
     const delay=new Date(fireAt).getTime()-Date.now();
     if(delay<0)return;
     if(delay<2*60*1000){
-      // Fire immediately if within 2 minutes
       new Notification(title,{body,icon:"/icon-192.png",tag});
       return;
     }
-    // Store for service worker to fire
-    const scheduled=JSON.parse(localStorage.getItem("papa_schedu
+    const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
+    scheduled.push({title,body,fireAt:new Date(fireAt).toISOString(),tag});
+    localStorage.setItem("papa_scheduled_notifs",JSON.stringify(scheduled));
+  }
+
+  useEffect(()=>{
+    function checkNotifs(){
+      if(notifPermission!=="granted")return;
+      const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
+      const now=Date.now();
+      const remaining=[];
+      scheduled.forEach(n=>{
+        if(new Date(n.fireAt).getTime()<=now){
+          new Notification(n.title,{body:n.body,icon:"/icon-192.png",tag:n.tag});
+        }else{
+          remaining.push(n);
+        }
+      });
+      localStorage.setItem("papa_scheduled_notifs",JSON.stringify(remaining));
+    }
+    checkNotifs();
+    const interval=setInterval(checkNotifs,60000);
+    return()=>clearInterval(interval);
+  },[notifPermission]);
+
+  useEffect(()=>{
+    if(notifPermission!=="granted")return;
+    reminders.forEach(r=>{
+      if(!r.active)return;
+      const now=new Date();
+      const [h,m]=r.time.split(":").map(Number);
+      const fireToday=new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0);
+      const dayIdx=now.getDay().toString();
+      if(r.days.includes(dayIdx)&&fireToday>now){
+        scheduleNotification("⏰ "+r.text,r.text+" — Eleanor reminder",fireToday,"reminder-"+r.id);
+      }
+    });
+  },[reminders,notifPermission]);
+
+
+  useEffect(()=>{
+    const alerts=[];
+    events.forEach(e=>{
+      const daysUntil=Math.ceil((new Date(e.date+"T12:00:00")-new Date())/86400000);
+      const isTrip=e.source==="link"||e.source==="import"||["holiday","trip","stay","break","visiting","clacton","haven","fuerteventura","parkdean","coach","museum"].some(k=>e.title.toLowerCase().includes(k));
+      if(isTrip&&(daysUntil===3||daysUntil===1)&&!localStorage.getItem("papa_trip_alert_"+e.id+"_"+daysUntil)){
+        localStorage.setItem("papa_trip_alert_"+e.id+"_"+daysUntil,"done");
+        alerts.push({event:e,daysUntil});
+      }
+    });
+    if(alerts.length>0)setTripAlerts(alerts);
+  },[events]);
+
+  function checkConflicts(newEvent){
+    const clashes=events.filter(e=>e.date===newEvent.date&&e.id!==newEvent.id);
+    const dayBefore=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()-86400000));
+    const dayAfter=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()+86400000));
+    const nearby=events.filter(e=>e.date===dayBefore||e.date===dayAfter);
+    if(clashes.length>0||nearby.length>0){
+      setConflictWarning({event:newEvent,clashes,nearby,dayBefore,dayAfter});
+    }
+  }
+
+  async function saveSessionSummary(messages){
+    if(messages.length<3)return;
+    try{
+      const transcript=messages.slice(-20).map(m=>(m.role==="user"?"Sarah":"Eleanor")+": "+m.text).join("\n");
+      const summary=await callAI({
+        system:"Summarise this conversation in 3-4 sentences capturing: key topics discussed, any decisions made, dates mentioned, tasks Eleanor was asked to do, and anything unresolved. Be specific with dates and names.",
+        messages:[{role:"user",content:"Summarise this conversation:\n\n"+transcript}]
+      });
+      const prevSessions=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
+      const currentSession=localStorage.getItem("papa_last_session")||"";
+      if(currentSession){
+        const dated={text:currentSession,date:new Date().toLocaleDateString("en-GB"),week:fmt(today)};
+        const updated=[dated,...prevSessions].slice(0,4); // keep last 4 sessions
+        localStorage.setItem("papa_session_history",JSON.stringify(updated));
+      }
+      localStorage.setItem("papa_last_session",summary);
+      setSessionSummary(summary);
+      const memR=await callAI({
+        system:"You are Eleanor's memory system. Extract important facts from this conversation to remember about Sarah. Return ONLY raw JSON: {\"facts\":[\"fact1\"],\"pending_tasks\":[\"task1\"],\"emotional_notes\":[\"note1\"],\"preferences\":[\"pref1\"]}. facts: specific things to remember (names, dates, preferences, health info). pending_tasks: things Eleanor said she would do or follow up on. emotional_notes: if Sarah seemed stressed, tired, happy, worried. preferences: how Sarah likes things done. Only NEW information. Max 5 per category.",
+        messages:[{role:"user",content:transcript}]
+      });
+      try{
+        const parsed=JSON.parse(memR.replace(/```json|```/g,"").trim());
+        const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+        const updated={
+          ...existing,
+          facts:[...(existing.facts||[]),...(parsed.facts||[])].slice(-25),
+          pending_tasks:[...(existing.pending_tasks||[]),...(parsed.pending_tasks||[])].slice(-10),
+          emotional_notes:[...(parsed.emotional_notes||[])].slice(-5),
+          preferences:[...(existing.preferences||[]),...(parsed.preferences||[])].slice(-15),
+        };
+        localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+        setPersistentMemory(updated);
+      }catch{}
+    }catch(e){console.warn("Memory save failed:",e);}
+  }
+
+  async function eleanorSpeak(text){
+    if(!eleanorVoiceOn)return;
+    stopSpeaking();
+
+    if(premiumVoice){
+      try{
+        setEleanorSpeaking(true);
+        const r=await fetch("/api/tts",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({text,apiKey:elevenLabsKey})
+        });
+        if(r.ok){
+          const blob=await r.blob();
+          const url=URL.createObjectURL(blob);
+          const audio=new Audio(url);
+          audioRef.current=audio;
+          audio.onended=()=>{setEleanorSpeaking(false);URL.revokeObjectURL(url);};
+          audio.onerror=()=>{setEleanorSpeaking(false);URL.revokeObjectURL(url);};
+          audio.play();
+          return;
+        }
+      }catch(e){console.warn("ElevenLabs failed:",e);}
+      setEleanorSpeaking(false);
+    }
+
+    if(!window.speechSynthesis)return;
+    function doSpeak(){
+      const voices=window.speechSynthesis.getVoices();
+      const utterance=new SpeechSynthesisUtterance(text);
+      const preferred=voices.find(v=>v.lang==="en-GB"&&v.name.toLowerCase().includes("female"))
+        ||voices.find(v=>v.lang==="en-GB")
+        ||voices.find(v=>v.lang.startsWith("en")&&v.name.toLowerCase().includes("female"))
+        ||voices.find(v=>v.lang.startsWith("en"))
+        ||voices[0];
+      if(preferred)utterance.voice=preferred;
+      utterance.rate=0.92;utterance.pitch=1.05;utterance.volume=1;
+      utterance.onstart=()=>setEleanorSpeaking(true);
+      utterance.onend=()=>setEleanorSpeaking(false);
+      utterance.onerror=()=>setEleanorSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    }
+    const voices=window.speechSynthesis.getVoices();
+    if(voices.length>0)doSpeak();
+    else window.speechSynthesis.onvoiceschanged=()=>{window.speechSynthesis.onvoiceschanged=null;doSpeak();};
+  }
+
+  function stopSpeaking(){
+    if(audioRef.current){audioRef.current.pause();audioRef.current=null;}
+    window.speechSynthesis?.cancel();
+    setEleanorSpeaking(false);
+  }
+
+  function startVoice(onResult){
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){alert("Voice input is not supported on this browser. Please use Chrome.");return;}
+    const recognition=new SR();
+    recognition.lang="en-GB";
+    recognition.continuous=false;
+    recognition.interimResults=false;
+    recognition.onstart=()=>setVoiceListening(true);
+    recognition.onend=()=>setVoiceListening(false);
+    recognition.onresult=e=>{
+      const text=e.results[0][0].transcript;
+      setVoiceText(text);
+      if(onResult)onResult(text);
+    };
+    recognition.onerror=()=>setVoiceListening(false);
+    recognition.start();
+  }
+
+  async function getAppointmentBriefing(e,setBriefFn,setBusyFn){
+    setBusyFn(true);
+    try{
+      const wx=await fetchEventWeather(e.date);
+      const wxInfo=wx?`${wx.icon} ${wx.desc}, ${wx.max}°C, rain ${wx.rain}%`:"unknown";
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:500,
+          system:"You are Eleanor, a highly professional PA preparing your client for an upcoming appointment. Provide a warm, practical pre-appointment briefing covering: 1) What to bring or prepare, 2) What to expect, 3) Useful questions to ask, 4) Travel/timing advice based on weather and transport mode. Keep it concise — 3-4 short practical points. Write in flowing prose, not bullet points.",
+          messages:[{role:"user",content:`Appointment: ${e.title}
+Date: ${e.date} at ${e.time}
+Notes/Location: ${e.notes||"not specified"}
+Weather: ${wxInfo}
+Travel mode: ${travelMode||"public transport"}
+Home: ${homeAddress||"March, Cambridgeshire"}`}]
+        })
+      });
+      const d=await r.json();
+      setBriefFn(d.content?.find(b=>b.type==="text")?.text||"");
+    }catch(e){setBriefFn("Could not prepare briefing. Please try again.");}
+    setBusyFn(false);
+  }
+
+  function transportLinks(e){
+    const dest=e.notes||e.title;
+    const origin=homeAddress||"March, Cambridgeshire";
+    const date=e.date;
+    const time=e.time||"09:00";
+    return {
+      google: "https://www.google.com/maps/dir/?api=1&origin="+encodeURIComponent(origin)+"&destination="+encodeURIComponent(dest)+"&travelmode=transit",
+      nationalRail: "https://www.nationalrail.co.uk/journey-planner/?origin=&destination=&leavingType=departing&leavingDate="+date.replace(/-/g,"")+"&leavingHour="+time.slice(0,2)+"&leavingMin="+time.slice(3,5)+"&adults=1",
+      trainline: "https://www.thetrainline.com/book/results?origin="+encodeURIComponent(origin)+"&destination="+encodeURIComponent(dest)+"&outwardDate="+date+"T"+time+":00&outwardDateType=departAfter&passengers[]=adult",
+      bustimes: "https://bustimes.org/journeys?from="+encodeURIComponent(origin)+"&to="+encodeURIComponent(dest),
+      traveline: "https://www.travelineeastanglia.co.uk/ea/XSLT_TRIP_REQUEST2?language=en&type_origin=any&name_origin="+encodeURIComponent(origin)+"&type_destination=any&name_destination="+encodeURIComponent(dest)+"&itdDateYear="+date.slice(0,4)+"&itdDateMonth="+date.slice(5,7)+"&itdDateDay="+date.slice(8,10)+"&itdTimeHour="+time.slice(0,2)+"&itdTimeMinute="+time.slice(3,5)
+    };
+  }
+
+  async function fetchEventWeather(date){
+    if(eventWeather[date])return eventWeather[date];
+    try{
+      const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=52.55&longitude=0.09&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&hourly=temperature_2m,weathercode&timezone=Europe/London&start_date=${date}&end_date=${date}`);
+      const d=await r.json();
+      if(!d.daily)return null;
+      const code=d.daily.weathercode[0];
+      const max=Math.round(d.daily.temperature_2m_max[0]);
+      const min=Math.round(d.daily.temperature_2m_min[0]);
+      const rain=d.daily.precipitation_probability_max[0];
+      const icon=code<=1?"☀️":code<=3?"⛅":code<=48?"🌫":code<=67?"🌧":code<=77?"❄️":code<=82?"🌦":"⛈";
+      const desc=code<=1?"Sunny":code<=3?"Partly cloudy":code<=48?"Foggy":code<=67?"Rain":code<=77?"Snow":code<=82?"Showers":"Thunderstorm";
+      const w={icon,desc,max,min,rain,date};
+      setEventWeather(prev=>({...prev,[date]:w}));
+      return w;
+    }catch{return null;}
+  }
+
+  function travelLink(e,mode){
+    if(!homeAddress)return null;
+    const dest=e.notes||e.title;
+    const m=mode||travelMode||"transit";
+    return "https://www.google.com/maps/dir/?api=1&origin="+encodeURIComponent(homeAddress)+"&destination="+encodeURIComponent(dest)+"&travelmode="+m;
+  }
+
+  function mockConnect(ss,se,data){ss("connecting");setTimeout(()=>{ss("mock");se(data);},2000);}
+
+  /* ── style atoms ── */
+  const inp={width:"100%",padding:"12px 16px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:14,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:12,letterSpacing:"0.03em",boxShadow:`inset 0 1px 3px ${C.shadow}`};
+  const goldBtn=(ghost=false,sm=false)=>({padding:sm?"10px 18px":"13px 24px",borderRadius:3,border:ghost?`1.5px solid ${C.goldBorder}`:"none",cursor:"pointer",fontSize:sm?10:11,fontFamily:FB,letterSpacing:"0.16em",textTransform:"uppercase",background:ghost?"transparent":`linear-gradient(135deg,${C.gold},${C.goldBright} 50%,${C.gold})`,color:ghost?C.gold:C.card,width:"100%",marginBottom:8,boxShadow:ghost?"none":`0 2px 14px rgba(154,123,60,0.28)`,transition:"all 0.2s"});
+  const chip=(color,bg)=>({fontSize:9,padding:"3px 10px",borderRadius:2,background:bg,color,letterSpacing:"0.14em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${color}40`});
+  const SL={fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:14};
+  const navTab=a=>({padding:"12px 13px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:a?C.gold:C.inkFaint,borderBottom:a?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"});
+  const sevColor=s=>s==="high"?C.crimson:s==="medium"?C.gold:C.emerald;
+  const sevBg=s=>s==="high"?C.crimsonBg:s==="medium"?C.goldPale:C.emeraldBg;
+  const fmtTime=ts=>ts?.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})||"";
+
+
+  function EvCard({e,delay=0}){
+    const p=PM[e.priority]||PM.medium,isC=cflIds.has(e.id);
+    const wx=eventWx[e.id]||null;
+    const expanded=eventExpanded[e.id]||false;
+    const brief=eventBriefs[e.id]||null;
+    const briefBusy=eventBriefBusy[e.id]||false;
+
+    if(e.date>=fmt(today)&&!eventWx[e.id]&&!eventWx["loading_"+e.id]){
+      setEventWx(w=>({...w,["loading_"+e.id]:true}));
+      fetchEventWeather(e.date).then(w=>{if(w)setEventWx(prev=>({...prev,[e.id]:w}));});
+    }
+
+    const link=travelLink(e);
+    const modeLabel={driving:"driving",walking:"walking",transit:"public transport",bicycling:"cycling"}[travelMode]||"public transport";
+
+    function getEleanorBrief(){
+      if(brief||briefBusy)return;
+      setEventBriefBusy(b=>({...b,[e.id]:true}));
+      getAppointmentBriefing(e,
+        txt=>setEventBriefs(b=>({...b,[e.id]:txt})),
+        busy=>setEventBriefBusy(b=>({...b,[e.id]:busy}))
+      );
+    }
+
+    return(<div className="ev-card" style={{animationDelay:`${delay}ms`,background:C.card,marginBottom:10,borderRadius:6,border:`1px solid ${isC?C.crimson:C.borderSoft}`,borderLeft:`4px solid ${isC?C.crimson:C.goldBorder}`,padding:"15px 17px",position:"relative",boxShadow:`0 2px 10px ${C.shadow}`,transition:"all 0.2s"}}>
+      <button onClick={()=>del(e.id)} style={{position:"absolute",top:11,right:13,background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12,fontFamily:FM}}>✕</button>
+      <div style={{display:"flex",gap:13,alignItems:"flex-start"}}>
+        <div style={{textAlign:"center",minWidth:38,paddingTop:2}}>
+          <div style={{fontSize:19,fontFamily:FD,color:C.gold,lineHeight:1,fontWeight:300}}>{e.time?.slice(0,2)||"—"}</div>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.time?.slice(3)||"00"}</div>
+          {wx&&<div style={{fontSize:16,marginTop:4}}>{wx.icon}</div>}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:15,fontFamily:FD,color:C.ink,letterSpacing:"0.02em",marginBottom:2,fontWeight:500,paddingRight:20,lineHeight:1.3}}>{e.title}</div>
+          {e.notes&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+          {wx&&<div style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginBottom:5}}>{wx.desc} · {wx.max}°/{wx.min}°{wx.rain>30?" · 💧"+wx.rain+"% rain":""}</div>}
+          {/* Event note */}
+          {eventNotes[e.id]&&editingEventId!==e.id&&<div style={{background:C.emeraldBg,borderRadius:3,padding:"7px 10px",marginBottom:6,fontSize:12,color:C.emerald,fontFamily:FB,lineHeight:1.5,borderLeft:`3px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <span>📝 {eventNotes[e.id]}</span>
+            <button onClick={()=>setEditingEventId(e.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.emerald,fontSize:10,fontFamily:FM,flexShrink:0}}>edit</button>
+          </div>}
+          {editingEventId===e.id&&<div style={{marginBottom:8}}>
+            <input
+              defaultValue={eventNotes[e.id]||""}
+              placeholder="Add a note e.g. 'Already paid' or 'Remind me 2 days before'"
+              style={{width:"100%",padding:"8px 10px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:12,fontFamily:FB,background:C.goldPale,color:C.ink,outline:"none",boxSizing:"border-box",marginBottom:6}}
+              autoFocus
+              onBlur={e2=>{setEventNotes(n=>({...n,[e.id]:e2.target.value}));setEditingEventId(null);}}
+              onKeyDown={e2=>{if(e2.key==="Enter"){setEventNotes(n=>({...n,[e.id]:e2.target.value}));setEditingEventId(null);}}}
+            />
+            <button onClick={()=>{setEventNotes(n=>{const x={...n};delete x[e.id];return x;});setEditingEventId(null);}} style={{fontSize:9,color:C.crimson,fontFamily:FM,background:"none",border:"none",cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Clear note</button>
+          </div>}
+          {!eventNotes[e.id]&&editingEventId!==e.id&&<button onClick={()=>setEditingEventId(e.id)} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,background:"none",border:`1px dashed ${C.borderSoft}`,borderRadius:3,padding:"3px 10px",cursor:"pointer",marginBottom:6,letterSpacing:"0.1em",textTransform:"uppercase"}}>+ Add note</button>}
+          {brief&&<div style={{background:C.goldPale,borderRadius:3,padding:"8px 10px",marginBottom:8,fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,fontStyle:"italic",borderLeft:`3px solid ${C.goldBorder}`}}>✦ {brief}</div>}
+          {briefBusy&&<div style={{fontSize:11,color:C.gold,fontFamily:FM,marginBottom:8}} className="shimmer">Eleanor is preparing your briefing…</div>}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            {isC&&<span style={chip(C.crimson,C.crimsonBg)}>⚠ Conflict</span>}
+            <button onClick={getEleanorBrief} disabled={briefBusy||!!brief} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:brief?C.goldPale:C.card,color:C.gold,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.goldBorder}`,cursor:"pointer"}}>✦ Brief Me</button>
+            <button onClick={()=>shareEvent(e)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.card,color:C.inkFaint,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.borderSoft}`,cursor:"pointer"}}>📤 Share</button>
+            {homeAddress&&!travelMode&&<button onClick={()=>setShowTravelModal(true)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🗺 Travel</button>}
+            {link&&travelMode&&travelMode!=="transit"&&<a href={link} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,textDecoration:"none"}}>🗺 {modeLabel}</a>}
+            {travelMode==="transit"&&homeAddress&&<button onClick={()=>setEventExpanded(x=>({...x,[e.id]:!expanded}))} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer"}}>🚌 Transport {expanded?"▲":"▼"}</button>}
+          </div>
+          {expanded&&travelMode==="transit"&&homeAddress&&(()=>{
+            const t=transportLinks(e);
+            return(<div style={{marginTop:10,padding:"12px",background:C.parchment,borderRadius:4,border:`1px solid ${C.borderSoft}`}}>
+              <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>Check Journey Times</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {[{href:t.google,icon:"🗺",label:"Google Maps",sub:"Live directions & times"},{href:t.nationalRail,icon:"🚂",label:"National Rail",sub:"Train times & tickets"},{href:t.trainline,icon:"🎫",label:"Trainline",sub:"Compare & book tickets"},{href:t.bustimes,icon:"🚌",label:"Bus Times",sub:"Live bus times near you"},{href:t.traveline,icon:"🗓",label:"Traveline East Anglia",sub:"Local bus & coach planner"}].map((l,i)=>(
+                  <a key={i} href={l.href} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:C.card,borderRadius:3,border:`1px solid ${C.borderSoft}`,textDecoration:"none"}}>
+                    <span style={{fontSize:16}}>{l.icon}</span>
+                    <div><div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{l.label}</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>{l.sub}</div></div>
+                  </a>
+                ))}
+              </div>
+            </div>);
+          })()}
+        </div>
+      </div>
+    </div>);
+  }
+
+  function ResultPreview({result,onAdd,onDiscard}){
+    if(!result)return null;
+    if(result.error)return(
+      <div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}>
+        <div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div>
+        <div>{result.msg||"Please try again."}</div>
+        <div style={{fontSize:11,color:C.inkLight,marginTop:6}}>Tip: include specific dates like "14th July 2026" or "Monday 10th August".</div>
+      </div>
+    );
+    const totalCost=result.total_cost||(result.financials?.filter(f=>f.type==="cost"||f.type==="payment").reduce((a,f)=>a+(f.amount||0),0))||0;
+    const totalSaving=result.total_saving||(result.financials?.filter(f=>f.type==="saving").reduce((a,f)=>a+(f.amount||0),0))||0;
+    return(
+      <div style={{marginTop:16}}>
+        {/* Summary */}
+        {result.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {result.summary}</div>}
+
+        {/* AI Insights */}
+        {result.insights?.length>0&&<div style={{marginBottom:16}}>
+          <div style={SL}>Eleanor's Insights</div>
+          {result.insights.map((ins,i)=>(
+            <div key={i} style={{background:C.goldPale,border:`1px solid ${C.goldBorder}40`,borderLeft:`4px solid ${C.gold}`,padding:"11px 14px",marginBottom:7,borderRadius:3,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>
+              💡 {ins.text}
+            </div>
+          ))}
+        </div>}
+
+        {/* Destinations */}
+        {result.destinations?.length>0&&<div style={{marginBottom:16}}>
+          <div style={SL}>Destinations & Trips</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {result.destinations.map((d,i)=>(
+              <div key={i} style={{background:C.sapphireBg,border:`1px solid ${C.sapphire}30`,borderRadius:4,padding:"10px 13px",flex:"1 1 140px"}}>
+                <div style={{fontSize:14,fontFamily:FD,color:C.sapphire,marginBottom:2}}>📍 {d.name}</div>
+                {d.dates&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:2}}>{d.dates}</div>}
+                {d.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB}}>{d.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </div>}
+
+        {/* Financials */}
+        {result.financials?.length>0&&<div style={{marginBottom:16}}>
+
+          {/* Ask to confirm costs */}
+          {!confirmCosts&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:12}}>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>Eleanor found {result.financials.length} financial items.</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Would you like to confirm or edit the costs before saving?</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{setEditedFinancials(result.financials.map(f=>({...f})));setConfirmCosts(true);}} style={{flex:1,padding:"10px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Yes, Review Costs</button>
+              <button onClick={()=>setConfirmCosts(null)} style={{flex:1,padding:"10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>No, Skip</button>
+            </div>
+          </div>}
+
+          {/* Editable costs */}
+          {confirmCosts===true&&<div>
+            <div style={SL}>Confirm & Edit Costs</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Tap any amount to edit it. Changes are saved automatically.</div>
+            {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:12}}>
+              {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{(editedFinancials.filter(f=>f.type==="cost"||f.type==="payment").reduce((a,f)=>a+(parseFloat(f.amount)||0),0)).toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
+              </div>}
+              {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{(editedFinancials.filter(f=>f.type==="saving").reduce((a,f)=>a+(parseFloat(f.amount)||0),0)).toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
+              </div>}
+            </div>}
+            {editedFinancials.map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:13,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontFamily:FD}}>£</span>
+                  <input
+                    type="number"
+                    value={f.amount||0}
+                    onChange={e=>{const updated=[...editedFinancials];updated[i]={...f,amount:parseFloat(e.target.value)||0};setEditedFinancials(updated);}}
+                    style={{width:80,padding:"6px 8px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:14,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,textAlign:"right",background:C.goldPale,outline:"none"}}
+                  />
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setConfirmCosts("done")} style={{width:"100%",padding:"11px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.emerald},#3A8A58)`,color:"#fff",fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginTop:4}}>✓ Confirm Costs</button>
+          </div>}
+
+          {/* Confirmed summary */}
+          {(confirmCosts==="done"||confirmCosts===null)&&<div>
+            <div style={SL}>Costs & Savings</div>
+            {(totalCost>0||totalSaving>0)&&<div style={{display:"flex",gap:8,marginBottom:10}}>
+              {totalCost>0&&<div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.crimson,fontWeight:300}}>£{totalCost.toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Total Cost</div>
+              </div>}
+              {totalSaving>0&&<div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderRadius:4,padding:"11px",textAlign:"center"}}>
+                <div style={{fontSize:18,fontFamily:FD,color:C.emerald,fontWeight:300}}>£{totalSaving.toLocaleString()}</div>
+                <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}}>Saving Target</div>
+              </div>}
+            </div>}
+            {(confirmCosts==="done"?editedFinancials:result.financials).map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:5}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
+                </div>
+                <div style={{fontSize:15,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontWeight:300,marginLeft:10,whiteSpace:"nowrap"}}>
+                  £{(f.amount||0).toLocaleString()}
+                </div>
+              </div>
+            ))}
+            {confirmCosts==="done"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textAlign:"center",marginTop:6}}>✓ Costs confirmed</div>}
+          </div>}
+
+        </div>}
+
+        {/* Events */}
+        {result.events?.length>0&&<div style={{marginBottom:8}}>
+          <div style={SL}>{result.events.length} Appointments Found</div>
+          {result.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+              <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            </div>
+          );})}
+        </div>}
+
+        <div style={{height:8}}/>
+        <button style={goldBtn()} onClick={onAdd}>Add All Events to Schedule</button>
+        <button style={goldBtn(true)} onClick={onDiscard}>Discard</button>
+      </div>
+    );
+  }
+
+  /* ════════════════════════════════════════════════
+     VIEWS
+  ════════════════════════════════════════════════ */
+
+  /* ── HOME DASHBOARD ── */
+  const HomeView=()=>(
+    <div>
+
+      {/* ══ INSTALL APP BUTTON — top of page ══ */}
+      {installed?(null
+      ):installPrompt?(
+        <button onClick={installApp} style={{width:"100%",padding:"9px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:10}}>
+          <span>📲</span><span>Install App</span>
+        </button>
+      ):(
+        <div style={{background:C.card,borderRadius:4,padding:"7px 12px",marginBottom:10,border:`1px solid ${C.borderSoft}`,display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:11}}>📲</span>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>Install: tap browser menu → Add to Home Screen</div>
+        </div>
+      )}
+
+      {/* Offline banner */}
+      {!isOnline&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+        <span style={{fontSize:16}}>📵</span>
+        <div>
+          <div style={{fontSize:13,fontFamily:FD,color:C.crimson}}>You're offline</div>
+          <div style={{fontSize:11,color:C.inkMid,fontFamily:FB}}>Your schedule is still available. Eleanor needs internet to respond.</div>
+        </div>
+      </div>}
+
+      {/* API error banner */}
+      {apiError&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>{apiError}</div>
+        <button onClick={()=>setApiError(null)} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>}
+
+      {/* Search overlay */}
+      {showSearch&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10,boxShadow:`0 4px 16px ${C.shadow}`}}>
+        <input
+          id="search-input"
+          style={{...inp,marginBottom:searchQuery?10:0}}
+          placeholder="Search events, appointments, notes..."
+          autoFocus
+          onChange={e=>setSearchQuery(e.target.value)}
+        />
+        {searchQuery&&(()=>{
+          const q=searchQuery.toLowerCase();
+          const results=events.filter(e=>e.title.toLowerCase().includes(q)||e.notes?.toLowerCase().includes(q)||e.date.includes(q)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,10);
+          return results.length>0?(
+            <div>{results.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} onClick={()=>{setShowSearch(false);setSearchQuery("");setCriticalOnly(false);setView("calendar");setSelectedDay(e.date);}} style={{padding:"9px 12px",background:C.parchment,borderRadius:3,marginBottom:4,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e.title}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.date} {e.time&&"· "+e.time}</div>
+                </div>
+                <span style={chip(p.color,p.bg)}>{p.glyph}</span>
+              </div>
+            );})}</div>
+          ):<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,textAlign:"center",padding:"8px 0"}}>No events found for "{searchQuery}"</div>;
+        })()}
+      </div>}
+
+      {/* Today's weather strip */}
+      {weekWeather?.[0]&&<div style={{background:C.card,borderRadius:6,padding:"10px 14px",marginBottom:10,border:`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontSize:24}}>{weekWeather[0].icon}</span>
+          <div>
+            <div style={{fontSize:13,fontFamily:FD,color:C.ink,fontStyle:"italic"}}>{weekWeather[0].desc} · {weekWeather[0].max}°/{weekWeather[0].min}°</div>
+            <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB}}>March, Cambridgeshire · Rain {weekWeather[0].rain}% · Wind {weekWeather[0].wind}km/h</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          {weekWeather.slice(1,4).map((w,i)=>(
+            <div key={i} style={{textAlign:"center"}}>
+              <div style={{fontSize:14}}>{w.icon}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.day.slice(0,3)}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{w.max}°</div>
+            </div>
+          ))}
+        </div>
+      </div>}
+
+      {/* ══ HERO 0 — SCHEDULE CHECKER ══ */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:8,padding:"18px 18px 16px",marginBottom:10,boxShadow:`0 4px 20px ${C.shadow}`}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+          {PA_PHOTO&&<div style={{width:36,height:36,borderRadius:"50%",overflow:"hidden",flexShrink:0,border:`1.5px solid ${C.goldBorder}`}}><img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/></div>}
+          <div>
+            <div style={{fontFamily:FD,fontSize:17,color:C.ink,fontStyle:"italic",lineHeight:1}}>Am I free?</div>
+            <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:2}}>Schedule Checker</div>
+          </div>
+        </div>
+        <textarea
+          id="checker-textarea"
+          style={{width:"100%",padding:"11px 14px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",resize:"none",minHeight:70,boxSizing:"border-box",marginBottom:8,lineHeight:1.6}}
+          placeholder={"Paste any dates, a message or text...\ne.g. 'Can you make Saturday 19th July?' or paste a letter with dates"}
+          defaultValue={checkerText}
+        />
+        <div style={{display:"flex",gap:8,marginBottom:checkerFile?8:0}}>
+          <button style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,color:C.goldLight,fontFamily:FM,fontSize:10,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer"}} onClick={()=>{const el=document.getElementById("checker-textarea");if(el)setCheckerText(el.value);checkSchedule();}} disabled={checkerBusy}>
+            {checkerBusy?"Checking…":"✦ Check My Schedule"}
+          </button>
+          <label style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:checkerFile?C.emerald:C.inkFaint,fontFamily:FM,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",whiteSpace:"nowrap"}}>
+            📎 {checkerFile?checkerFile.name.slice(0,12)+"…":"Upload"}
+            <input type="file" accept="image/*,application/pdf,.pdf" onChange={e=>{if(e.target.files[0]){setCheckerFile(e.target.files[0]);setCheckerText("");}}} style={{display:"none"}}/>
+          </label>
+        </div>
+        {checkerFile&&<button onClick={()=>setCheckerFile(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>✕ Remove file</button>}
+
+        {/* Results */}
+        {checkerRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"11px 14px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:10}}>{checkerRes.msg}</div>}
+        {/* Range result */}
+        {checkerRes?.isRange&&<div style={{marginTop:12}}>
+          <div style={{background:checkerRes.busyDays.length>0?C.crimsonBg:C.emeraldBg,border:`1px solid ${checkerRes.busyDays.length>0?C.crimson:C.emerald}30`,borderLeft:`4px solid ${checkerRes.busyDays.length>0?C.crimson:C.emerald}`,borderRadius:4,padding:"14px 16px",marginBottom:10}}>
+            <div style={{fontFamily:FD,fontSize:16,color:C.ink,marginBottom:4}}>
+              {checkerRes.rangeStart} → {checkerRes.rangeEnd} ({checkerRes.totalDays} days)
+            </div>
+            {checkerRes.busyDays.length===0
+              ?<div style={{fontSize:14,color:C.emerald,fontFamily:FD}}>✓ You're completely free for this entire period</div>
+              :<div style={{fontSize:14,color:C.crimson,fontFamily:FD}}>⚠ You have {checkerRes.busyDays.length} busy day{checkerRes.busyDays.length>1?"s":""} in this period</div>
+            }
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginTop:4}}>{checkerRes.freeDays} free days · {checkerRes.busyDays.length} busy days</div>
+          </div>
+          {checkerRes.busyDays.length>0&&<div>
+            <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Busy Days in This Period</div>
+            {checkerRes.busyDays.map((r,i)=>(
+              <div key={i} style={{background:C.crimsonBg,border:`1px solid ${C.crimson}20`,borderLeft:`3px solid ${C.crimson}`,borderRadius:3,padding:"10px 12px",marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <div style={{fontFamily:FD,fontSize:13,color:C.ink}}>{r.date}</div>
+                  <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{r.sameDay.length} appointment{r.sameDay.length>1?"s":""}</div>
+                </div>
+                {r.sameDay.map((e,j)=><div key={j} style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginTop:3}}>{e.time} — {e.title}</div>)}
+              </div>
+            ))}
+          </div>}
+          {checkerRes.alternatives?.length>0&&<div style={{marginTop:10}}>
+            <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>✓ Free Alternative Dates</div>
+            {checkerRes.alternatives.map((a,i)=>(
+              <div key={i} style={{padding:"10px 12px",background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`3px solid ${C.emerald}`,borderRadius:3,marginBottom:6,fontSize:13,fontFamily:FD,color:C.ink}}>{a.label}</div>
+            ))}
+          </div>}
+          <button onClick={()=>{setCheckerRes(null);setCheckerText("");setCheckerFile(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 0",marginTop:8}}>Clear results</button>
+        </div>}
+
+        {checkerRes?.dates&&<div style={{marginTop:12}}>
+          {checkerRes.dates.map((r,i)=>{
+            const verdictColor=r.hasConflict?C.crimson:r.isFree?C.emerald:r.verdict==="busy"?C.gold:C.crimson;
+            const verdictBg=r.hasConflict?C.crimsonBg:r.isFree?C.emeraldBg:r.verdict==="busy"?C.goldPale:C.crimsonBg;
+            const verdictIcon=r.hasConflict?"⚡ Clash":r.isFree?"✓ You're free":"◈ You have things on";
+            const verdictText=r.hasConflict?`Direct clash with ${r.timeClash?.[0]?.title||"another appointment"}`:r.isFree?"This date is clear in your schedule":`${r.sameDay.length} appointment${r.sameDay.length>1?"s":""} on this day`;
+            return(
+              <div key={i} style={{background:verdictBg,border:`1px solid ${verdictColor}30`,borderLeft:`4px solid ${verdictColor}`,borderRadius:4,padding:"12px 14px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div>
+                    <div style={{fontFamily:FD,fontSize:15,color:C.ink,marginBottom:1}}>{r.label||r.date}</div>
+                    <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.date}{r.time?" at "+r.time:""}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,fontFamily:FD,color:verdictColor,fontWeight:500}}>{verdictIcon}</div>
+                  </div>
+                </div>
+                <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:r.sameDay.length||r.before.length||r.after.length?8:0}}>{verdictText}</div>
+                {r.sameDay.length>0&&<div style={{marginBottom:4}}>
+                  {r.sameDay.map((e,j)=>(
+                    <div key={j} style={{fontSize:11,color:C.inkMid,fontFamily:FB,padding:"3px 0",borderTop:j===0?`1px solid ${verdictColor}20`:""}}>{e.time} — {e.title}</div>
+                  ))}
+                </div>}
+                {(r.before.length>0||r.after.length>0)&&<div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,borderTop:`1px solid ${verdictColor}20`,paddingTop:6,marginTop:4}}>
+                  {r.before.length>0&&<div>Day before: {r.before.map(e=>e.title).join(", ")}</div>}
+                  {r.after.length>0&&<div>Day after: {r.after.map(e=>e.title).join(", ")}</div>}
+                </div>}
+              </div>
+            );
+          })}
+          <button onClick={()=>{setCheckerRes(null);setCheckerText("");setCheckerFile(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 0"}}>Clear results</button>
+
+          {/* Reschedule option */}
+          <div style={{marginTop:12,borderTop:`1px solid ${C.borderSoft}`,paddingTop:12}}>
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,marginBottom:8}}>Need to change a date? Find and reschedule any appointment:</div>
+            <input
+              id="reschedule-search"
+              placeholder="Type event name or date to search…"
+              style={{width:"100%",padding:"9px 12px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",marginBottom:6,boxSizing:"border-box"}}
+              onChange={e2=>{
+                const q=e2.target.value.toLowerCase();
+                setRescheduleSearch(q);
+                setRescheduleId("");setRescheduleDate("");setRescheduleTime("");
+              }}
+            />
+            {(()=>{
+              const q=(rescheduleSearch||"").toLowerCase();
+              const filtered=q.length>0?events.filter(e=>e.title.toLowerCase().includes(q)||e.date.includes(q)||e.notes?.toLowerCase().includes(q)):events;
+              return filtered.length>0?(
+                <div style={{maxHeight:200,overflowY:"auto",border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:8,background:C.card}}>
+                  {filtered.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
+                    <div key={e.id} onClick={()=>{
+                      setRescheduleId(String(e.id));
+                      setRescheduleDate(e.date);
+                      setRescheduleTime(e.time||"09:00");
+                      const el=document.getElementById("reschedule-search");
+                      if(el)el.value=e.title+" — "+e.date;
+                    }} style={{padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${C.borderSoft}`,background:rescheduleId===String(e.id)?C.goldPale:C.card,transition:"background 0.15s"}}>
+                      <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{e.title}</div>
+                      <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.date} {e.time&&"· "+e.time}</div>
+                    </div>
+                  ))}
+                </div>
+              ):q.length>0?<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,padding:"8px 0",marginBottom:8}}>No events found matching "{rescheduleSearch}"</div>:null;
+            })()}
+            {rescheduleId&&<div>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>New Date</div>
+                  <input type="date" value={rescheduleDate} onChange={e2=>setRescheduleDate(e2.target.value)} style={{width:"100%",padding:"9px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>New Time</div>
+                  <input type="time" value={rescheduleTime} onChange={e2=>setRescheduleTime(e2.target.value)} style={{width:"100%",padding:"9px",border:`1px solid ${C.border}`,borderRadius:3,fontSize:13,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+              <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:8,fontSize:12,fontFamily:FB,color:C.inkMid}}>
+                ✦ Confirm: Move <strong>{events.find(e=>e.id===parseInt(rescheduleId))?.title}</strong> to {rescheduleDate} at {rescheduleTime}?
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{flex:1,padding:"9px",border:"none",borderRadius:3,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}
+                  onClick={()=>{
+                    setEvents(evs=>evs.map(e=>e.id===parseInt(rescheduleId)?{...e,date:rescheduleDate,time:rescheduleTime}:e));
+                    setRescheduleId(null);setRescheduleDate("");setRescheduleTime("");
+                  }}>✓ Confirm Change</button>
+                <button style={{flex:1,padding:"9px",border:`1px solid ${C.borderSoft}`,borderRadius:3,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}
+                  onClick={()=>{setRescheduleId(null);setRescheduleDate("");setRescheduleTime("");}}>Cancel</button>
+              </div>
+            </div>}
+          </div>
+        </div>}
+      </div>
+
+      {/* ══ HERO 1 — BRIEFING ══ */}
+      <div className="hero-card" onClick={()=>setView("briefing")} style={{marginBottom:10,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s"}}>
+        <div style={{background:`linear-gradient(135deg,${C.inkMid} 0%,#4A3A10 55%,#3D2E0A 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",right:-10,top:-10,fontSize:110,fontFamily:FD,color:"rgba(255,255,255,0.04)",lineHeight:1,userSelect:"none",fontStyle:"italic"}}>✦</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.goldBorder},transparent)`}}/>
+          <div style={{fontSize:9,color:C.goldLight,letterSpacing:"0.3em",textTransform:"uppercase",fontFamily:FM,marginBottom:8,opacity:0.75}}>Executive Intelligence</div>
+          <div style={{fontFamily:FD,fontSize:30,color:C.goldLight,fontStyle:"italic",fontWeight:300,lineHeight:1.1,marginBottom:8}}>Daily Briefing</div>
+          <div style={{fontSize:12,color:"rgba(232,201,122,0.65)",fontFamily:FB,lineHeight:1.6}}>Schedule · Holidays · Alerts · Recommendations</div>
+        </div>
+        <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          {nextHol&&<div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Next Holiday</div><div style={{fontSize:13,fontFamily:FD,color:daysUntil(nextHol.start)<=14?C.crimson:C.gold,marginTop:2}}>{nextHol.name} — {daysUntil(nextHol.start)} days away</div></div>}
+          <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>{events.filter(e=>daysUntil(e.date)>=0&&daysUntil(e.date)<7).length} events this week →</div>
+        </div>
+      </div>
+
+      {/* ══ HERO 2 — IMPORT ══ */}
+      <div className="hero-card" onClick={()=>setView("import")} style={{marginBottom:18,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s",animationDelay:"60ms"}}>
+        <div style={{background:`linear-gradient(135deg,#1A3820 0%,#122A18 55%,#0C1E10 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",right:-10,top:-10,fontSize:110,fontFamily:FD,color:"rgba(255,255,255,0.04)",lineHeight:1,userSelect:"none",fontStyle:"italic"}}>✦</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.emerald}99,transparent)`}}/>
+          <div style={{fontSize:9,color:"rgba(160,220,175,0.85)",letterSpacing:"0.3em",textTransform:"uppercase",fontFamily:FM,marginBottom:8}}>Add to Calendar</div>
+          <div style={{fontFamily:FD,fontSize:30,color:"#C8EAC0",fontStyle:"italic",fontWeight:300,lineHeight:1.1,marginBottom:8}}>Import Appointments</div>
+          <div style={{fontSize:12,color:"rgba(160,220,175,0.6)",fontFamily:FB,lineHeight:1.6}}>Paste text · Screenshot · Email · Calendar sync</div>
+        </div>
+        <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,letterSpacing:"0.03em"}}>Text · Screenshot · Email · Calendar</div>
+          <div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Tap to open →</div>
+        </div>
+      </div>
+
+      {/* ══ HERO 3 — CALENDAR ══ */}
+      <div className="hero-card" onClick={()=>setView("calendar")} style={{marginBottom:10,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s",animationDelay:"120ms"}}>
+        <div style={{background:`linear-gradient(135deg,#1A2038 0%,#0F1628 55%,#0A1020 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",right:-10,top:-10,fontSize:110,fontFamily:FD,color:"rgba(255,255,255,0.04)",lineHeight:1,userSelect:"none",fontStyle:"italic"}}>✦</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.sapphire}99,transparent)`}}/>
+          <div style={{fontSize:9,color:"rgba(160,180,255,0.85)",letterSpacing:"0.3em",textTransform:"uppercase",fontFamily:FM,marginBottom:8}}>My Schedule</div>
+          <div style={{fontFamily:FD,fontSize:30,color:"#C0C8F0",fontStyle:"italic",fontWeight:300,lineHeight:1.1,marginBottom:8}}>Calendar</div>
+          <div style={{fontSize:12,color:"rgba(160,180,255,0.6)",fontFamily:FB,lineHeight:1.6}}>Monthly view · Appointments · Add to Google</div>
+        </div>
+        <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{events.filter(e=>{const d=new Date(e.date+"T12:00:00");const n=new Date();return d>=n&&d<=new Date(n.getTime()+30*86400000);}).length} events in next 30 days</div>
+          <div style={{fontSize:11,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>View →</div>
+        </div>
+      </div>
+
+      {/* Eleanor strip */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}} onClick={()=>setView("chat")}>
+        <PaAvatar size={44} pulse={true}/>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontFamily:FD,fontSize:17,color:C.ink,fontStyle:"italic",lineHeight:1}}>Eleanor</div>
+              <button onClick={()=>{if(window.confirm("Clear chat history?"))setMsgs([{role:"assistant",text:"Good day. I'm Eleanor — how may I assist you?",ts:new Date()}]);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"3px 8px",cursor:"pointer",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase"}}>Clear</button>
+            </div>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Personal Executive Assistant</div>
+          <StatusBadge status="idle"/>
+        </div>
+        <div style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.1em"}}>Chat →</div>
+      </div>
+
+      {/* Today summary */}
+      <div style={{marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={SL}>Today's Schedule</div>
+          <button onClick={()=>setView("week")} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>See Week →</button>
+        </div>
+        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
+        {todayEvs.length===0
+          ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",background:C.card,borderRadius:6,border:`1px solid ${C.borderSoft}`}}><div style={{fontSize:16,fontFamily:FD,fontStyle:"italic",color:C.inkLight}}>Your day is clear.</div></div>
+          :todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*50} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>)}
+      </div>
+
+      {/* quick actions */}
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={()=>setView("add")} style={{flex:1,padding:"11px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>＋ New Event</button>
+        <button onClick={()=>setView("reminders")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⏰ Reminders</button>
+        <button onClick={()=>setView("birthdays")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🎂 Birthdays</button>
+        <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
+        <button onClick={()=>setShowSearch(s=>!s)} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:showSearch?C.goldPale:C.card,color:showSearch?C.gold:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🔍</button>
+      </div>
+
+    </div>
+  );
+
+  /* ── SCHEDULE (TODAY DETAIL) ── */
+  const ScheduleView=()=>{
+    const criticalEvs=events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+    const displayEvs=criticalOnly?criticalEvs:todayEvs;
+    return(<div>
+      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={SL}>{criticalOnly?`${criticalEvs.length} Critical Events`:today.toLocaleDateString("en-GB",{weekday:"long"})+" — "+todayEvs.length+" appointment"+(todayEvs.length!==1?"s":"")}</div>
+        {criticalOnly&&<div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setDismissedCriticalIds(ids=>[...ids,...criticalEvs.map(e=>e.id)]);setCriticalOnly(false);}} style={{background:"none",border:`1px solid ${C.crimson}`,borderRadius:3,padding:"4px 10px",color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✕ Dismiss All</button>
+          <button onClick={()=>setCriticalOnly(false)} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"4px 10px",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Close</button>
+        </div>}
+      </div>
+      {criticalOnly&&criticalEvs.length>0&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}40`,borderLeft:`4px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:12,fontSize:12,color:C.crimson,fontFamily:FB}}>Tap ✕ on any event to dismiss it from this view. The event stays in your schedule.</div>}
+      {displayEvs.length===0
+        ?<div style={{textAlign:"center",color:C.inkFaint,padding:"50px 0"}}><div style={{fontSize:22,fontFamily:FD,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>{criticalOnly?"All critical events seen.":"Your day is clear."}</div></div>
+        :displayEvs.map((e,i)=>(
+          <div key={e.id} style={{position:"relative"}}>
+            {criticalOnly&&<button onClick={()=>setDismissedCriticalIds(ids=>[...ids,e.id])} style={{position:"absolute",top:14,right:40,zIndex:10,background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:3,padding:"2px 8px",color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Seen</button>}
+            <EvCard e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>
+          </div>
+        ))}
+      {criticalOnly&&dismissedCriticalIds.length>0&&<button onClick={()=>setDismissedCriticalIds([])} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:8}}>↺ Show all dismissed</button>}
+    </div>);
+  };
+
+  /* ── WEEK VIEW ── */
+  const WeekView=()=>(
+    <div>
+      <div style={SL}>Seven-Day View</div>
+      {weekDays.map(day=>(
+        <div key={day.ds} style={{marginBottom:22}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+            <div style={{fontSize:15,fontFamily:FD,color:day.ds===fmt(today)?C.gold:C.ink,fontStyle:day.ds===fmt(today)?"italic":"normal",fontWeight:300}}>{day.label}</div>
+            <div style={{flex:1,height:1,background:C.borderSoft}}/>
+            <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>{day.evs.length} appt{day.evs.length!==1?"s":""}</div>
+            <button onClick={()=>{setNewEv(n=>({...n,date:day.ds}));setView("add");}} style={{background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"3px 9px",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase"}}>＋ Event</button>
+            <button onClick={()=>{setView("reminders");}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"3px 9px",cursor:"pointer",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase"}}>⏰</button>
+          </div>
+          {day.evs.length===0?<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,paddingLeft:4,fontStyle:"italic"}}>— Clear</div>
+          :day.evs.map(e=>(
+            <div key={e.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${(PM[e.priority]||PM.medium).color}40`,padding:"11px 15px",marginBottom:6,borderRadius:3,display:"flex",gap:12,alignItems:"center",position:"relative",boxShadow:`0 1px 5px ${C.shadow}`}}>
+              <button onClick={()=>del(e.id)} style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12,fontFamily:FM}}>✕</button>
+              <div style={{fontSize:12,fontFamily:FM,color:C.gold,minWidth:36}}>{e.time}</div>
+              <div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div><span style={{...chip((PM[e.priority]||PM.medium).color,(PM[e.priority]||PM.medium).bg),fontSize:9}}>{(PM[e.priority]||PM.medium).label}</span></div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+
+  /* ── BRIEFING VIEW ── */
+  const BriefingView=()=>(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={SL}>Executive Briefing</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={()=>{
+            const next=!briefingVoiceOn;
+            setBriefingVoiceOn(next);
+            localStorage.setItem("papa_briefing_voice",String(next));
+            if(!next)stopSpeaking();
+            else eleanorSpeak("Briefing voice enabled.");
+          }} style={{padding:"5px 12px",borderRadius:4,border:`1.5px solid ${briefingVoiceOn?C.goldBorder:C.borderSoft}`,background:briefingVoiceOn?C.goldPale:C.card,color:briefingVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>
+            {briefingVoiceOn?"🔊 Voice":"🔇 Muted"}
+          </button>
+          {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
+        </div>
+      </div>
+      {/* Eleanor header */}
+      <div style={{display:"flex",gap:14,alignItems:"center",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:18,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{width:56,height:56,borderRadius:"50%",overflow:"hidden",flexShrink:0,border:`2px solid ${C.goldBorder}`,boxShadow:`0 0 12px rgba(196,153,62,0.3)`}}>
+          {PA_PHOTO
+            ?<img src={PA_PHOTO} alt="Eleanor" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>
+            :<div style={{width:"100%",height:"100%",background:`linear-gradient(145deg,${C.cream},${C.creamDeep})`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FD,fontSize:22,color:C.gold,fontStyle:"italic"}}>E</div>
+          }
+        </div>
+        <div>
+          <div style={{fontFamily:FD,fontSize:18,color:C.ink,fontStyle:"italic",marginBottom:2}}>Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}</div>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.5}}>I'm Eleanor, your Personal Assistant. I've reviewed your schedule and prepared your briefing.</div>
+        </div>
+      </div>
+      {!briefing&&!briefBusy&&<div>
+        <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:8,lineHeight:1.4,fontWeight:300}}>Your personal intelligence briefing</div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:22}}>Eleanor will analyse your schedule, UK school holidays, conflicts, and free time — then deliver a tailored briefing with actionable recommendations.</div>
+        <div style={{border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:22,boxShadow:`0 2px 12px ${C.shadow}`}}>
+          <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,background:C.cream,fontSize:9,color:C.gold,letterSpacing:"0.22em",textTransform:"uppercase",fontFamily:FM}}>Upcoming UK School & Bank Holidays</div>
+          {upcomingHols(5).map((h,i,arr)=>{const du=daysUntil(h.start);return(<div key={i} style={{padding:"13px 16px",borderBottom:i<arr.length-1?`1px solid ${C.borderSoft}`:"none",background:C.card,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{h.name}</div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:2}}>{fmtRange(h.start,h.end)}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:20,fontFamily:FD,color:du<=14?C.crimson:du<=30?C.gold:C.inkFaint,fontWeight:300}}>{du}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div></div>);})}
+        </div>
+        <button className="gold-pulse" style={goldBtn()} onClick={generateBriefing}>Generate My Briefing</button>
+      </div>}
+      {briefBusy&&<BriefingLoader/>}
+      {briefing?.error&&<div><div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"14px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>Unable to generate briefing. Please try again.</div><button style={goldBtn()} onClick={generateBriefing}>Retry</button></div>}
+      {briefing&&!briefing.error&&<div>
+        <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
+        {briefing.today_summary&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:10}}>Today at a Glance</div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
+        {briefing.weekly_balance&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:12}}>Schedule Balance</div><div style={{display:"flex",alignItems:"center",gap:16}}><div style={{textAlign:"center",minWidth:50}}><div style={{fontSize:34,fontFamily:FD,color:briefing.weekly_balance.score>=7?C.emerald:briefing.weekly_balance.score>=4?C.gold:C.crimson,fontWeight:300,lineHeight:1}}>{briefing.weekly_balance.score}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>/10</div></div><div style={{flex:1}}><div style={{height:3,background:C.borderSoft,borderRadius:2,marginBottom:10,overflow:"hidden"}}><div style={{height:3,width:`${briefing.weekly_balance.score*10}%`,background:`linear-gradient(90deg,${C.gold},${C.goldLight})`,borderRadius:2}}/></div><div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{briefing.weekly_balance.comment}</div></div></div></div>}
+        {/* Eleanor's personal greeting */}
+        {briefing.how_are_you&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.goldBorder}`}}>
+          <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
+        </div>}
+
+        {/* Best day this week */}
+        {briefing.best_day_this_week?.day_name&&<div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>Best Day to Schedule Something</div>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{briefing.best_day_this_week.day_name} — {briefing.best_day_this_week.date}</div>
+          <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginTop:3,lineHeight:1.5}}>{briefing.best_day_this_week.reason}</div>
+          <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{marginTop:8,padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event on This Day</button>
+        </div>}
+
+        {/* Week busyness indicator */}
+        {(()=>{
+          const weekEvs=Array.from({length:7},(_,i)=>{
+            const d=new Date(today.getTime()+i*86400000);
+            const ds=fmt(d);
+            const evCount=events.filter(e=>e.date===ds).length;
+            const hasCritical=events.some(e=>e.date===ds&&e.priority==="critical");
+            return{day:d.toLocaleDateString("en-GB",{weekday:"short"}),date:ds,count:evCount,hasCritical};
+          });
+          const total=weekEvs.reduce((s,d)=>s+d.count,0);
+          const level=total===0?"Clear week":total<=3?"Light week":total<=7?"Moderate week":total<=12?"Busy week":"Very demanding week";
+          const color=total===0?C.emerald:total<=3?C.emerald:total<=7?C.gold:total<=12?C.gold:C.crimson;
+          return(<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>Week at a Glance</div>
+              <div style={{fontSize:11,color,fontFamily:FM,fontWeight:500}}>{level}</div>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              {weekEvs.map((d,i)=>(
+                <div key={i} onClick={()=>{setSelectedDay(d.date);setCriticalOnly(false);setView("calendar");}} style={{flex:1,textAlign:"center",cursor:"pointer"}}>
+                  <div style={{height:Math.max(4,d.count*8),background:d.hasCritical?C.crimson:d.count>0?C.gold:C.borderSoft,borderRadius:2,marginBottom:4,transition:"height 0.3s"}}/>
+                  <div style={{fontSize:8,color:C.inkFaint,fontFamily:FM}}>{d.day}</div>
+                  {d.count>0&&<div style={{fontSize:8,color:d.hasCritical?C.crimson:C.gold,fontFamily:FM}}>{d.count}</div>}
+                </div>
+              ))}
+            </div>
+          </div>);
+        })()}
+
+        {/* Weekly Goals in briefing */}
+        {weeklyGoals?.goals?.length>0&&weeklyGoals.status!=="dismissed"&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:9,color:C.sapphire,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>✦ This Week's Goals</div>
+            <button onClick={()=>setShowGoalsModal(true)} style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"3px 8px",cursor:"pointer"}}>Update</button>
+          </div>
+          {weeklyGoals.goals.map((g,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:weeklyGoals.done?.[i]?C.emeraldBg:C.parchment,border:`1px solid ${weeklyGoals.done?.[i]?C.emerald:C.borderSoft}`,borderLeft:`3px solid ${weeklyGoals.done?.[i]?C.emerald:C.sapphire}`,borderRadius:3,marginBottom:6}}>
+              <div style={{flex:1,fontSize:12,fontFamily:FB,color:weeklyGoals.done?.[i]?C.emerald:C.ink,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",lineHeight:1.4}}>{g}</div>
+              <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:8}}>
+                {!weeklyGoals.done?.[i]&&<button onClick={()=>setWeeklyGoals(wg=>({...wg,done:{...wg.done,[i]:true}}))} style={{padding:"4px 8px",borderRadius:2,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,fontSize:8,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Done</button>}
+                <button onClick={()=>setWeeklyGoals(wg=>({...wg,goals:wg.goals.filter((_,j)=>j!==i),done:Object.fromEntries(Object.entries(wg.done||{}).filter(([k])=>k!==String(i)))}))} style={{padding:"4px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer"}}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={()=>{setCriticalOnly(false);setView("briefing");setShowGoalsModal(true);}} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:"0"}}>+ Add goal</button>
+        </div>}
+
+        {/* Financial summary in briefing */}
+        {(()=>{
+          const thisMonth=new Date().getMonth();
+          const thisYear=new Date().getFullYear();
+          const monthFinances=finances.filter(f=>{
+            if(!f.date)return false;
+            const d=new Date(f.date+"T12:00:00");
+            return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;
+          });
+          const income=monthFinances.filter(f=>f.type==="income"&&f.status!=="paid");
+          const expenses=monthFinances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+          const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
+          const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
+          if(!income.length&&!expenses.length)return null;
+          return(<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+            <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>💰 This Month's Finances</div>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {totalIn>0&&<div style={{flex:1,background:C.emeraldBg,borderRadius:4,padding:"10px 12px",border:`1px solid ${C.emerald}30`}}>
+                <div style={{fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Expected In</div>
+                <div style={{fontFamily:FD,fontSize:20,color:C.emerald}}>£{totalIn.toFixed(2)}</div>
+              </div>}
+              {totalOut>0&&<div style={{flex:1,background:C.crimsonBg,borderRadius:4,padding:"10px 12px",border:`1px solid ${C.crimson}30`}}>
+                <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Due Out</div>
+                <div style={{fontFamily:FD,fontSize:20,color:C.crimson}}>£{totalOut.toFixed(2)}</div>
+              </div>}
+            </div>
+            {[...income,...expenses].map((f,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:f.type==="income"?C.emeraldBg:C.crimsonBg,borderLeft:`3px solid ${f.type==="income"?C.emerald:C.crimson}`,borderRadius:3,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+                  {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <div style={{fontSize:14,fontFamily:FD,color:f.type==="income"?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
+                  <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:"paid"}:x))} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Paid</button>
+                  <button onClick={()=>{setChatIn("Remind me to pay "+f.label+" of £"+(f.amount||0).toFixed(2)+(f.date?" on "+f.date:""));setCriticalOnly(false);setView("chat");}} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>⏰</button>
+                </div>
+              </div>
+            ))}
+          </div>);
+        })()}
+
+        {/* Birthday alerts in briefing */}
+        {(()=>{const alerts=getBirthdayAlerts().filter(b=>b.days<=14&&b.action!=="done"&&b.action!=="skip");if(!alerts.length)return null;return(<div style={{marginBottom:18}}>
+          <div style={SL}>🎂 Birthdays & Celebrations</div>
+          {alerts.map(b=>{
+            const isSoon=b.days<=7;
+            const color=b.days===0?C.crimson:isSoon?C.gold:C.sapphire;
+            const bg=b.days===0?C.crimsonBg:isSoon?C.goldPale:C.sapphireBg;
+            return(<div key={b.id} style={{background:bg,border:`1px solid ${color}30`,borderLeft:`4px solid ${color}`,padding:"13px 16px",marginBottom:8,borderRadius:6}}>
+              <div style={{fontFamily:FD,fontSize:15,color:C.ink,marginBottom:4}}>{b.days===0?"🎉 Today":"🎂 "+b.name+"'s "+(b.type==="birthday"?"Birthday":b.type)+" in "+b.days+" day"+(b.days>1?"s":"")}</div>
+              <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:10}}>{b.days<=1?"It's very soon — make sure you have a card or gift ready.":b.days<=7?"Consider buying a card or present this week before it's too late.":"You have "+b.days+" days — a good time to plan something thoughtful."}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>{
+                  setBirthdayActions(a=>({...a,[b.id]:"scheduled"}));
+                  const mx=Math.max(...events.map(e=>e.id),0);
+                  setEvents(ev=>[...ev,{id:mx+1,title:"Buy gift for "+b.name,date:fmt(new Date(new Date(b.next+"T12:00:00").getTime()-7*86400000)),time:"10:00",priority:"high",notes:b.type+" — "+b.name,source:"birthday"}]);
+                }} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>📅 Schedule</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"done"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Done</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"skip"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Dismiss</button>
+                <button onClick={()=>{setChatIn("Help me plan something for "+b.name+"'s "+b.type+" on "+b.next);setView("chat");}} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✦ Ask Eleanor</button>
+              </div>
+            </div>);
+          })}
+        </div>);})()}
+
+        {briefing.alerts?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Alerts & Flags — tap any to ask Eleanor</div>{briefing.alerts.map((a,i)=><div key={i} onClick={()=>{setChatIn("Tell me more about: "+a.title);setView("chat");}} style={{background:sevBg(a.severity),border:`1px solid ${sevColor(a.severity)}30`,borderLeft:`4px solid ${sevColor(a.severity)}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",position:"relative"}}><div style={{fontSize:14,fontFamily:FD,color:sevColor(a.severity),marginBottom:4,fontWeight:500}}>{a.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{a.detail}</div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:sevColor(a.severity),fontFamily:FM,opacity:0.6}}>tap to ask →</div></div>)}</div>}
+        {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}</div>}
+        {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities — tap any to ask Eleanor</div>{briefing.opportunities.map((o,i)=><div key={i} onClick={()=>{setChatIn("Help me with this opportunity: "+o.title);setView("chat");}} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",position:"relative"}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.emerald,fontFamily:FM,opacity:0.6}}>tap to ask →</div></div>)}</div>}
+        {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations — tap any to ask Eleanor</div>{briefing.recommendations.map((r,i)=><div key={i} onClick={()=>{setChatIn("Help me with: "+r.title);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`,cursor:"pointer",position:"relative"}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.inkFaint,fontFamily:FM}}>tap →</div></div>)}</div>}
+        <button style={goldBtn(true)} onClick={()=>{setBriefing(null);generateBriefing();}}>↺ Refresh Briefing</button>
+      </div>}
+    </div>
+  );
+
+  /* ── IMPORT VIEW ── */
+  const ImportView=()=>(
+    <div>
+      <div style={SL}>Import Appointments</div>
+
+      {/* Context note box - uncontrolled to prevent typing lag */}
+      <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:16}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>Help Eleanor understand what to extract</div>
+        <input
+          id="import-context-input"
+          style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}
+          placeholder="e.g. 'My daughter is in Year 4' · 'Only extract my appointments' · 'Focus on July dates'"
+          defaultValue={importContext}
+          onBlur={e=>{setImportContext(e.target.value);importContextRef.current=e.target.value;}}
+        />
+      </div>
+
+      {/* visual method picker */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}} key="import-grid">
+        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
+          <div key={m.type} className="import-method" onClick={()=>setImpTab(m.tab)}
+            style={{background:impTab===m.tab?C.goldPale:C.card,border:`1.5px solid ${impTab===m.tab?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"14px 14px",cursor:"pointer",transition:"all 0.18s",textAlign:"center",boxShadow:`0 1px 6px ${C.shadow}`}}>
+            <div style={{width:40,height:40,borderRadius:6,background:impTab===m.tab?`linear-gradient(135deg,${C.gold},${C.goldBright})`:C.parchment,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>
+              <ImportIcon type={m.type} size={20}/>
+            </div>
+            <div style={{fontSize:13,fontFamily:FD,color:C.ink,fontWeight:400,marginBottom:2}}>{m.label}</div>
+            <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,lineHeight:1.3}}>{m.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* divider */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <div style={{flex:1,height:1,background:C.borderSoft}}/><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>{impTab?.toUpperCase()}</div><div style={{flex:1,height:1,background:C.borderSoft}}/>
+      </div>
+
+      {impTab==="text"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any text — an email, WhatsApp conversation, a list of dates. Eleanor will identify all commitments automatically.</div>
+        <textarea
+          id="paste-text-input"
+          style={{...inp,minHeight:150,resize:"vertical"}}
+          defaultValue={pasteText}
+          onChange={e=>{setPasteText(e.target.value);}}
+          placeholder={"e.g. 'Dentist Thursday 14th at 2:30pm'\nor paste a full email confirmation\nor 'Can you do school pickup Monday at 3:30?'"}
+        />
+        <button style={goldBtn()} onClick={()=>{
+          const el=document.getElementById("paste-text-input");
+          if(el)setPasteText(el.value);
+          parsePaste();
+        }} disabled={pasteBusy}>{pasteBusy?"Analysing…":"Extract Appointments"}</button>
+        <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setCriticalOnly(false);setView("home");}} onDiscard={()=>setPasteRes(null)}/>
+      </div>}
+      {impTab==="image"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image</strong> — a poster, flyer, event ticket, booking confirmation, screenshot, letter, or even a handwritten note. Eleanor will read the whole image and extract every date, time, and location she can find.</div>
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,letterSpacing:"0.06em",borderRadius:6}}>
+          {imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter…"}
+          <input type="file" accept="image/*" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
+        </label>
+        {imgPrev&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
+        {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?"Reading image…":"Extract Appointments from Image"}</button>}
+        {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
+        {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
+        {imgRes&&!imgRes.error&&imgRes.events?.length>0&&<div>
+          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:12}}>{imgRes.events.length} Events Found</div>
+          {imgRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+              <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            </div>
+          );})}
+          <div style={{height:8}}/>
+          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}>Discard</button>
+        </div>}
+      </div>}
+      {impTab==="doc"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload any document — benefit letters, tenancy agreements, contracts, terms and conditions, NHS letters. Eleanor explains it in plain English and highlights what's important.</div>
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"28px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,borderRadius:6}}>
+          {docFile?"✦ "+docFile.name+" — tap Extract below":"📄 Tap to upload PDF or Word document"}
+          <input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={e=>{if(e.target.files[0]){setDocFile(e.target.files[0]);setDocRes(null);}}} style={{display:"none"}}/>
+        </label>
+        {docFile&&<button style={goldBtn()} onClick={parseDoc} disabled={docBusy}>{docBusy?"Reading document…":"Extract from Document"}</button>}
+        {docRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{docRes.msg}</div>}
+        {docRes&&!docRes.error&&<div style={{marginTop:12}}>
+          {/* Document type badge */}
+          {docRes.document_type&&<div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>📄 {docRes.document_type}</div>}
+
+          {/* Summary */}
+          {docRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px",marginBottom:12,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {docRes.summary}</div>}
+
+          {/* Plain English explanation */}
+          {docRes.plain_english&&<div style={{marginBottom:14}}>
+            <div style={SL}>Eleanor Explains</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.75,borderLeft:`4px solid ${C.goldBorder}`}}>
+              {docRes.plain_english}
+            </div>
+          </div>}
+
+          {/* Important points */}
+          {docRes.important_points?.length>0&&<div style={{marginBottom:14}}>
+            <div style={SL}>Important Points</div>
+            {docRes.important_points.map((p,i)=>{
+              const typeStyle={
+                warning:{bg:C.crimsonBg,border:C.crimson,icon:"⚠"},
+                deadline:{bg:C.goldPale,border:C.goldBorder,icon:"📅"},
+                money:{bg:C.emeraldBg,border:C.emerald,icon:"💰"},
+                right:{bg:C.sapphireBg,border:C.sapphire,icon:"✓"},
+                info:{bg:C.parchment,border:C.border,icon:"•"},
+              }[p.type]||{bg:C.parchment,border:C.border,icon:"•"};
+              return(
+                <div key={i} style={{display:"flex",gap:10,padding:"10px 13px",background:typeStyle.bg,border:`1px solid ${typeStyle.border}30`,borderLeft:`3px solid ${typeStyle.border}`,borderRadius:3,marginBottom:6}}>
+                  <span style={{fontSize:14,flexShrink:0}}>{typeStyle.icon}</span>
+                  <span style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{p.point}</span>
+                </div>
+              );
+            })}
+          </div>}
+
+          {/* Key info */}
+          {docRes.key_info?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>Key Details</div>
+            {docRes.key_info.map((k,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{k.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD,fontWeight:500}}>{k.value}</span>
+              </div>
+            ))}
+          </div>}
+
+          {/* Action items */}
+          {docRes.actions?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>What You Need to Do</div>
+            {docRes.actions.map((a,i)=>(
+              <div key={i} style={{padding:"9px 12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>→ {a.text}</div>
+                {a.deadline&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginTop:2}}>By: {a.deadline}</div>}
+              </div>
+            ))}
+          </div>}
+
+          {/* Dates */}
+          {docRes.events?.length>0&&<div style={{marginBottom:8}}>
+            <div style={SL}>{docRes.events.length} Important Dates</div>
+            {docRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
+                {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
+              </div>
+            );})}
+            <div style={{height:8}}/>
+            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events,"document");setDocRes(null);setDocFile(null);setCriticalOnly(false);setView("home");}}>Add Dates to Schedule</button>
+          </div>}
+
+          <button style={goldBtn(true)} onClick={()=>{setDocRes(null);setDocFile(null);}}>Clear</button>
+        </div>}
+      </div>}
+
+      {impTab==="handle"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Describe a difficult situation — Eleanor drafts a professional letter or email for you to send.</div>
+        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,lineHeight:1.7}}>
+            Examples: <em>"Chase my PIP review that's been delayed 3 months"</em> · <em>"Complain about my energy bill being too high"</em> · <em>"Request a refund from a company"</em> · <em>"Write to my landlord about repairs needed"</em>
+          </div>
+        </div>
+        <textarea id="handle-textarea" style={{...inp,minHeight:120,resize:"vertical"}} defaultValue={handleText} placeholder="Describe what you need Eleanor to handle..." onBlur={e=>setHandleText(e.target.value)}/>
+        <label style={{display:"block",border:`1.5px dashed ${C.borderSoft}`,padding:"12px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.card,color:handleDocFile?C.emerald:C.inkFaint,fontSize:12,fontFamily:FB,borderRadius:4}}>
+          {handleDocFile?"📄 "+handleDocFile.name+" — ready":"📎 Optional: upload a document (PDF, letter, bill...)"}
+          <input type="file" accept=".pdf,.doc,.docx,image/*" onChange={e=>{if(e.target.files[0])setHandleDocFile(e.target.files[0]);}} style={{display:"none"}}/>
+        </label>
+        {handleDocFile&&<button onClick={()=>setHandleDocFile(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",marginBottom:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>✕ Remove document</button>}
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("handle-textarea");if(el)setHandleText(el.value);handleThis();}} disabled={handleBusy}>{handleBusy?"Drafting…":"✦ Handle This for Me"}</button>
+        {handleRes&&typeof handleRes==="string"&&!handleRes.startsWith("Error")&&<div style={{marginTop:14}}>
+          <div style={SL}>Eleanor's Draft</div>
+          <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",whiteSpace:"pre-wrap",fontSize:13,fontFamily:FB,color:C.inkMid,lineHeight:1.8,marginBottom:12}}>{handleRes}</div>
+          <button style={goldBtn()} onClick={()=>{navigator.clipboard?.writeText(handleRes);alert("Copied to clipboard!");}}>Copy to Clipboard</button>
+          <button style={goldBtn(true)} onClick={()=>{setHandleRes(null);setHandleText("");}}>Clear</button>
+        </div>}
+        {handleRes?.startsWith?.("Error")&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{handleRes}</div>}
+      </div>}
+
+      {impTab==="voice"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Speak your appointments and Eleanor will transcribe and extract them.</div>
+        <div style={{textAlign:"center",marginBottom:20}}>
+          <button onClick={()=>startVoice(text=>{setPasteText(text);setImpTab("text");})} style={{width:100,height:100,borderRadius:"50%",border:`3px solid ${voiceListening?C.crimson:C.goldBorder}`,background:voiceListening?C.crimsonBg:C.goldPale,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,margin:"0 auto",boxShadow:voiceListening?`0 0 20px ${C.crimson}40`:`0 4px 16px ${C.shadow}`,transition:"all 0.3s"}}>
+            <span style={{fontSize:32}}>{voiceListening?"🔴":"🎙️"}</span>
+            <span style={{fontSize:9,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",color:voiceListening?C.crimson:C.gold}}>{voiceListening?"Listening…":"Tap to Speak"}</span>
+          </button>
+        </div>
+        {voiceListening&&<div style={{textAlign:"center",color:C.crimson,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}} className="shimmer">Listening — speak clearly…</div>}
+        {voiceText&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6}}>Eleanor heard</div>
+          <div style={{fontSize:14,fontFamily:FD,color:C.ink,fontStyle:"italic",lineHeight:1.6}}>"{voiceText}"</div>
+        </div>}
+        {voiceText&&<button style={goldBtn()} onClick={()=>{setPasteText(voiceText);setImpTab("text");}}>Extract Appointments from Voice</button>}
+        <div style={{marginTop:16,background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px"}}>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.7}}>
+            Try saying: <em>"Dentist appointment Thursday 19th June at 2:30pm"</em> or <em>"School play next Friday at 6pm, Doddington Primary"</em>
+          </div>
+        </div>
+      </div>}
+
+      {impTab==="pdf"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload any PDF — invoices, appointment letters, contracts, statements. Eleanor extracts all key dates, amounts and actions.</div>
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,borderRadius:6}}>
+          {pdfFile?"✦ "+pdfFile.name+" — tap Extract below":"📄 Tap to upload a PDF"}
+          <input type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files[0]){setPdfFile(e.target.files[0]);setPdfRes(null);}}} style={{display:"none"}}/>
+        </label>
+        {pdfFile&&<button style={goldBtn()} onClick={parsePdf} disabled={pdfBusy}>{pdfBusy?"Reading PDF…":"Extract from PDF"}</button>}
+        {pdfRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{pdfRes.msg}</div>}
+        {pdfRes&&!pdfRes.error&&<div style={{marginTop:12}}>
+          {pdfRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px",marginBottom:10,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {pdfRes.summary}</div>}
+          {pdfRes.key_info?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Key Information</div>
+            {pdfRes.key_info.map((k,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{k.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD,fontWeight:500}}>{k.value}</span>
+              </div>
+            ))}
+          </div>}
+          {pdfRes.actions?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Action Items</div>
+            {pdfRes.actions.map((a,i)=>(
+              <div key={i} style={{padding:"9px 12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>→ {a.text}</div>
+                {a.deadline&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginTop:2}}>By: {a.deadline}</div>}
+              </div>
+            ))}
+          </div>}
+          {pdfRes.events?.length>0&&<div>
+            <div style={SL}>{pdfRes.events.length} Dates Found</div>
+            {pdfRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
+                {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
+              </div>
+            );})}
+            <div style={{height:8}}/>
+            <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events,"pdf");setPdfRes(null);setPdfFile(null);setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
+            <button style={goldBtn(true)} onClick={()=>{setPdfRes(null);setPdfFile(null);}}>Clear</button>
+          </div>}
+        </div>}
+      </div>}
+
+      {impTab==="link"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste a link to any event page — Eleanor will read it and extract the date, time, venue and price.</div>
+        <input id="link-url-input" style={{...inp,marginBottom:8}} placeholder="https://..." defaultValue={linkUrl} onBlur={e=>setLinkUrl(e.target.value)}/>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("link-url-input");if(el)setLinkUrl(el.value);readLink();}} disabled={linkBusy}>{linkBusy?"Reading page…":"Read Event from Link"}</button>
+        {linkRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px 16px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{linkRes.msg}</div>}
+        {linkRes&&!linkRes.error&&<div style={{marginTop:14}}>
+          {linkRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:12,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {linkRes.summary}</div>}
+          {linkRes.venue&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>📍 {linkRes.venue}</div>}
+          {linkRes.price&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10}}>💰 {linkRes.price}</div>}
+          {linkRes.events?.length>0&&linkRes.events.map((e,i)=>(
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:8,borderRadius:4}}>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:4}}>{e.notes}</div>}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button style={goldBtn()} onClick={()=>{
+              if(linkRes.events?.length){addEvs(linkRes.events,"link");}
+              if(linkRes.events?.[0]){
+                const e=linkRes.events[0];
+                setWishlist(w=>[...w,{id:Date.now(),title:e.title,date:e.date,venue:linkRes.venue||"",price:linkRes.price||"",notes:e.notes||"",url:linkUrl}]);
+              }
+              setLinkRes(null);setLinkUrl("");setCriticalOnly(false);setView("home");
+            }}>Add to Schedule</button>
+            <button style={{...goldBtn(true),flex:"0 0 auto",width:"auto",padding:"12px 16px"}} onClick={()=>{
+              if(linkRes.events?.[0]){
+                const e=linkRes.events[0];
+                setWishlist(w=>[...w,{id:Date.now(),title:e.title,date:e.date,venue:linkRes.venue||"",price:linkRes.price||"",notes:e.notes||"",url:linkUrl}]);
+              }
+              setLinkRes(null);setLinkUrl("");setView("wishlist");
+            }}>Add to Wishlist</button>
+          </div>
+        </div>}
+      </div>}
+
+      {impTab==="email"&&<div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any email — Eleanor extracts appointments, actions and key info.</div>
+        <textarea id="email-textarea" style={{...inp,minHeight:140,resize:"vertical"}} defaultValue={emailText} placeholder="Paste the full email here..."/>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("email-textarea");if(el)setEmailText(el.value);parseEmail();}} disabled={emailBusy}>{emailBusy?"Reading…":"Extract from Email"}</button>
+        {emailRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>{emailRes.msg}</div>}
+        {emailRes&&!emailRes.error&&<div style={{marginTop:12}}>
+          {/* Email type badge */}
+          {emailRes.email_type&&<div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>
+            {{"appointment":"📅","payment":"💰","school":"🏫","medical":"🏥","legal":"⚖️","delivery":"📦","invitation":"🎉","bill":"💳","benefit":"🏛","reminder":"⏰","other":"📧"}[emailRes.email_type]||"📧"} {emailRes.email_type} email
+          </div>}
+
+          {/* Urgent flag */}
+          {emailRes.urgent&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderLeft:`4px solid ${C.crimson}`,padding:"10px 14px",marginBottom:10,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>⚠ Eleanor flagged this as urgent</div>}
+
+          {/* Summary */}
+          {emailRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px",marginBottom:10,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {emailRes.summary}</div>}
+
+          {/* Sender */}
+          {emailRes.sender&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:4}}>From: <strong style={{color:C.ink}}>{emailRes.sender}</strong>{emailRes.sender_email?" ("+emailRes.sender_email+")":""}</div>}
+          {emailRes.subject&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10}}>Subject: <strong style={{color:C.ink}}>{emailRes.subject}</strong></div>}
+
+          {/* Payment info */}
+          {emailRes.payment?.amount&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:4,padding:"10px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>💰 Payment Details</div>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{emailRes.payment.amount}</div>
+            {emailRes.payment.due_date&&<div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:2}}>Due: {emailRes.payment.due_date}</div>}
+            {emailRes.payment.reference&&<div style={{fontSize:11,color:C.inkFaint,fontFamily:FM,marginTop:2}}>Ref: {emailRes.payment.reference}</div>}
+          </div>}
+
+          {/* Key info */}
+          {emailRes.key_info?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Key Information</div>
+            {emailRes.key_info.map((k,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{k.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD}}>{k.value}</span>
+              </div>
+            ))}
+          </div>}
+
+          {/* Action items */}
+          {emailRes.actions?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>What You Need to Do</div>
+            {emailRes.actions.map((a,i)=>{const p=PM[a.priority]||PM.medium;return(
+              <div key={i} style={{padding:"9px 12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${p.color}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>→ {a.text}</div>
+                {a.deadline&&<div style={{fontSize:10,color:C.crimson,fontFamily:FM,marginTop:2}}>By: {a.deadline}</div>}
+              </div>
+            );})}
+          </div>}
+
+          {/* Reply suggestion */}
+          {emailRes.reply_needed&&emailRes.reply_suggestion&&<div style={{marginBottom:10}}>
+            <div style={SL}>Suggested Reply</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,padding:"12px",fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic",borderLeft:`3px solid ${C.sapphire}`}}>{emailRes.reply_suggestion}</div>
+            <button style={{...goldBtn(true),marginTop:6,color:C.sapphire,borderColor:C.sapphire}} onClick={()=>{navigator.clipboard?.writeText(emailRes.reply_suggestion);alert("Reply copied to clipboard!");}}>Copy Reply</button>
+          </div>}
+
+          {/* Events */}
+          {emailRes.events?.length>0&&<div>
+            <div style={SL}>{emailRes.events.length} Date{emailRes.events.length>1?"s":""} Found</div>
+            {emailRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
+                <div style={{fontSize:10,color:p.color,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time} · <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
+                {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
+              </div>
+            );})}
+            <div style={{height:8}}/>
+            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events,"email");setEmailRes(null);setEmailText("");setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
+            <button style={goldBtn(true)} onClick={()=>{setEmailRes(null);setEmailText("");}}>Discard</button>
+          </div>}
+        </div>}
+      </div>}
+            {impTab==="calendar"&&<div>
+        <ICalImport onAdd={evs=>{addEvs(evs,"calendar");setCriticalOnly(false);setView("home");}}/>
+        {false&&!googleTokens&&<button style={goldBtn()} onClick={connectGoogle} disabled={googleBusy}>{googleBusy?"Connecting…":"Connect Google Calendar"}</button>}
+        {googleTokens&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>✦ Connected: {googleProfile?.email||"Google"}</span>
+            <button onClick={disconnectGoogle} style={{background:"none",border:`1px solid ${C.emerald}`,color:C.emerald,fontFamily:FM,fontSize:9,padding:"3px 8px",cursor:"pointer",borderRadius:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>Disconnect</button>
+          </div>
+          <button style={goldBtn()} onClick={syncGoogleCalendar} disabled={calSt==="connecting"}>Sync Google Calendar</button>
+        </div>}
+        {calSt==="connecting"&&<div style={{textAlign:"center",color:C.gold,padding:"28px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.22em",textTransform:"uppercase"}} className="shimmer">Syncing calendar…</div>}
+        {calSt==="mock"&&calEvs&&<div>
+          <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {calEvs.length} event{calEvs.length!==1?"s":""} found in Google Calendar.</div>
+          {calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
+          <div style={{height:8}}/>
+          <button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setCalSt("idle");setCalEvs(null);}}>Discard</button>
+        </div>}
+      </div>}
+    </div>
+  );
+
+  /* ── CHAT VIEW ── */
+  const ChatView=()=>(
+    <div style={{display:"flex",flexDirection:"column",height:"100%",background:C.parchment}}>
+      <div style={{padding:"15px 20px 13px",background:C.card,borderBottom:`1px solid ${C.border}`,boxShadow:`0 2px 8px ${C.shadow}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:13}}>
+          <PaAvatar size={50} pulse={paStatus==="idle"} speaking={paStatus==="speaking"}/>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic",fontWeight:400,lineHeight:1}}>Eleanor</div>
+            <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",marginTop:3,marginBottom:4}}>Personal Executive Assistant</div>
+            <StatusBadge status={paStatus}/>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{width:54,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:C.cream,borderRadius:4,border:`1px solid ${C.borderSoft}`}}><Waveform active={showWave||eleanorSpeaking}/></div>
+            <button onClick={()=>{
+              const next=!eleanorVoiceOn;
+              setEleanorVoiceOn(next);
+              localStorage.setItem("papa_voice_on",String(next));
+              if(!next)stopSpeaking();
+            }} style={{padding:"5px 10px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>
+              {eleanorVoiceOn?"🔊 On":"🔇 Off"}
+            </button>
+            {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
+          </div>
+        </div>
+        {/* Memory indicator */}
+        {((persistentMemory.facts||[]).length>0||(persistentMemory.pending_tasks||[]).length>0)&&<div style={{marginTop:6,padding:"6px 10px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:C.gold,animation:"memoryPulse 2s ease-in-out infinite"}}/>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+            Eleanor has {(persistentMemory.facts||[]).length} memories · {(persistentMemory.pending_tasks||[]).length} pending tasks
+          </div>
+        </div>}
+
+        {/* Action buttons row */}
+        <div style={{display:"flex",gap:6,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
+          <button onClick={()=>{
+            const next=!eleanorVoiceOn;
+            setEleanorVoiceOn(next);
+            localStorage.setItem("papa_voice_on",String(next));
+            if(!next)stopSpeaking();
+          }} style={{flex:1,padding:"7px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>
+            {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
+          </button>
+          <button onClick={async()=>{if(window.confirm("Clear chat? Eleanor will remember a summary of this conversation.")){await saveSessionSummary(msgs);setMsgs([{role:"assistant",text:"Good day. I'm Eleanor. I've saved a note from our last conversation and I'm ready to continue.",ts:new Date()}]);}}} style={{flex:1,padding:"7px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Clear Chat</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 16px",display:"flex",flexDirection:"column",gap:12}}>
+        {msgs.map((m,i)=>{
+          const isPA=m.role==="assistant";
+          return(<div key={i} className="msg-bubble" style={{display:"flex",flexDirection:isPA?"row":"row-reverse",gap:9,alignItems:"flex-end"}}>
+            {isPA&&<PaAvatar size={30} pulse={false}/>}
+            <div style={{maxWidth:"76%"}}>
+              <div style={{padding:"12px 16px",borderRadius:isPA?"4px 16px 16px 4px":"16px 4px 4px 16px",background:isPA?C.card:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:isPA?C.ink:C.card,fontSize:14,lineHeight:1.65,fontFamily:FB,letterSpacing:"0.025em",border:isPA?`1px solid ${C.borderSoft}`:"none",boxShadow:isPA?`0 2px 10px ${C.shadow}`:`0 3px 12px rgba(154,123,60,0.28)`}}>{m.text}</div>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,marginTop:3,textAlign:isPA?"left":"right",letterSpacing:"0.08em"}}>{fmtTime(m.ts)}</div>
+            </div>
+          </div>);
+        })}
+        {paStatus==="thinking"&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}><PaAvatar size={30} pulse={true}/><div style={{padding:"12px 16px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.borderSoft}`,boxShadow:`0 2px 10px ${C.shadow}`}}><TypingDots/></div></div>}
+        {isStreaming&&streamedText&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}>
+          <PaAvatar size={30} speaking={true}/>
+          <div style={{padding:"12px 16px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.goldBorder}`,boxShadow:`0 2px 10px ${C.shadow}`,maxWidth:"78%",position:"relative"}}>
+            <div style={{fontSize:14,color:C.ink,fontFamily:FB,lineHeight:1.7}}>{streamedText}<span style={{display:"inline-block",width:2,height:14,background:C.gold,marginLeft:2,animation:"typingCursor 0.7s ease-in-out infinite",verticalAlign:"middle"}}/></div>
+          </div>
+        </div>}
+        {paStatus==="speaking"&&<div className="msg-bubble" style={{display:"flex",gap:9,alignItems:"flex-end"}}><PaAvatar size={30} speaking={true}/><div style={{padding:"10px 14px",borderRadius:"4px 16px 16px 4px",background:C.card,border:`1px solid ${C.goldBorder}`,boxShadow:`0 2px 12px rgba(196,153,62,0.18)`,display:"flex",alignItems:"center",gap:8}}><Waveform active={true}/><span style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.1em"}}>Eleanor is responding…</span></div></div>}
+        <div ref={chatEnd}/>
+      </div>
+      {msgs.length<=1&&paStatus==="idle"&&(()=>{
+        const nextEv=events.filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date))[0];
+        const hasTrip=events.some(e=>{const d=Math.ceil((new Date(e.date+"T12:00:00")-new Date())/86400000);return d>0&&d<=7&&["holiday","trip","clacton","haven","museum","coach"].some(k=>e.title.toLowerCase().includes(k));});
+        const chips=[
+          nextEv?"What's coming up?":"What's on today?",
+          hasTrip?"Help me prepare for my trip":"Any conflicts?",
+          weeklyGoals?.goals?.length>0?"How am I doing on my goals?":"What should I achieve this week?",
+          weekWeather?"Best day this week for going out?":"Free time this week?",
+        ];
+        return(<div style={{padding:"0 16px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+          {chips.map(q=>(<button key={q} onClick={()=>sendChat(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.08em",cursor:"pointer"}}>{q}</button>))}
+        </div>);
+      })()}
+      <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
+        <ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/>
+      </div>
+    </div>
+  );
+
+  /* ── ADD EVENT ── */
+  const AddView=()=>{
+    const titleRef=useRef(null);
+    const dateRef=useRef(null);
+    const timeRef=useRef(null);
+    const priorityRef=useRef(null);
+    const sourceRef=useRef(null);
+    const notesRef=useRef(null);
+    function save(){
+      const title=titleRef.current?.value||"";
+      if(!title.trim())return;
+      const date=dateRef.current?.value||fmt(today);
+      const time=timeRef.current?.value||"";
+      const priority=priorityRef.current?.value||"medium";
+      const source=sourceRef.current?.value||"manual";
+      const notes=notesRef.current?.value||"";
+      const mx=Math.max(0,...events.map(e=>e.id));
+      const newEv={id:mx+1+Math.floor(Math.random()*1000),title,date,time,priority,notes,source};
+      setEvents(ev=>{
+        const clashes=ev.filter(e=>e.date===date);
+        const dayBefore=fmt(new Date(new Date(date+"T12:00:00").getTime()-86400000));
+        const dayAfter=fmt(new Date(new Date(date+"T12:00:00").getTime()+86400000));
+        const nearby=ev.filter(e=>e.date===dayBefore||e.date===dayAfter);
+        if(clashes.length>0||nearby.length>0){
+          setTimeout(()=>setConflictWarning({event:newEv,clashes,nearby,dayBefore,dayAfter}),300);
+        }
+        return [...ev,newEv];
+      });
+      setNewEv({title:"",date:fmt(today),time:"",priority:"medium",notes:"",source:"manual"});
+      setCriticalOnly(false);setView("home");
+    }
+    return(<div>
+      <div style={SL}>New Appointment</div>
+      <input ref={titleRef} style={inp} type="text" placeholder="Appointment title *" defaultValue={newEv.title}/>
+      <input ref={dateRef} style={inp} type="date" defaultValue={newEv.date}/>
+      <input ref={timeRef} style={inp} type="time" defaultValue={newEv.time}/>
+      <select ref={priorityRef} style={{...inp}} defaultValue={newEv.priority}>
+        {[["critical","◆ Critical"],["high","◈ High"],["medium","◇ Medium"],["low","○ Low"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+      </select>
+      <select ref={sourceRef} style={{...inp}} defaultValue={newEv.source}>
+        {[["manual","✦ Manual"],["email","✦ Email"],["whatsapp","✦ WhatsApp"],["rover","✦ Rover"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+      </select>
+      <input ref={notesRef} style={inp} placeholder="Notes (optional)" defaultValue={newEv.notes}/>
+      <div style={{height:6}}/>
+      <button style={goldBtn()} onClick={save}>Add to Schedule</button>
+      <button style={goldBtn(true)} onClick={()=>{setCriticalOnly(false);setView("home");}}>Cancel</button>
+    </div>);
+  };
+
+  /* ── CALENDAR VIEW ── */
+  const CalendarView=()=>{
+    const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+    const firstDay=(y,m)=>new Date(y,m,1).getDay();
+    const monthName=new Intl.DateTimeFormat("en-GB",{month:"long"}).format(new Date(calMonth.y,calMonth.m,1));
+    const days=daysInMonth(calMonth.y,calMonth.m);
+    const startDay=firstDay(calMonth.y,calMonth.m);
+    const cells=[];
+    for(let i=0;i<startDay;i++)cells.push(null);
+    for(let d=1;d<=days;d++)cells.push(d);
+
+    const selectedEvs=events.filter(e=>e.date===selectedDay).sort((a,b)=>a.time.localeCompare(b.time));
+
+    function addToGoogleCalendar(e){
+      const start=e.time&&e.time!=="09:00"?e.date+"T"+e.time+":00":e.date;
+      const end=e.time&&e.time!=="09:00"?e.date+"T"+(String(parseInt(e.time.slice(0,2))+1).padStart(2,"0"))+e.time.slice(2)+":00":e.date;
+      const url="https://calendar.google.com/calendar/render?action=TEMPLATE"+
+        "&text="+encodeURIComponent(e.title)+
+        "&dates="+start.replace(/-/g,"").replace(/:/g,"")+"/"+ end.replace(/-/g,"").replace(/:/g,"")+
+        "&details="+encodeURIComponent(e.notes||"")+
+        "&sf=true&output=xml";
+      window.open(url,"_blank");
+    }
+
+    return(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={SL}>Calendar</div>
+        <a href="https://calendar.google.com" target="_blank" rel="noreferrer" style={{fontSize:9,padding:"5px 12px",borderRadius:3,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase",border:`1px solid ${C.sapphire}30`,textDecoration:"none"}}>📅 Open Google Calendar</a>
+      </div>
+
+      {/* iCal sync button */}
+      <button onClick={()=>setImpTab("calendar")||setView("import")} style={{width:"100%",padding:"10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <span>🔄</span> Sync Google Calendar via iCal
+      </button>
+
+      {/* Month navigation */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <button onClick={()=>setCalMonth(m=>m.m===0?{y:m.y-1,m:11}:{y:m.y,m:m.m-1})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 12px",cursor:"pointer",color:C.inkLight,fontFamily:FM,fontSize:12}}>←</button>
+        <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic"}}>{monthName} {calMonth.y}</div>
+        <button onClick={()=>setCalMonth(m=>m.m===11?{y:m.y+1,m:0}:{y:m.y,m:m.m+1})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 12px",cursor:"pointer",color:C.inkLight,fontFamily:FM,fontSize:12}}>→</button>
+      </div>
+
+      {/* Day labels */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",padding:"4px 0"}}>{d}</div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:18}}>
+        {cells.map((day,i)=>{
+          if(!day)return<div key={i}/>;
+          const ds=calMonth.y+"-"+String(calMonth.m+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+          const dayEvs=events.filter(e=>e.date===ds);
+          const isToday=ds===fmt(today);
+          const isSelected=ds===selectedDay;
+          const hasCritical=dayEvs.some(e=>e.priority==="critical");
+          return(
+            <div key={i} onClick={()=>setSelectedDay(ds)} style={{
+              textAlign:"center",padding:"6px 2px",borderRadius:4,cursor:"pointer",
+              background:isSelected?C.gold:isToday?C.goldPale:"transparent",
+              border:isSelected?`1px solid ${C.goldBright}`:isToday?`1px solid ${C.goldBorder}`:`1px solid transparent`,
+              transition:"all 0.15s",position:"relative"
+            }}>
+              <div style={{fontSize:13,fontFamily:isToday?FM:FB,color:isSelected?C.card:isToday?C.gold:C.ink,fontWeight:isToday?"600":"normal"}}>{day}</div>
+              {dayEvs.length>0&&<div style={{display:"flex",justifyContent:"center",gap:2,marginTop:2}}>
+                {dayEvs.slice(0,3).map((_,i)=>(
+                  <div key={i} style={{width:4,height:4,borderRadius:"50%",background:isSelected?C.card:hasCritical?C.crimson:C.gold}}/>
+                ))}
+              </div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected day events */}
+      <div style={{borderTop:`1px solid ${C.borderSoft}`,paddingTop:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={SL}>{new Date(selectedDay+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
+          <button onClick={()=>{setNewEv(n=>({...n,date:selectedDay}));setView("add");}} style={{background:"none",border:`1px solid ${C.goldBorder}`,borderRadius:3,padding:"5px 10px",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase"}}>＋ Add</button>
+        </div>
+        {selectedEvs.length===0
+          ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",fontFamily:FD,fontStyle:"italic",fontSize:14}}>No appointments</div>
+          :selectedEvs.map((e,i)=>{
+            const p=PM[e.priority]||PM.medium;
+            return(
+              <div key={e.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,borderRadius:4,padding:"12px 14px",marginBottom:8,display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{textAlign:"center",minWidth:36}}>
+                  <div style={{fontSize:18,fontFamily:FD,color:C.gold,fontWeight:300,lineHeight:1}}>{e.time?.slice(0,2)||"—"}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.time?.slice(3)||"00"}</div>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+                  {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:6,lineHeight:1.4}}>{e.notes}</div>}
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+                    <button onClick={()=>addToGoogleCalendar(e)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.sapphireBg,color:C.sapphire,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.sapphire}40`,cursor:"pointer"}}>+ Google Cal</button>
+                    {homeAddress&&e.notes&&<a href={"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(e.notes.split(" ").slice(0,5).join(" "))} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer",textDecoration:"none"}}>🗺 Travel</a>}
+                    {homeAddress&&!e.notes&&<a href={"https://www.google.com/maps/dir/"+encodeURIComponent(homeAddress)+"/"+encodeURIComponent(e.title)} target="_blank" rel="noreferrer" style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:C.emeraldBg,color:C.emerald,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.emerald}40`,cursor:"pointer",textDecoration:"none"}}>🗺 Travel</a>}
+                    <button onClick={()=>del(e.id)} style={{fontSize:9,padding:"3px 10px",borderRadius:2,background:"transparent",color:C.inkFaint,letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:FM,border:`1px solid ${C.borderSoft}`,cursor:"pointer"}}>Remove</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>);
+  };
+
+  /* ── WISHLIST VIEW ── */
+  const WishlistView=()=>(
+    <div>
+      <div style={SL}>Events I'm Thinking About</div>
+      <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:14}}>Eleanor will check dates, budget, travel and weather for each event.</div>
+      {/* Add to wishlist - tabs */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:14}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:10}}>Add events you're thinking about</div>
+
+        {/* Manual add */}
+        <input id="wishlist-title" style={inp} placeholder="Event name e.g. Taylor Swift concert, Spa day..."/>
+        <input id="wishlist-date" style={inp} type="date"/>
+        <input id="wishlist-venue" style={inp} placeholder="Venue or location (optional)"/>
+        <input id="wishlist-price" style={inp} placeholder="Approximate price (optional)"/>
+        <button style={goldBtn()} onClick={()=>{
+          const title=document.getElementById("wishlist-title")?.value;
+          if(!title?.trim())return;
+          setWishlist(w=>[...w,{id:Date.now(),title:title.trim(),date:document.getElementById("wishlist-date")?.value||"",venue:document.getElementById("wishlist-venue")?.value||"",price:document.getElementById("wishlist-price")?.value||"",notes:""}]);
+          ["wishlist-title","wishlist-date","wishlist-venue","wishlist-price"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+        }}>＋ Add to Wishlist</button>
+      </div>
+
+      {/* Wishlist Import - screenshot, email, PDF, text */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:14}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:10}}>Find events from a screenshot, email or document</div>
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          {[["text","📝 Text"],["image","📸 Photo"],["pdf","📄 PDF"],["email","📧 Email"]].map(([type,label])=>(
+            <button key={type} onClick={()=>{setWishlistImportMode(type);setWishlistImportRes(null);setWishlistImgFile(null);setWishlistImgB64(null);}} style={{flex:1,padding:"7px 2px",borderRadius:3,border:`1.5px solid ${wishlistImportMode===type?C.goldBorder:C.borderSoft}`,background:wishlistImportMode===type?C.goldPale:C.card,color:wishlistImportMode===type?C.gold:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.06em",textTransform:"uppercase",cursor:"pointer"}}>{label}</button>
+          ))}
+        </div>
+        {(wishlistImportMode==="text"||wishlistImportMode==="email")&&<div>
+          <textarea id="wishlist-import-text" style={{...inp,minHeight:90,resize:"vertical"}} placeholder={wishlistImportMode==="email"?"Paste the email here...":"Paste any text about events or holidays..."}/>
+          <button style={goldBtn()} onClick={()=>{const el=document.getElementById("wishlist-import-text");if(el)wishlistImport("text",el.value);}} disabled={wishlistImportBusy}>{wishlistImportBusy?"Searching…":"✦ Find Events"}</button>
+        </div>}
+        {wishlistImportMode==="image"&&<div>
+          <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
+            {wishlistImgFile?"✦ "+wishlistImgFile.name:"📸 Tap to upload screenshot or photo"}
+            <input type="file" accept="image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+          </label>
+          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("image",null,wishlistImgB64,wishlistImgFile?.type)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in Photo"}</button>}
+        </div>}
+        {wishlistImportMode==="pdf"&&<div>
+          <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
+            {wishlistImgFile?"✦ "+wishlistImgFile.name:"📄 Tap to upload PDF"}
+            <input type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+          </label>
+          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("pdf",null,wishlistImgB64)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in PDF"}</button>}
+        </div>}
+        {wishlistImportBusy&&<div style={{textAlign:"center",padding:"14px",color:C.gold,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase"}} className="shimmer">Eleanor is searching…</div>}
+        {wishlistImportRes?.length===0&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,padding:"8px 0",textAlign:"center"}}>No events found. Try pasting more detail.</div>}
+        {wishlistImportRes?.length>0&&<div style={{marginTop:10}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Found {wishlistImportRes.length} events</div>
+          {wishlistImportRes.map((item,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{item.title}</div>
+                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{[item.date,item.venue,item.price].filter(Boolean).join(" · ")}</div>
+              </div>
+              <button onClick={()=>{setWishlist(w=>[...w,{...item,id:Date.now()+Math.random()}]);setWishlistImportRes(r=>r.filter((_,j)=>j!==i));}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,marginLeft:8}}>＋ Add</button>
+            </div>
+          ))}
+          <button style={goldBtn()} onClick={()=>{setWishlist(w=>[...w,...wishlistImportRes.map(i=>({...i,id:Date.now()+Math.random()}))]);setWishlistImportRes(null);}}>Add All</button>
+        </div>}
+      </div>
+
+      {wishlist.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:C.inkFaint}}>
+        <div style={{fontFamily:FD,fontSize:18,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>Your wishlist is empty.</div>
+        <div style={{fontSize:12,fontFamily:FB,color:C.inkFaint}}>Add events above or use Import → Paste Link.</div>
+      </div>}
+      {wishlist.map((item,idx)=>(
+        <div key={item.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:12,boxShadow:`0 2px 10px ${C.shadow}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:FD,fontSize:16,color:C.ink,marginBottom:3}}>{item.title}</div>
+              {item.date&&<div style={{fontSize:11,color:C.gold,fontFamily:FM}}>{item.date}</div>}
+              {item.venue&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>📍 {item.venue}</div>}
+              {item.price&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>💰 {item.price}</div>}
+            </div>
+            <button onClick={()=>setWishlist(w=>w.filter((_,i)=>i!==idx))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:14,padding:"0 0 0 8px"}}>✕</button>
+          </div>
+
+          {/* Analysis result */}
+          {item.analysis&&<div style={{background:C.parchment,borderRadius:4,padding:"12px",marginBottom:10,border:`1px solid ${C.borderSoft}`}}>
+            {item.analysis.weather&&<div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:6}}>🌤 Weather: <strong>{item.analysis.weather}</strong></div>}
+            {item.analysis.clashes?.length>0&&<div style={{fontSize:12,color:C.crimson,fontFamily:FB,marginBottom:6}}>⚠ Clashes with: {item.analysis.clashes.map(e=>e.title).join(", ")}</div>}
+            {item.analysis.clashes?.length===0&&<div style={{fontSize:12,color:C.emerald,fontFamily:FB,marginBottom:6}}>✓ No schedule clashes</div>}
+            {item.analysis.advice&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6,marginBottom:6,fontStyle:"italic"}}>"{item.analysis.advice}"</div>}
+            {item.analysis.mapsUrl&&<a href={item.analysis.mapsUrl} target="_blank" rel="noreferrer" style={{fontSize:11,color:C.sapphire,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"none"}}>🗺 Get Directions →</a>}
+          </div>}
+
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <button onClick={()=>analyseWishlistEvent(idx)} disabled={item.analysing} style={{flex:1,padding:"9px",border:"none",borderRadius:3,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
+              {item.analysing?"Analysing…":"✦ Analyse"}
+            </button>
+            <button onClick={()=>{
+              if(!window.confirm("Move '"+item.title+"' from Wishlist to your Schedule?")){return;}
+              const mx=Math.max(0,...events.map(e=>e.id));
+              setEvents(ev=>[...ev,{id:mx+1+Math.floor(Math.random()*1000),title:item.title,date:item.date||fmt(today),time:"09:00",priority:"high",notes:item.venue||item.notes||"",source:"wishlist"}]);
+              setWishlist(w=>w.filter((_,i)=>i!==idx));
+              setCriticalOnly(false);setView("home");
+            }} style={{flex:1,padding:"9px",border:`1px solid ${C.goldBorder}`,borderRadius:3,background:"transparent",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>
+              📅 Move to Schedule
+            </button>
+            {item.date&&<a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(item.title)+"&dates="+item.date.replace(/-/g,"")+"&details="+encodeURIComponent(item.notes||item.venue||"")} target="_blank" rel="noreferrer" style={{flex:1,padding:"9px",border:`1px solid ${C.sapphire}40`,borderRadius:3,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",textDecoration:"none",textAlign:"center"}}>
+              📅 Google Cal
+            </a>}
+            <button onClick={()=>{if(window.confirm("Remove '"+item.title+"' from wishlist?"))setWishlist(w=>w.filter((_,i)=>i!==idx));}} style={{padding:"9px 12px",border:`1px solid ${C.crimson}30`,borderRadius:3,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>🗑</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  /* ── BIRTHDAYS VIEW ── */
+  const BirthdaysView=()=>{
+    const [newName,setNewName]=useState("");
+    const [newDate,setNewDate]=useState("");
+    const [newType,setNewType]=useState("birthday");
+
+    const upcoming=getBirthdayAlerts();
+    const typeIcons={birthday:"🎂",anniversary:"💍",celebration:"🎉",other:"⭐"};
+
+    return(<div>
+      <div style={SL}>Birthdays & Celebrations</div>
+
+      {/* Upcoming alerts */}
+      {upcoming.length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>Coming Up — Next 30 Days</div>
+        {upcoming.map(b=>{
+          const action=b.action;
+          const isSoon=b.days<=7;
+          const isToday=b.days===0;
+          const color=isToday?C.crimson:isSoon?C.gold:C.sapphire;
+          const bg=isToday?C.crimsonBg:isSoon?C.goldPale:C.sapphireBg;
+          return(
+            <div key={b.id} style={{background:bg,border:`1px solid ${color}30`,borderLeft:`4px solid ${color}`,borderRadius:6,padding:"14px 16px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <span style={{fontSize:24}}>{typeIcons[b.type]||"🎂"}</span>
+                  <div>
+                    <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{b.name}</div>
+                    <div style={{fontSize:10,color:color,fontFamily:FM,marginTop:1}}>
+                      {isToday?"🎉 Today!":isSoon?`In ${b.days} day${b.days>1?"s":""}`:b.days+" days"} · {new Date(b.next+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={()=>setBirthdays(bs=>bs.filter(x=>x.id!==b.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
+              </div>
+
+              {/* Eleanor suggestion */}
+              {!action&&isSoon&&<div style={{background:"rgba(255,255,255,0.6)",borderRadius:4,padding:"10px 12px",marginBottom:10,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6,fontStyle:"italic"}}>
+                ✦ Eleanor suggests: {b.days<=1?"It's very soon — have you got a card or gift?":b.days<=7?"Consider buying a card or present this week.":"You have time — plan something thoughtful for "+b.name+"."}
+              </div>}
+
+              {/* Action buttons */}
+              {!action&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>{
+                  setBirthdayActions(a=>({...a,[b.id]:"scheduled"}));
+                  const mx=Math.max(...events.map(e=>e.id),0);
+                  setEvents(ev=>[...ev,{id:mx+1,title:"Buy gift for "+b.name,date:fmt(new Date(new Date(b.next+"T12:00:00").getTime()-7*86400000)),time:"10:00",priority:"high",notes:b.type+" — "+b.name,source:"birthday"}]);
+                }} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>📅 Schedule Reminder</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"done"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Done</button>
+                <button onClick={()=>setBirthdayActions(a=>({...a,[b.id]:"skip"}))} style={{fontSize:10,padding:"6px 12px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Skip</button>
+              </div>}
+
+              {action==="scheduled"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Reminder added to your schedule</div>}
+              {action==="done"&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Marked as done</div>}
+              {action==="skip"&&<div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Skipped</div>
+                <button onClick={()=>setBirthdayActions(a=>{const n={...a};delete n[b.id];return n;})} style={{fontSize:9,padding:"2px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,cursor:"pointer"}}>Undo</button>
+              </div>}
+            </div>
+          );
+        })}
+      </div>}
+
+      {/* All birthdays list */}
+      {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>All Dates</div>
+        {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).map(b=>(
+          <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <span>{typeIcons[b.type]||"🎂"}</span>
+              <div>
+                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{b.name}</div>
+                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}</div>
+              </div>
+            </div>
+            <button onClick={()=>setBirthdays(bs=>bs.filter(x=>x.id!==b.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
+          </div>
+        ))}
+      </div>}
+
+      {/* Add new */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:12}}>Add Birthday or Celebration</div>
+        <input style={inp} placeholder="Name e.g. Julie, Mum, Anniversary" value={newName} onChange={e=>setNewName(e.target.value)}/>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>Date (day and month):</div>
+        <input type="date" style={{...inp,marginBottom:12}} value={newDate?"2000-"+newDate:""} onChange={e=>{const d=e.target.value;if(d)setNewDate(d.slice(5));}}/>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {[["birthday","🎂 Birthday"],["anniversary","💍 Anniversary"],["celebration","🎉 Celebration"],["other","⭐ Other"]].map(([type,label])=>(
+            <button key={type} onClick={()=>setNewType(type)} style={{padding:"6px 12px",borderRadius:3,border:`1.5px solid ${newType===type?C.goldBorder:C.borderSoft}`,background:newType===type?C.goldPale:C.card,color:newType===type?C.gold:C.inkFaint,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{label}</button>
+          ))}
+        </div>
+        <button style={goldBtn()} onClick={()=>{
+          if(!newName.trim()||!newDate)return;
+          setBirthdays(bs=>[...bs,{id:Date.now(),name:newName.trim(),monthDay:newDate,type:newType}]);
+          setBirthdayActions(a=>{const n={...a};return n;});
+          setNewName("");setNewDate("");
+        }} disabled={!newName.trim()||!newDate}>Add Date</button>
+      </div>
+    </div>);
+  };
+
+  /* ── REMINDERS VIEW ── */
+  const RemindersView=()=>{
+    const dayNames=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const todayReminders=reminders.filter(r=>{
+      const d=new Date().getDay().toString();
+      return r.days.includes(d);
+    });
+
+    function addReminder(){
+      if(!reminderText.trim())return;
+      setReminders(r=>[...r,{id:Date.now(),text:reminderText.trim(),time:reminderTime,days:reminderDays,active:true}]);
+      setReminderText("");setReminderTime("08:00");setReminderDays(["0","1","2","3","4","5","6"]);
+    }
+
+    return(<div>
+      <div style={SL}>Reminders</div>
+
+      {/* Today's reminders */}
+      {todayReminders.length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>Today</div>
+        {todayReminders.map(r=>(
+          <div key={r.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{r.text}</div>
+              <div style={{fontSize:10,color:C.emerald,fontFamily:FM,marginTop:2}}>⏰ {r.time}</div>
+            </div>
+            <button onClick={()=>setReminders(rs=>rs.filter(x=>x.id!==r.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:14}}>✕</button>
+          </div>
+        ))}
+      </div>}
+
+      {/* All reminders */}
+      {reminders.length>0&&<div style={{marginBottom:20}}>
+        <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>All Reminders</div>
+        {reminders.map(r=>(
+          <div key={r.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,padding:"11px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{r.text}</div>
+              <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:2}}>
+                {r.time} · {r.days.length===7?"Every day":r.days.map(d=>dayNames[parseInt(d)%7]).join(", ")}
+              </div>
+            </div>
+            <button onClick={()=>setReminders(rs=>rs.filter(x=>x.id!==r.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:14}}>✕</button>
+          </div>
+        ))}
+      </div>}
+
+      {/* Add new reminder */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Add Reminder</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>e.g. Take vitamins, What's for dinner, Walk the dog, Drink water</div>
+        <input id="reminder-text-input" style={inp} placeholder="Reminder text..." defaultValue={reminderText} onBlur={e=>setReminderText(e.target.value)}/>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,whiteSpace:"nowrap"}}>Time:</div>
+          <input type="time" value={reminderTime} onChange={e=>setReminderTime(e.target.value)} style={{...inp,marginBottom:0,flex:1}}/>
+        </div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:8}}>Repeat on:</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i)=>{
+            const val=String(i);
+            const sel=reminderDays.includes(val);
+            return(<button key={i} onClick={()=>setReminderDays(ds=>sel?ds.filter(x=>x!==val):[...ds,val])} style={{padding:"6px 10px",borderRadius:3,border:`1.5px solid ${sel?C.goldBorder:C.borderSoft}`,background:sel?C.goldPale:C.card,color:sel?C.gold:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.08em"}}>{d}</button>);
+          })}
+        </div>
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("reminder-text-input");if(el)setReminderText(el.value);addReminder();}} disabled={false}>Add Reminder</button>
+      </div>
+
+      {/* Quick add suggestions */}
+      <div style={{marginTop:16}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Quick Add</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {[{text:"💊 Take vitamins",time:"08:00"},{text:"💧 Drink water",time:"10:00"},{text:"🍽 What's for dinner?",time:"16:00"},{text:"🌙 Wind down",time:"21:00"},{text:"🐕 Walk the dog",time:"07:30"},{text:"💊 Evening medication",time:"21:00"}].map((s,i)=>(
+            <button key={i} onClick={()=>{setReminderText(s.text);setReminderTime(s.time);const el=document.getElementById("reminder-text-input");if(el)el.value=s.text;}} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{s.text}</button>
+          ))}
+        </div>
+      </div>
+    </div>);
+  };
+
+  /* ── SETTINGS VIEW ── */
+  const SettingsView=()=>(
+    <div>
+      <div style={SL}>Settings</div>
+      {/* Eleanor Voice */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Eleanor's Voice</div>
+          <button onClick={()=>{
+            const next=!eleanorVoiceOn;
+            setEleanorVoiceOn(next);
+            localStorage.setItem("papa_voice_on",String(next));
+            if(next)eleanorSpeak("Hello. I'm Eleanor, your Personal Assistant. Voice is now enabled.");
+            else stopSpeaking();
+          }} style={{padding:"8px 16px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>
+            {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
+          </button>
+        </div>
+
+
+
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>Standard voice uses your device's built-in voice for free.</div>
+        <div style={{marginTop:14,borderTop:`1px solid ${C.borderSoft}`,paddingTop:12}}>
+          <div style={{fontSize:12,fontFamily:FB,color:C.inkMid,marginBottom:8}}>Voice is controlled separately:</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{const n=!eleanorVoiceOn;setEleanorVoiceOn(n);localStorage.setItem("papa_voice_on",String(n));if(!n)stopSpeaking();}} style={{flex:1,padding:"8px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>{eleanorVoiceOn?"🔊 Chat: On":"🔇 Chat: Off"}</button>
+            <button onClick={()=>{const n=!briefingVoiceOn;setBriefingVoiceOn(n);localStorage.setItem("papa_briefing_voice",String(n));if(!n)stopSpeaking();}} style={{flex:1,padding:"8px",borderRadius:4,border:`1.5px solid ${briefingVoiceOn?C.goldBorder:C.borderSoft}`,background:briefingVoiceOn?C.goldPale:C.card,color:briefingVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>{briefingVoiceOn?"🔊 Briefing: On":"🔇 Briefing: Off"}</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Eleanor's Memory */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Eleanor's Memory</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10,lineHeight:1.6}}>Eleanor automatically saves key facts from your conversations and carries them into every new session.</div>
+        {sessionSummary&&<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:10}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Last Session Summary</div>
+          <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>{sessionSummary}</div>
+        </div>}
+        {[["facts","Things Eleanor Remembers"],["pending_tasks","Pending Tasks"],["preferences","Your Preferences"],["emotional_notes","Recent Emotional Context"]].map(([key,label])=>(
+          <div key={key} style={{marginBottom:12}}>
+            <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>{label}</div>
+            {(persistentMemory[key]||[]).length===0&&<div style={{fontSize:11,color:C.inkFaint,fontFamily:FB,fontStyle:"italic",padding:"4px 0"}}>Nothing saved yet</div>}
+            {(persistentMemory[key]||[]).map((f,i)=>(
+              <div key={i} style={{marginBottom:4}}>
+                {editingMemory?.key===key&&editingMemory?.index===i?(
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <input
+                      id={`mem-edit-${key}-${i}`}
+                      defaultValue={f}
+                      style={{...inp,flex:1,fontSize:11,padding:"5px 8px",marginBottom:0}}
+                      autoFocus
+                    />
+                    <button onClick={()=>{
+                      const val=document.getElementById(`mem-edit-${key}-${i}`)?.value||f;
+                      const arr=[...(persistentMemory[key]||[])];
+                      arr[i]=val;
+                      const updated={...persistentMemory,[key]:arr};
+                      setPersistentMemory(updated);
+                      localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                      setEditingMemory(null);
+                    }} style={{padding:"5px 10px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>Save</button>
+                    <button onClick={()=>setEditingMemory(null)} style={{padding:"5px 8px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer"}}>✕</button>
+                  </div>
+                ):(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.parchment,borderRadius:3,fontSize:12,color:C.inkMid,fontFamily:FB}}>
+                    <span style={{flex:1,lineHeight:1.4}}>• {f}</span>
+                    <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:8}}>
+                      <button onClick={()=>setEditingMemory({key,index:i})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:2,padding:"2px 7px",color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Edit</button>
+                      <button onClick={()=>{const updated={...persistentMemory,[key]:(persistentMemory[key]||[]).filter((_,j)=>j!==i)};setPersistentMemory(updated);localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* Add new memory */}
+            <div style={{display:"flex",gap:6,marginTop:4}}>
+              <input id={`mem-add-${key}`} style={{...inp,flex:1,fontSize:11,padding:"5px 8px",marginBottom:0}} placeholder={"Add to "+label.toLowerCase()+"..."}/>
+              <button onClick={()=>{
+                const val=document.getElementById(`mem-add-${key}`)?.value?.trim();
+                if(!val)return;
+                const updated={...persistentMemory,[key]:[...(persistentMemory[key]||[]),val]};
+                setPersistentMemory(updated);
+                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                const el=document.getElementById(`mem-add-${key}`);
+                if(el)el.value="";
+              }} style={{padding:"5px 12px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0,letterSpacing:"0.1em",textTransform:"uppercase"}}>＋</button>
+            </div>
+          </div>
+        ))}
+        {/* Session history */}
+        {(()=>{
+          try{
+            const hist=JSON.parse(localStorage.getItem("papa_session_history")||"[]");
+            if(!hist.length)return null;
+            return(<div style={{marginTop:10,borderTop:`1px solid ${C.borderSoft}`,paddingTop:10}}>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Previous Sessions</div>
+              {hist.map((s,i)=>(
+                <div key={i} style={{padding:"7px 10px",background:C.parchment,borderRadius:3,marginBottom:6}}>
+                  <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginBottom:2}}>{s.date}</div>
+                  <div style={{fontSize:11,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{s.text}</div>
+                </div>
+              ))}
+            </div>);
+          }catch{return null;}
+        })()}
+        {!sessionSummary&&!(persistentMemory.facts||[]).length&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic"}}>Eleanor will start building memory after your first conversation.</div>}
+        <button onClick={()=>{if(window.confirm("Clear Eleanor's memory? She will start fresh.")){setPersistentMemory({});setSessionSummary("");localStorage.removeItem("papa_persistent_memory");localStorage.removeItem("papa_last_session");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson,marginTop:4}}>Clear Memory</button>
+      </div>
+
+      {/* About Me - persistent context */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>About Me</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10,lineHeight:1.6}}>Eleanor remembers this every session — add anything important about you, your family or your situation.</div>
+        <textarea
+          id="user-context-input"
+          style={{...inp,minHeight:100,resize:"vertical",marginBottom:8}}
+          defaultValue={userContext}
+          onBlur={e=>{setUserContext(e.target.value);localStorage.setItem("papa_user_context",e.target.value);}}
+        />
+        <div style={{fontSize:11,color:C.emerald,fontFamily:FM}}>✓ Eleanor reads this at the start of every conversation</div>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Home Address</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Save your home address once. Eleanor uses it to show a 🗺 Travel button on every appointment in your Calendar — tap it to get directions and travel time in Google Maps.</div>
+        <input
+          id="home-address-input"
+          style={inp}
+          placeholder="e.g. 14 High Street, March, PE15 9JY"
+          defaultValue={homeAddress}
+          onBlur={e=>{setHomeAddress(e.target.value);localStorage.setItem("papa_home_address",e.target.value);}}
+        />
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("home-address-input");if(el){setHomeAddress(el.value);localStorage.setItem("papa_home_address",el.value);}alert("Address saved!");}}> Save Address</button>
+        {homeAddress&&<div style={{fontSize:11,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",marginTop:4}}>✓ Address saved — travel buttons active</div>}
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Travel Mode</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>How Eleanor calculates your route to events.</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[["transit","🚌 Public Transport"],["walking","🚶 Walking"],["bicycling","🚲 Cycling"],["driving","🚗 Driving"]].map(([mode,label])=>(
+            <button key={mode} onClick={()=>{setTravelMode(mode);localStorage.setItem("papa_travel_mode",mode);}} style={{padding:"9px 14px",borderRadius:4,border:`1.5px solid ${travelMode===mode?C.goldBorder:C.borderSoft}`,background:travelMode===mode?C.goldPale:C.card,color:travelMode===mode?C.gold:C.inkLight,fontFamily:FB,fontSize:12,cursor:"pointer"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Recurring Events */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Recurring Events</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Events that repeat automatically — dog boarding, benefits, school runs.</div>
+        {(()=>{
+          const recurring=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+          return(<div>
+            {recurring.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{r.title}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.time} · {r.freq}</div>
+                </div>
+                <button onClick={()=>{const arr=JSON.parse(localStorage.getItem("papa_recurring")||"[]");arr.splice(i,1);localStorage.setItem("papa_recurring",JSON.stringify(arr));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:6,flexDirection:"column",marginTop:8}}>
+              <input id="rec-title" style={inp} placeholder="Event name"/>
+              <input id="rec-time" style={inp} type="time" defaultValue="09:00"/>
+              <select id="rec-freq" style={inp}>
+                {[["daily","Every day"],["weekly","Every week"],["fortnightly","Every 2 weeks"],["monthly","Every month"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+              <button style={goldBtn()} onClick={()=>{
+                const title=document.getElementById("rec-title")?.value;
+                if(!title?.trim())return;
+                const time=document.getElementById("rec-time")?.value||"09:00";
+                const freq=document.getElementById("rec-freq")?.value||"weekly";
+                const arr=JSON.parse(localStorage.getItem("papa_recurring")||"[]");
+                arr.push({title:title.trim(),time,freq,priority:"medium"});
+                localStorage.setItem("papa_recurring",JSON.stringify(arr));
+                document.getElementById("rec-title").value="";
+              }}>Add Recurring Event</button>
+            </div>
+          </div>);
+        })()}
+      </div>
+
+      {/* Notifications */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+          <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Notifications</div>
+          {notifPermission==="granted"
+            ?<div style={{fontSize:10,color:C.emerald,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Enabled</div>
+            :<button onClick={requestNotifications} style={{padding:"7px 14px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Enable</button>
+          }
+        </div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{notifPermission==="granted"?"Eleanor will notify you about reminders, upcoming events and birthdays.":"Allow notifications so Eleanor can remind you even when the app is closed."}</div>
+      </div>
+
+      {/* Privacy Policy */}
+      <div style={{textAlign:"center",marginBottom:14}}>
+        <button onClick={()=>setView("privacy")} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"underline"}}>Privacy Policy</button>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:4}}>Clear All Data</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.6}}>Remove all events, chat history and settings.</div>
+        <button onClick={()=>{if(window.confirm("Clear all data? This cannot be undone.")){localStorage.clear();setEvents([]);setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. Your data has been cleared. How may I assist you?",ts:new Date()}]);setHomeAddress("");setWishlist([]);setCriticalOnly(false);setView("home");}}} style={{...goldBtn(true),color:C.crimson,borderColor:C.crimson}}>Clear All Data</button>
+      </div>
+    </div>
+  );
+
+  const BACK_VIEWS=["schedule","week","briefing","import","chat","add","wishlist","settings","calendar","reminders","birthdays"];
+  const VIEW_LABELS={home:"Home",schedule:"Today",week:"This Week",briefing:"Briefing",import:"Import",chat:"Eleanor",add:"New Event",wishlist:"Wishlist",settings:"Settings",calendar:"Calendar",reminders:"Reminders",birthdays:"Birthdays"};
+
+  if(!onboarded){
+    return(<OnboardingScreen
+      PA_PHOTO={PA_PHOTO} C={C} FD={FD} FB={FB} FM={FM}
+      onComplete={({name,address,travelMode:tm})=>{
+        if(address){setHomeAddress(address);localStorage.setItem("papa_home_address",address);}
+        if(tm){setTravelMode(tm);localStorage.setItem("papa_travel_mode",tm);}
+        if(name){
+          const ctx="Name: "+name+". "+(address?"Home: "+address+". ":"")+"Rover dog-sitter. App developer.";
+          setUserContext(ctx);localStorage.setItem("papa_user_context",ctx);
+        }
+        localStorage.setItem("papa_onboarded","true");
+        setOnboarded(true);
+        const hasMem=(persistentMemory.facts||[]).length>0||(persistentMemory.pending_tasks||[]).length>0;
+        const memGreet=hasMem?" I've reviewed my notes from our previous conversations and I'm fully up to date.":"";
+        setMsgs([{role:"assistant",text:"Good "+(new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening")+(name?", "+name:"")+". I'm Eleanor, your Personal Executive Assistant."+memGreet+" How can I assist you today?",ts:new Date()}]);
+        if(typeof Notification!=="undefined"&&Notification.permission==="default")requestNotifications();
+      }}
+    />);
+  }
+
+  if(view==="privacy"){return(<div style={{maxWidth:480,margin:"0 auto",minHeight:"100dvh",background:C.parchment,padding:"24px",fontFamily:FB}}>
+    <button onClick={()=>setView("home")} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:12,cursor:"pointer",marginBottom:24,letterSpacing:"0.1em",textTransform:"uppercase"}}>← Back</button>
+    <div style={{fontFamily:FD,fontSize:24,color:C.ink,fontStyle:"italic",marginBottom:4}}>Privacy Policy</div>
+    <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:24}}>Last updated: June 2026</div>
+    {[["Data Storage","All your data — appointments, reminders, notes, preferences — is stored locally on your device only. We do not store any personal data on our servers."],["AI Processing","When you use Eleanor's AI features, your text is sent securely to Anthropic's API for processing. No conversation history is stored by us."],["Voice","When using premium voice, text is sent to ElevenLabs for text-to-speech conversion only. Standard voice is processed entirely on your device."],["Notifications","Push notifications are handled by your device's system. No notification data is sent to our servers."],["Calendar","If you connect Google Calendar via iCal, your calendar URL is stored locally. Calendar data is fetched directly from Google."],["No Tracking","We do not use analytics, advertising trackers, or any third-party tracking. We do not sell or share your data."],["Contact","For privacy questions, contact us through the Google Play Store listing."]].map(([title,text],i)=>(
+      <div key={i} style={{marginBottom:20}}>
+        <div style={{fontFamily:FD,fontSize:15,color:C.ink,fontStyle:"italic",marginBottom:5}}>{title}</div>
+        <div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.7}}>{text}</div>
+      </div>
+    ))}
+  </div>);}
+
+  return(
+    <div style={{fontFamily:FB,background:C.parchment,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:C.ink}}>
+      <style>{GLOBAL_CSS}</style>
+
+      {/* MASTHEAD */}
+      <div style={{background:`linear-gradient(165deg,${C.cream} 0%,${C.creamDeep} 100%)`,borderBottom:`1px solid ${C.border}`,padding:"24px 24px 18px",position:"relative",overflow:"hidden",boxShadow:`0 2px 20px ${C.shadow}`}}>
+        <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${C.cream},${C.goldBright},${C.goldLight},${C.goldBright},${C.cream})`}}/>
+        <div style={{position:"absolute",right:18,top:14,fontSize:72,fontFamily:FD,color:C.goldBorder,opacity:0.1,lineHeight:1,userSelect:"none",fontStyle:"italic"}}>✦</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:9,color:C.gold,letterSpacing:"0.35em",textTransform:"uppercase",fontFamily:FM,marginBottom:6}}>Private Executive Service</div>
+            <h1 style={{fontFamily:FD,fontSize:26,fontWeight:300,color:C.ink,letterSpacing:"0.04em",lineHeight:1,margin:0,fontStyle:"italic"}}>Personal PA <span style={{fontFamily:FM,fontSize:12,fontStyle:"normal",letterSpacing:"0.2em",color:C.gold,textTransform:"uppercase",verticalAlign:"middle",marginLeft:4}}>Pro</span></h1>
+            <div style={{width:44,height:1,background:`linear-gradient(90deg,${C.goldBorder},transparent)`,margin:"7px 0"}}/>
+            <div style={{fontSize:12,color:C.inkLight,letterSpacing:"0.07em",fontFamily:FB}}>{today.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          </div>
+          {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
+        </div>
+        {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
+          {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).length,l:"Critical",a:C.crimson,action:()=>{setCriticalOnly(true);setView("schedule");}},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
+            <div key={i} onClick={s.action} style={{flex:1,padding:"13px 8px",textAlign:"center",background:C.card,borderRight:i<2?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
+              <div style={{fontSize:24,fontFamily:FD,color:s.a,fontWeight:300,lineHeight:1}}>{s.n}</div>
+              <div style={{fontSize:9,color:C.inkFaint,letterSpacing:"0.15em",textTransform:"uppercase",fontFamily:FM,marginTop:3}}>{s.l}</div>
+            </div>
+          ))}
+        </div>}
+      </div>
+
+      {/* NAV / BACK BAR */}
+      <div style={{display:"flex",alignItems:"center",background:C.card,borderBottom:`1px solid ${C.border}`,boxShadow:`0 1px 6px ${C.shadow}`,overflowX:"auto"}}>
+        {BACK_VIEWS.includes(view)
+          ?<>
+            <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
+            <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
+          </>
+          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
+            <button key={v} onClick={()=>{if(v==="home")setCriticalOnly(false);setView(v);}} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
+          ))
+        }
+      </div>
+
+      {/* CONTENT */}
+      <div style={{flex:1,padding:view==="chat"?"0":"20px 18px",overflowY:view==="chat"?"hidden":"auto"}}>
+        {view==="home"     && <HomeView/>}
+        {view==="schedule" && <ScheduleView/>}
+        {view==="week"     && <WeekView/>}
+        {view==="briefing" && <BriefingView/>}
+        {view==="import"   && <ImportView/>}
+        {view==="chat"     && <ChatView/>}
+        {view==="add"      && <AddView/>}
+        {view==="wishlist"  && <WishlistView/>}
+        {view==="calendar"  && <CalendarView/>}
+        {view==="settings"  && <SettingsView/>}
+        {view==="reminders" && <RemindersView/>}
+        {view==="birthdays"  && <BirthdaysView/>}
+      </div>
+
+      {/* Weekly Goals Modal */}
+      {showGoalsModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+        <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
+          {/* Check last week's goals first */}
+          {weeklyGoals&&weeklyGoals.status!=="reviewed"&&new Date().getDay()===0?(<div>
+            <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic",marginBottom:6}}>Last week's goals</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:16}}>How did you get on?</div>
+            {(weeklyGoals.goals||[]).map((g,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:8}}>
+                <div style={{fontSize:13,fontFamily:FB,color:C.ink,flex:1,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",color:weeklyGoals.done?.[i]?C.inkFaint:C.ink}}>{g}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setWeeklyGoals(wg=>({...wg,done:{...wg.done,[i]:true}}))} style={{padding:"4px 10px",borderRadius:3,border:"none",background:weeklyGoals.done?.[i]?C.emerald:C.borderSoft,color:weeklyGoals.done?.[i]?"white":C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Done</button>
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:14}}>
+              <button onClick={()=>{setWeeklyGoals(wg=>({...wg,status:"reviewed"}));}} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Set This Week's Goals →</button>
+            </div>
+          </div>):(<div>
+            <div style={{fontFamily:FD,fontSize:20,color:C.ink,fontStyle:"italic",marginBottom:4}}>✦ This week's goals</div>
+            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:16,lineHeight:1.6}}>What are 3 things you'd like to achieve this week? Eleanor will find the best days to schedule them.</div>
+            {[0,1,2].map(i=>(
+              <input key={i} id={`goal-${i}`} style={{...inp,marginBottom:8}} placeholder={["Goal 1 e.g. Finish app feature","Goal 2 e.g. School trip research","Goal 3 e.g. Self-care day"][i]} defaultValue={goalInput[i]}/>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:6}}>
+              <button onClick={async()=>{
+                const goals=[0,1,2].map(i=>document.getElementById("goal-"+i)?.value||"").filter(Boolean);
+                if(!goals.length){setShowGoalsModal(false);return;}
+                const weekKey="goals-"+fmt(today);
+                localStorage.setItem("papa_goals_week",weekKey);
+                const newGoals={goals,done:{},status:"active",week:weekKey,scheduledDays:{}};
+                setWeeklyGoals(newGoals);
+                setShowGoalsModal(false);
+                const eventsThisWeek=events.filter(e=>{
+                  const d=new Date(e.date+"T12:00:00");
+                  return d>=today&&d<=new Date(today.getTime()+7*86400000);
+                });
+                const dayMap=Array.from({length:7},(_,i)=>{const d=new Date(today.getTime()+i*86400000);return fmt(d)+" "+d.toLocaleDateString("en-GB",{weekday:"long"})+" ("+eventsThisWeek.filter(e=>e.date===fmt(d)).length+" events)";}).join(", ");
+                sendChat("I have 3 goals this week: "+goals.join("; ")+". Based on my schedule this week ("+dayMap+"), which are the best days to work on each goal? Please suggest a day for each one.");
+                setCriticalOnly(false);setView("chat");
+              }} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>✦ Set Goals & Ask Eleanor</button>
+              <button onClick={()=>setShowGoalsModal(false)} style={{padding:"11px 16px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,cursor:"pointer"}}>Later</button>
+            </div>
+          </div>)}
+        </div>
+      </div>}
+
+      {/* Trip Alert Banner */}
+      {tripAlerts.length>0&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:1001,background:`linear-gradient(135deg,${C.ink},${C.inkMid})`,padding:"14px 20px",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+        {tripAlerts.map((a,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontFamily:FD,fontSize:16,color:C.goldLight,fontStyle:"italic",marginBottom:2}}>
+                {a.daysUntil===1?"✦ Tomorrow:":"✦ In 3 days:"} {a.event.title}
+              </div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontFamily:FB}}>
+                {a.daysUntil===1?"Shall I run through your checklist and packing list?":"Your trip is coming up — would you like Eleanor to help you prepare?"}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexShrink:0,marginLeft:12}}>
+              <button onClick={()=>{setTripAlerts(t=>t.filter((_,j)=>j!==i));sendChat("Help me prepare for "+a.event.title+" in "+a.daysUntil+" day"+(a.daysUntil>1?"s":"")+" — give me a packing list and checklist");setCriticalOnly(false);setView("chat");}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✦ Prepare</button>
+              <button onClick={()=>setTripAlerts(t=>t.filter((_,j)=>j!==i))} style={{padding:"6px 10px",borderRadius:3,border:"1px solid rgba(255,255,255,0.3)",background:"transparent",color:"rgba(255,255,255,0.7)",fontFamily:FM,fontSize:9,cursor:"pointer"}}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+
+      {/* Conflict Warning Modal */}
+      {conflictWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+        <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
+          <div style={{fontFamily:FD,fontSize:20,color:C.crimson,fontStyle:"italic",marginBottom:4}}>⚠ Schedule Conflict Detected</div>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:14}}>Eleanor has noticed potential conflicts with your new event.</div>
+          
+          <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:12}}>
+            <div style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:3}}>New Event</div>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{conflictWarning.event.title}</div>
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM}}>{conflictWarning.event.date}</div>
+          </div>
+
+          {conflictWarning.clashes.length>0&&<div style={{marginBottom:10}}>
+            <div style={{fontSize:10,color:C.crimson,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>Same Day</div>
+            {conflictWarning.clashes.map((e,i)=>(
+              <div key={i} style={{padding:"7px 10px",background:C.crimsonBg,borderLeft:`3px solid ${C.crimson}`,borderRadius:3,marginBottom:4,fontSize:12,fontFamily:FB,color:C.inkMid}}>{e.time} — {e.title}</div>
+            ))}
+          </div>}
+
+          {conflictWarning.nearby.length>0&&<div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>Day Before / After</div>
+            {conflictWarning.nearby.map((e,i)=>(
+              <div key={i} style={{padding:"7px 10px",background:C.goldPale,borderLeft:`3px solid ${C.goldBorder}`,borderRadius:3,marginBottom:4,fontSize:12,fontFamily:FB,color:C.inkMid}}>{e.date} — {e.title}</div>
+            ))}
+          </div>}
+
+          <div style={{display:"flex",gap:8,flexDirection:"column"}}>
+            <button onClick={()=>{setConflictWarning(null);sendChat("I just added "+conflictWarning.event.title+" on "+conflictWarning.event.date+". What do you think about potential conflicts?");setCriticalOnly(false);setView("chat");}} style={{padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>✦ Ask Eleanor to Advise</button>
+            <button onClick={()=>{
+              if(conflictWarning.key)setDismissedConflicts(d=>[...d,conflictWarning.key]);
+              setConflictWarning(null);
+            }} style={{padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Keep Event & Don't Warn Again</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* Travel Mode Modal */}
+      {showTravelModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+        <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:400,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
+          <div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",marginBottom:6}}>How do you travel?</div>
+          <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,marginBottom:20,lineHeight:1.6}}>Eleanor will use this for all travel directions and journey advice.</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[["transit","🚌 Public Transport","Bus, train, tram"],["walking","🚶 Walking","On foot"],["bicycling","🚲 Cycling","Bike"],["driving","🚗 Driving","Car or taxi"]].map(([mode,label,sub])=>(
+              <button key={mode} onClick={()=>{
+                setTravelMode(mode);
+                localStorage.setItem("papa_travel_mode",mode);
+                setShowTravelModal(false);
+              }} style={{padding:"14px 16px",borderRadius:6,border:`1.5px solid ${C.borderSoft}`,background:C.card,cursor:"pointer",textAlign:"left",display:"flex",gap:12,alignItems:"center",transition:"all 0.15s"}}>
+                <span style={{fontSize:24}}>{label.split(" ")[0]}</span>
+                <div>
+                  <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{label.slice(2)}</div>
+                  <div style={{fontSize:11,color:C.inkFaint,fontFamily:FB}}>{sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>setShowTravelModal(false)} style={{marginTop:14,width:"100%",padding:"11px",border:`1px solid ${C.borderSoft}`,borderRadius:4,background:"transparent",color:C.inkLight,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>}
+
+      {view!=="chat"&&<div style={{padding:"11px 20px",borderTop:`1px solid ${C.border}`,background:C.cream,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.22em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>{
+            if(window.confirm("⚠ Clear ALL data?\n\nThis will permanently delete all events, chat history, reminders, birthdays and notes.\n\nThis cannot be undone.")){
+              localStorage.clear();
+              setEvents([]);
+              setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. All data has been cleared — a fresh start. How may I assist you?",ts:new Date()}]);
+              setReminders([]);
+              setBirthdays([]);
+              setBirthdayActions({});
+              setEventNotes({});
+              setWishlist([]);
+              setHomeAddress("");
+            }
+          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
+          {!installed&&installPrompt&&<button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>⬇ Install App</button>}
+          {installed&&<div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
+          {!installed&&!installPrompt&&<div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+export default function App(){
+  return <ErrorBoundary><AppInner/></ErrorBoundary>;
+}
