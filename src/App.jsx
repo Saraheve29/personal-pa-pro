@@ -980,6 +980,13 @@ PROACTIVE TRIGGERS:
 - Scheduling clash spotted → warn immediately
 - Rover booking pattern → suggest setting up recurring
 
+IMPORTANT — SCHEDULE CHANGES:
+- You CANNOT directly edit, delete or move events in the schedule
+- If Sarah asks you to move or cancel an event, be honest: tell her you cannot change it yourself
+- Instead, guide her: "I can't edit your schedule directly — please go to Calendar and update it there, or use Import to add the new date"
+- Never say "I've updated it" or "I've moved it" or "I've deleted it" — this is not true and causes confusion
+- If she wants to reschedule, offer to help her find the best new date instead
+
 CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first.`,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       const clean=raw.replace(/\*\*(.*?)\*\*/g,"$1").replace(/\*(.*?)\*/g,"$1").replace(/#{1,3} /g,"").trim();
       if(!clean){
@@ -1366,12 +1373,25 @@ EXTRACTION RULES:
       const isQuestion=/when|what|next|upcoming|any|do i have|am i free|am i busy|show me|list|find|how many|how long|how far|how soon|weeks|days|months|until|till|count|remaining|left/i.test(checkerText)&&!checkerFile;
 
       if(isQuestion){
-        // Answer directly from schedule using Eleanor
-        const futureEvs=[...events].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
-        const schedCtx=futureEvs.map(e=>e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"})+")"+(e.time?" "+e.time:"")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n");
+        // Use same approach as Eleanor chat - full context with explicit day mapping
+        const allEvsSorted=[...events].sort((a,b)=>a.date.localeCompare(b.date));
+
+        // Build 60-day exact date mapping so Eleanor cannot get days wrong
+        const dayCalendar=Array.from({length:60},(_,i)=>{
+          const d=new Date(today.getTime()+i*86400000);
+          return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+        }).join("\n");
+
+        // Full schedule - ALL events clearly labelled past and future
+        const fullSchedule=allEvsSorted.map((e,i)=>{
+          const evDate=new Date(e.date+"T12:00:00");
+          const isPast=e.date<fmt(today);
+          return (i+1)+". "+e.date+" ("+evDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+") "+(e.time||"all day")+" — "+e.title+(isPast?" [PAST]":"")+(e.notes?" ["+e.notes+"]":"");
+        }).join("\n");
+
         const answer=await callAI({
-          system:`You are Eleanor, Sarah's Personal Assistant. Answer this question about her schedule accurately. Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} (${fmt(today)}). Use exact dates from the schedule. If asked how many weeks/days until something, calculate it precisely from today's date. Be specific and concise — one clear answer.`,
-          messages:[{role:"user",content:"My schedule:\n"+schedCtx+"\n\nQuestion: "+checkerText}]
+          system:"You are Eleanor, Sarah's Personal Assistant. Answer questions about her schedule with precision and clarity.\n\nTODAY IS: "+new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+fmt(today)+"). This is definitive — never use any other date as today.\n\nCRITICAL DATE RULES:\n- When Sarah asks about a date with NO year e.g. '4th July' — she means the NEXT upcoming occurrence FROM TODAY\n- Today is "+fmt(today)+" so '4th July' means 4th July "+today.getFullYear()+" if not yet passed, otherwise "+( today.getFullYear()+1)+"\n- NEVER jump to a future year unless the date has already passed this year\n- 'Am I free on X' means check ONLY that exact date — ignore all other dates\n- If an event is marked [PAST] it has already happened — do not mention it as upcoming\n- Calculate weeks/days precisely from today "+fmt(today)+"\n- Give one clear direct answer — no markdown, no bullet points",
+          messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING (next 60 days — use this precisely):\n"+dayCalendar+"\n\nSARAH'S FULL SCHEDULE:\n"+fullSchedule+"\n\nQuestion: "+checkerText}]
         });
         setCheckerRes({isAnswer:true,answer,question:checkerText});
         setCheckerBusy(false);return;
@@ -2616,10 +2636,27 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {briefing?.error&&<div><div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"14px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>Unable to generate briefing. Please try again.</div><button style={goldBtn()} onClick={generateBriefing}>Retry</button></div>}
       {briefing&&!briefing.error&&<div>
         <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
-        {briefing.today_summary&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:10}}>Today at a Glance</div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
+        {briefing.today_summary&&<div onClick={()=>{sendChat("Give me more detail about today from my briefing: "+briefing.today_summary);setCriticalOnly(false);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={SL}>Today at a Glance</div><span style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to ask Eleanor →</span></div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
         {briefing.weekly_balance&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:12}}>Schedule Balance</div><div style={{display:"flex",alignItems:"center",gap:16}}><div style={{textAlign:"center",minWidth:50}}><div style={{fontSize:34,fontFamily:FD,color:briefing.weekly_balance.score>=7?C.emerald:briefing.weekly_balance.score>=4?C.gold:C.crimson,fontWeight:300,lineHeight:1}}>{briefing.weekly_balance.score}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>/10</div></div><div style={{flex:1}}><div style={{height:3,background:C.borderSoft,borderRadius:2,marginBottom:10,overflow:"hidden"}}><div style={{height:3,width:`${briefing.weekly_balance.score*10}%`,background:`linear-gradient(90deg,${C.gold},${C.goldLight})`,borderRadius:2}}/></div><div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{briefing.weekly_balance.comment}</div></div></div></div>}
+        {/* Eleanor chat updates notice */}
+        {(persistentMemory.pending_tasks||[]).length>0&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"12px 16px",marginBottom:14}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✦ Eleanor's Notes from Chat</div>
+          {(persistentMemory.pending_tasks||[]).map((t,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<(persistentMemory.pending_tasks||[]).length-1?`1px solid ${C.borderSoft}`:"none"}}>
+              <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>→ {t}</div>
+              <button onClick={()=>{
+                const updated={...persistentMemory,pending_tasks:(persistentMemory.pending_tasks||[]).filter((_,j)=>j!==i)};
+                setPersistentMemory(updated);
+                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+              }} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11,flexShrink:0,marginLeft:8}}>✓ Done</button>
+            </div>
+          ))}
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:8,fontStyle:"italic"}}>Note: To change events mentioned in chat, please update them directly in Calendar.</div>
+        </div>}
+
         {/* Eleanor's personal greeting */}
-        {briefing.how_are_you&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.goldBorder}`}}>
+        {briefing.how_are_you&&<div onClick={()=>{sendChat(briefing.how_are_you);setCriticalOnly(false);setView("chat");}} style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.gold}`,cursor:"pointer",position:"relative"}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>✦ Eleanor says — tap to reply</div>
           <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
         </div>}
 
@@ -2668,7 +2705,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>Best Day to Schedule Something</div>
           <div style={{fontFamily:FD,fontSize:16,color:C.ink}}>{briefing.best_day_this_week.day_name} — {briefing.best_day_this_week.date}</div>
           <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginTop:3,lineHeight:1.5}}>{briefing.best_day_this_week.reason}</div>
-          <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{marginTop:8,padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event on This Day</button>
+          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+            <button onClick={()=>{setNewEv(n=>({...n,date:briefing.best_day_this_week.date}));setCriticalOnly(false);setView("add");}} style={{padding:"6px 14px",borderRadius:3,border:`1px solid ${C.emerald}`,background:"transparent",color:C.emerald,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add Event</button>
+            <button onClick={()=>{sendChat("What should I schedule on "+briefing.best_day_this_week.day_name+"?");setCriticalOnly(false);setView("chat");}} style={{padding:"6px 14px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✦ Ask Eleanor</button>
+          </div>
         </div>}
 
         {/* Week busyness indicator */}
@@ -3552,6 +3592,108 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     </div>);
   };
 
+  // ── FINANCES VIEW ──
+  const FinancesView=()=>{
+    const income=finances.filter(f=>f.type==="income"&&f.status!=="paid");
+    const expenses=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+    const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
+    const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
+    const [showAdd,setShowAdd]=useState(false);
+    return(<div style={{paddingBottom:80}}>
+      <div style={SL}>💰 Finances</div>
+      <div style={{display:"flex",gap:10,marginBottom:14}}>
+        <div style={{flex:1,background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:6,padding:"12px 14px"}}>
+          <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Expected In</div>
+          <div style={{fontFamily:FD,fontSize:22,color:C.emerald}}>£{totalIn.toFixed(2)}</div>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:2}}>{income.length} item{income.length!==1?"s":""}</div>
+        </div>
+        <div style={{flex:1,background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderLeft:`4px solid ${C.crimson}`,borderRadius:6,padding:"12px 14px"}}>
+          <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Due Out</div>
+          <div style={{fontFamily:FD,fontSize:22,color:C.crimson}}>£{totalOut.toFixed(2)}</div>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:2}}>{expenses.length} item{expenses.length!==1?"s":""}</div>
+        </div>
+      </div>
+      {(totalIn>0||totalOut>0)&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>Net this month</div>
+        <div style={{fontFamily:FD,fontSize:18,color:totalIn-totalOut>=0?C.emerald:C.crimson}}>£{(totalIn-totalOut).toFixed(2)}</div>
+      </div>}
+      {income.length>0&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Income</div>
+        {income.map((f,i)=>(
+          <div key={f.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${C.emerald}`,borderRadius:4,marginBottom:6}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+              {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+              <div style={{fontFamily:FD,fontSize:15,color:C.emerald}}>£{(f.amount||0).toFixed(2)}</div>
+              <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:"paid"}:x))} style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,fontSize:8,cursor:"pointer"}}>✓</button>
+              <button onClick={()=>setFinances(fs=>fs.filter(x=>x.id!==f.id))} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12}}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+      {expenses.length>0&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>⬆ Outgoings</div>
+        {expenses.map((f,i)=>(
+          <div key={f.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${C.crimson}`,borderRadius:4,marginBottom:6}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
+              {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+              <div style={{fontFamily:FD,fontSize:15,color:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
+              <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:"paid"}:x))} style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer"}}>✓ Paid</button>
+              <button onClick={()=>{setChatIn("Remind me to pay "+f.label+" of £"+(f.amount||0).toFixed(2)+(f.date?" on "+f.date:""));setCriticalOnly(false);setView("chat");}} style={{padding:"3px 8px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,cursor:"pointer"}}>⏰</button>
+              <button onClick={()=>setFinances(fs=>fs.filter(x=>x.id!==f.id))} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12}}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+      {finances.filter(f=>f.status==="paid").length>0&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Cleared</div>
+        {finances.filter(f=>f.status==="paid").map((f,i)=>(
+          <div key={f.id||i} style={{display:"flex",justifyContent:"space-between",padding:"7px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:4,opacity:0.6}}>
+            <div style={{fontSize:12,fontFamily:FB,color:C.inkFaint,textDecoration:"line-through"}}>{f.label}</div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <div style={{fontSize:12,fontFamily:FD,color:C.inkFaint}}>£{(f.amount||0).toFixed(2)}</div>
+              <button onClick={()=>setFinances(fs=>fs.filter(x=>x.id!==f.id))} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11}}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+      <button onClick={()=>setShowAdd(s=>!s)} style={{...goldBtn(true),width:"100%",marginBottom:showAdd?10:0}}>＋ Add Manually</button>
+      {showAdd&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:14}}>
+        <input id="fin-label" style={inp} placeholder="Label e.g. Carer's Allowance, Electric bill"/>
+        <input id="fin-amount" style={inp} type="number" placeholder="Amount e.g. 333.20"/>
+        <input id="fin-date" style={inp} type="date"/>
+        <select id="fin-type" style={inp}>
+          <option value="income">Income</option>
+          <option value="expense">Outgoing / Payment</option>
+        </select>
+        <button style={goldBtn()} onClick={()=>{
+          const label=document.getElementById("fin-label")?.value?.trim();
+          const amount=parseFloat(document.getElementById("fin-amount")?.value||"0");
+          const date=document.getElementById("fin-date")?.value||"";
+          const type=document.getElementById("fin-type")?.value||"income";
+          if(!label)return;
+          setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label,amount,date,type,status:"pending",source:"manual"}]);
+          ["fin-label","fin-amount","fin-date"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+          setShowAdd(false);
+        }}>Add</button>
+      </div>}
+      {finances.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:C.inkFaint}}>
+        <div style={{fontFamily:FD,fontSize:18,fontStyle:"italic",color:C.inkLight,marginBottom:8}}>No finances tracked yet.</div>
+        <div style={{fontSize:12,fontFamily:FB,lineHeight:1.6}}>Import screenshots, emails or invoices via Import to extract amounts automatically, or add manually above.</div>
+      </div>}
+      <div style={{marginTop:14,padding:"12px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6}}>
+        <div style={{fontSize:11,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>✦ Financial Planning</div>
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:8}}>Paste your financial plan for Eleanor to analyse and advise.</div>
+        <button style={goldBtn()} onClick={()=>setView("import")}>Open Financial Planner →</button>
+      </div>
+    </div>);
+  };
+
   /* ── WISHLIST VIEW ── */
   const WishlistView=()=>(
     <div>
@@ -4123,7 +4265,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
             <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
           </>
-          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["add","＋ Add"]].map(([v,l])=>(
+          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["finances","💰"],["add","＋ Add"]].map(([v,l])=>(
             <button key={v} onClick={()=>{if(v==="home")setCriticalOnly(false);setView(v);}} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
           ))
         }
@@ -4136,6 +4278,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="week"     && <WeekView/>}
         {view==="briefing" && <BriefingView/>}
         {view==="import"   && <ImportView/>}
+  {view==="finances" && <FinancesView/>}
         {view==="chat"     && <ChatView/>}
         {view==="add"      && <AddView/>}
         {view==="wishlist"  && <WishlistView/>}
