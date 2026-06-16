@@ -1269,18 +1269,23 @@ ${importContext?"CONTEXT: "+importContext:""}`;
     try{
       const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,
-          system:`You are Eleanor, a highly skilled Personal Executive Assistant reading an email on behalf of Sarah. Extract ALL useful information thoroughly.${importContext?" Context from Sarah: "+importContext:""}
+          system:`You are Eleanor, a highly skilled Personal Executive Assistant reading an email for Sarah (single mother, Cambridgeshire, Rover dog-sitter, app developer, children Maleeka and Maliki).${importContext?" Context: "+importContext:""}
 
-Return ONLY raw JSON:
-{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string,"priority":"critical|high|medium|low"}],"key_info":[{"label":string,"value":string}],"summary":string,"sender":string,"sender_email":string,"subject":string,"urgent":boolean,"email_type":"appointment|payment|school|medical|legal|delivery|invitation|bill|benefit|reminder|other","payment":{"amount":string,"due_date":string,"reference":string},"reply_needed":boolean,"reply_suggestion":string}
+Extract EVERYTHING useful. Return ONLY raw JSON — no markdown:
+{"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string,"priority":"critical|high|medium|low"}],"key_info":[{"label":string,"value":string}],"summary":string,"sender":string,"sender_email":string,"subject":string,"urgent":boolean,"email_type":"appointment|payment|school|medical|legal|delivery|invitation|bill|benefit|rover|reminder|newsletter|other","payment":{"amount":string,"due_date":string,"reference":string,"account":string},"reply_needed":boolean,"reply_suggestion":string,"important_numbers":[{"label":string,"value":string}],"deadlines":[{"task":string,"date":string}],"attachments_mentioned":boolean}
 
-Rules:
-- email_type: categorise what kind of email this is
-- payment: extract any amounts, due dates, reference numbers
-- reply_suggestion: if reply_needed, draft a brief suggested reply
-- urgent: true if deadline within 7 days, legal matter, medical, or payment overdue
-- Extract ALL dates mentioned even in passing
-- Today is ${fmt(today)}. Use ${today.getFullYear()} if no year stated.`,
+EXTRACTION RULES:
+- summary: 1-2 sentences in plain English, no jargon
+- email_type: rover = dog boarding emails, benefit = DWP/council/HMRC, school = school letters
+- urgent: true if deadline within 7 days OR legal OR medical OR payment overdue OR school action required
+- events: include ALL dates — appointments, deadlines, renewal dates, expiry dates
+- actions: concrete things Sarah needs to DO — reply, pay, book, call, sign, send
+- key_info: reference numbers, account numbers, case numbers, phone numbers, addresses
+- important_numbers: any financial amounts, benefit rates, phone numbers worth saving
+- payment: extract even partial amounts — "£333.20 fortnightly" counts
+- reply_suggestion: warm, professional draft if reply needed. Sign off as Sarah.
+- deadlines: any "by X date" or "before X" mentioned
+- Today is ${fmt(today)}. Assume ${today.getFullYear()} if no year. Sort events soonest first.`,
           messages:[{role:"user",content:"Read this email and extract all information:\n\n"+emailText}]
         })
       });
@@ -1350,14 +1355,14 @@ Rules:
     setCheckerBusy(true);setCheckerRes(null);
     try{
       // First check if this is a natural language question vs a date to check
-      const isQuestion=/when|what|next|upcoming|any|do i have|am i free|am i busy|show me|list|find/i.test(checkerText)&&!checkerFile;
+      const isQuestion=/when|what|next|upcoming|any|do i have|am i free|am i busy|show me|list|find|how many|how long|how far|how soon|weeks|days|months|until|till|count|remaining|left/i.test(checkerText)&&!checkerFile;
 
       if(isQuestion){
         // Answer directly from schedule using Eleanor
         const futureEvs=[...events].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
         const schedCtx=futureEvs.map(e=>e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"})+")"+(e.time?" "+e.time:"")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n");
         const answer=await callAI({
-          system:`You are Eleanor. Answer this question about Sarah's schedule concisely and accurately. Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}. Use exact dates and day names from the schedule provided. Be specific — give the exact date and day name.`,
+          system:`You are Eleanor, Sarah's Personal Assistant. Answer this question about her schedule accurately. Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} (${fmt(today)}). Use exact dates from the schedule. If asked how many weeks/days until something, calculate it precisely from today's date. Be specific and concise — one clear answer.`,
           messages:[{role:"user",content:"My schedule:\n"+schedCtx+"\n\nQuestion: "+checkerText}]
         });
         setCheckerRes({isAnswer:true,answer,question:checkerText});
@@ -3043,11 +3048,36 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             );})}
           </div>}
 
+          {/* Important numbers */}
+          {emailRes.important_numbers?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>Important Numbers</div>
+            {emailRes.important_numbers.map((n,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"7px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4}}>
+                <span style={{fontSize:12,color:C.inkLight,fontFamily:FB}}>{n.label}</span>
+                <span style={{fontSize:12,color:C.ink,fontFamily:FD,fontWeight:"bold"}}>{n.value}</span>
+              </div>
+            ))}
+          </div>}
+
+          {/* Deadlines */}
+          {emailRes.deadlines?.length>0&&<div style={{marginBottom:10}}>
+            <div style={SL}>⏰ Deadlines</div>
+            {emailRes.deadlines.map((d,i)=>(
+              <div key={i} style={{padding:"8px 12px",background:C.crimsonBg,border:`1px solid ${C.crimson}30`,borderLeft:`3px solid ${C.crimson}`,borderRadius:3,marginBottom:5}}>
+                <div style={{fontSize:13,color:C.inkMid,fontFamily:FB}}>{d.task}</div>
+                <div style={{fontSize:10,color:C.crimson,fontFamily:FM,marginTop:2}}>By: {d.date}</div>
+              </div>
+            ))}
+          </div>}
+
           {/* Reply suggestion */}
           {emailRes.reply_needed&&emailRes.reply_suggestion&&<div style={{marginBottom:10}}>
-            <div style={SL}>Suggested Reply</div>
-            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,padding:"12px",fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic",borderLeft:`3px solid ${C.sapphire}`}}>{emailRes.reply_suggestion}</div>
-            <button style={{...goldBtn(true),marginTop:6,color:C.sapphire,borderColor:C.sapphire}} onClick={()=>{navigator.clipboard?.writeText(emailRes.reply_suggestion);alert("Reply copied to clipboard!");}}>Copy Reply</button>
+            <div style={SL}>✦ Suggested Reply</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,padding:"14px",fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.8,borderLeft:`3px solid ${C.sapphire}`}}>{emailRes.reply_suggestion}</div>
+            <div style={{display:"flex",gap:8,marginTop:8}}>
+              <button style={{...goldBtn(true),color:C.sapphire,borderColor:C.sapphire,flex:1}} onClick={()=>{navigator.clipboard?.writeText(emailRes.reply_suggestion).then(()=>alert("Copied!")).catch(()=>alert("Please copy manually"));}}>📋 Copy Reply</button>
+              <button style={{...goldBtn(true),flex:1}} onClick={()=>{setChatIn("Can you help me reply to this email from "+emailRes.sender+": "+emailRes.reply_suggestion);setCriticalOnly(false);setView("chat");}}>✦ Improve with Eleanor</button>
+            </div>
           </div>}
 
           {/* Events */}
