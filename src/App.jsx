@@ -602,6 +602,13 @@ function AppInner(){
   const [voiceText,setVoiceText]=useState("");
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
   const [wishlistPaste,setWishlistPaste]=useState("");
+  const [finPlanText,setFinPlanText]=useState("");
+  const [todayMeal,setTodayMeal]=useState(()=>localStorage.getItem("papa_meal_"+new Date().toDateString())||"");
+  const [mealDismissed,setMealDismissed]=useState(()=>localStorage.getItem("papa_meal_dismissed_"+new Date().toDateString())==="true");
+  const [finPlanFile,setFinPlanFile]=useState(null);
+  const [finPlanB64,setFinPlanB64]=useState(null);
+  const [finPlanBusy,setFinPlanBusy]=useState(false);
+  const [finPlanRes,setFinPlanRes]=useState(null);
   const [wishlistImportMode,setWishlistImportMode]=useState(null);
   const [wishlistImgFile,setWishlistImgFile]=useState(null);
   const [wishlistImgB64,setWishlistImgB64]=useState(null);
@@ -904,6 +911,7 @@ Rules:
         weatherCtx,
         finCtx,
         goalsCtx,
+        todayMeal?"TODAY'S MEAL PLAN: "+todayMeal:"",
         "ABOUT SARAH: "+userContext,
         "CONFLICTS: "+cfls.length
       ].filter(Boolean).join("\n\n");
@@ -1542,6 +1550,38 @@ ${e.notes||""}`.trim();
   }
 
 
+
+  // ── FINANCIAL PLANNING ──
+  async function analyseFinancialPlan(){
+    const text=finPlanText.trim();
+    const hasFile=finPlanB64&&finPlanFile;
+    if((!text&&!hasFile)||finPlanBusy)return;
+    setFinPlanBusy(true);setFinPlanRes(null);
+    try{
+      let messages;
+      if(hasFile){
+        const isPDF=finPlanFile.type==="application/pdf";
+        messages=[{role:"user",content:[
+          {type:isPDF?"document":"image",source:{type:"base64",media_type:finPlanFile.type,data:finPlanB64}},
+          {type:"text",text:"Analyse this financial document and give personalised advice."}
+        ]}];
+      }else{
+        messages=[{role:"user",content:"Analyse this financial plan:\n\n"+text}];
+      }
+      const raw=await callAI({
+        system:`You are Eleanor, a knowledgeable Personal Assistant helping Sarah (single mother, Cambridgeshire, children Maleeka and Maliki, ME/CFS, Rover dog-sitter, app developer) understand her finances. Today is ${fmt(today)}.
+Analyse the plan and return ONLY raw JSON:
+{"summary":string,"positives":["string"],"considerations":["string"],"action_steps":[{"step":string,"when":string,"priority":"high|medium|low"}],"calendar_reminders":[{"title":string,"date":"YYYY-MM-DD","notes":string}],"questions_to_ask":["string"],"monthly_impact":{"amount":number,"label":string},"projected_value":string,"risk_level":"low|medium|high","eleanor_advice":string}
+Rules: summary=2-3 plain English sentences. positives=max 4 strengths. considerations=max 4 watch-outs. action_steps=concrete things to do with timing. calendar_reminders=specific dates including ISA year end 5 April, 6-month review, monthly investment day. questions_to_ask=smart questions for her platform or adviser. eleanor_advice=warm personal 2-3 sentences for Sarah as single parent. Be encouraging but honest.`,
+        messages,
+        max_tokens:2000
+      });
+      const parsed=robustJSON(raw);
+      if(parsed)setFinPlanRes(parsed);
+      else setFinPlanRes({error:true});
+    }catch(e){console.error(e);setFinPlanRes({error:true});}
+    setFinPlanBusy(false);
+  }
 
   async function wishlistImport(type,content,b64,mime){
     setWishlistImportBusy(true);setWishlistImportRes(null);
@@ -2583,6 +2623,46 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
         </div>}
 
+        {/* Meal plan question */}
+        {!mealDismissed&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontFamily:FD,fontSize:15,color:C.ink,fontStyle:"italic"}}>🍽 What are you planning to eat today?</div>
+            <button onClick={()=>{setMealDismissed(true);localStorage.setItem("papa_meal_dismissed_"+new Date().toDateString(),"true");}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+          </div>
+          {todayMeal
+            ?<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:13,color:C.ink,fontFamily:FB,lineHeight:1.5,flex:1}}>{todayMeal}</div>
+              <button onClick={()=>{setTodayMeal("");localStorage.removeItem("papa_meal_"+new Date().toDateString());}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12,marginLeft:8,flexShrink:0}}>✎</button>
+            </div>
+            :<div>
+              <textarea
+                id="meal-plan-input"
+                style={{...inp,minHeight:60,resize:"none",marginBottom:8,fontSize:13}}
+                placeholder={"e.g. Breakfast: porridge · Lunch: soup · Dinner: pasta\nOr just type tonight's dinner..."}
+              />
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{
+                  const el=document.getElementById("meal-plan-input");
+                  const val=el?.value?.trim();
+                  if(!val)return;
+                  setTodayMeal(val);
+                  localStorage.setItem("papa_meal_"+new Date().toDateString(),val);
+                }} style={{flex:1,...goldBtn(),margin:0}}>✓ Save</button>
+                <button onClick={()=>{setMealDismissed(true);localStorage.setItem("papa_meal_dismissed_"+new Date().toDateString(),"true");}} style={{...goldBtn(true),margin:0,flex:0,padding:"9px 14px"}}>Skip</button>
+              </div>
+            </div>
+          }
+          <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center",flexWrap:"wrap"}}>
+            <a
+              href="https://thinko-chores.vercel.app/?screen=meals"
+              target="_blank"
+              rel="noreferrer"
+              style={{display:"inline-flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer"}}>
+              🦔 Open Thinko Chores Meal Plan
+            </a>
+          </div>
+        </div>}
+
         {/* Best day this week */}
         {briefing.best_day_this_week?.day_name&&<div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 16px",marginBottom:14}}>
           <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>Best Day to Schedule Something</div>
@@ -2732,7 +2812,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
       {/* visual method picker */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}} key="import-grid">
-        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
+        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"},{type:"text",label:"💰 Financial",sub:"Plan & advice",tab:"finance"}].map(m=>(
           <div key={m.type} className="import-method" onClick={()=>setImpTab(m.tab)}
             style={{background:impTab===m.tab?C.goldPale:C.card,border:`1.5px solid ${impTab===m.tab?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"14px 14px",cursor:"pointer",transition:"all 0.18s",textAlign:"center",boxShadow:`0 1px 6px ${C.shadow}`}}>
             <div style={{width:40,height:40,borderRadius:6,background:impTab===m.tab?`linear-gradient(135deg,${C.gold},${C.goldBright})`:C.parchment,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>
@@ -2958,6 +3038,115 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events,"pdf");setPdfRes(null);setPdfFile(null);setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
             <button style={goldBtn(true)} onClick={()=>{setPdfRes(null);setPdfFile(null);}}>Clear</button>
           </div>}
+        </div>}
+      </div>}
+
+      {impTab==="finance"&&<div>
+        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"12px 16px",marginBottom:16}}>
+          <div style={{fontSize:13,fontFamily:FD,color:C.gold,fontStyle:"italic",marginBottom:4}}>✦ Financial Planning with Eleanor</div>
+          <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>Paste your financial plan, investment strategy, budget or statement below. Eleanor will analyse it and give you personalised advice, action steps and calendar reminders.</div>
+        </div>
+
+        {/* Paste text */}
+        <textarea id="fin-plan-textarea" style={{...inp,minHeight:140,resize:"vertical",marginBottom:10}}
+          placeholder={"Paste your financial plan, investment details, budget or statement here...\ne.g. VUSA ETF plan, ISA strategy, monthly budget, bank statement"}
+          defaultValue={finPlanText}
+          onBlur={e=>setFinPlanText(e.target.value)}
+        />
+
+        {/* Or upload PDF/statement */}
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"10px 0"}}>
+          <div style={{flex:1,height:1,background:C.borderSoft}}/>
+          <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>OR UPLOAD FILE</div>
+          <div style={{flex:1,height:1,background:C.borderSoft}}/>
+        </div>
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"16px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:finPlanFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:6}}>
+          {finPlanFile?"✦ "+finPlanFile.name:"📄 Upload PDF statement or plan (optional)"}
+          <input type="file" accept="application/pdf,.pdf,image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setFinPlanFile(f);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setFinPlanB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+        </label>
+
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("fin-plan-textarea");if(el)setFinPlanText(el.value);analyseFinancialPlan();}} disabled={finPlanBusy}>
+          {finPlanBusy?"Eleanor is analysing…":"✦ Analyse My Financial Plan"}
+        </button>
+
+        {finPlanBusy&&<div style={{textAlign:"center",padding:"20px",color:C.gold,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase"}} className="shimmer">Eleanor is reviewing your plan…</div>}
+
+        {finPlanRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"12px",fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,marginTop:8}}>Could not analyse the plan. Please try again.</div>}
+
+        {finPlanRes&&!finPlanRes.error&&<div style={{marginTop:16}}>
+          {/* Eleanor's personal advice */}
+          {finPlanRes.eleanor_advice&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
+            <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6}}>✦ Eleanor's Advice for You</div>
+            <div style={{fontSize:14,color:C.ink,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{finPlanRes.eleanor_advice}"</div>
+          </div>}
+
+          {/* Summary */}
+          {finPlanRes.summary&&<div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 14px",marginBottom:12,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>{finPlanRes.summary}</div>}
+
+          {/* Risk + projected */}
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            {finPlanRes.risk_level&&<div style={{flex:1,textAlign:"center",padding:"10px",background:finPlanRes.risk_level==="low"?C.emeraldBg:finPlanRes.risk_level==="medium"?C.goldPale:C.crimsonBg,borderRadius:4,border:`1px solid ${finPlanRes.risk_level==="low"?C.emerald:finPlanRes.risk_level==="medium"?C.goldBorder:C.crimson}30`}}>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase"}}>Risk Level</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.ink,textTransform:"capitalize"}}>{finPlanRes.risk_level}</div>
+            </div>}
+            {finPlanRes.projected_value&&<div style={{flex:2,textAlign:"center",padding:"10px",background:C.goldPale,borderRadius:4,border:`1px solid ${C.goldBorder}30`}}>
+              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase"}}>Projected Value</div>
+              <div style={{fontSize:14,fontFamily:FD,color:C.gold}}>{finPlanRes.projected_value}</div>
+            </div>}
+          </div>
+
+          {/* Positives */}
+          {finPlanRes.positives?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>✓ What's Good About This Plan</div>
+            {finPlanRes.positives.map((p,i)=>(
+              <div key={i} style={{padding:"8px 12px",background:C.emeraldBg,borderLeft:`3px solid ${C.emerald}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB}}>✓ {p}</div>
+            ))}
+          </div>}
+
+          {/* Considerations */}
+          {finPlanRes.considerations?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>⚠ Things to Be Aware Of</div>
+            {finPlanRes.considerations.map((p,i)=>(
+              <div key={i} style={{padding:"8px 12px",background:C.goldPale,borderLeft:`3px solid ${C.goldBorder}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB}}>⚠ {p}</div>
+            ))}
+          </div>}
+
+          {/* Action steps */}
+          {finPlanRes.action_steps?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>What to Do Next</div>
+            {finPlanRes.action_steps.map((a,i)=>{const col=a.priority==="high"?C.crimson:a.priority==="medium"?C.gold:C.emerald;return(
+              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:6}}>
+                <div style={{fontSize:13,color:C.ink,fontFamily:FB}}>→ {a.step}</div>
+                {a.when&&<div style={{fontSize:10,color:col,fontFamily:FM,marginTop:3}}>When: {a.when}</div>}
+              </div>
+            );})}
+          </div>}
+
+          {/* Questions to ask */}
+          {finPlanRes.questions_to_ask?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>Questions to Ask Your Platform</div>
+            {finPlanRes.questions_to_ask.map((q,i)=>(
+              <div key={i} style={{padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4,fontSize:12,color:C.inkMid,fontFamily:FB}}>? {q}</div>
+            ))}
+          </div>}
+
+          {/* Calendar reminders */}
+          {finPlanRes.calendar_reminders?.length>0&&<div style={{marginBottom:12}}>
+            <div style={SL}>📅 Add to Your Calendar</div>
+            {finPlanRes.calendar_reminders.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{r.title}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.date}</div>
+                  {r.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>{r.notes}</div>}
+                </div>
+                <button onClick={()=>{if(r.date)addEvs([{title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||"Financial reminder"}],"finance");}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,marginLeft:8}}>＋ Add</button>
+              </div>
+            ))}
+            <button style={goldBtn()} onClick={()=>{if(finPlanRes.calendar_reminders?.length){addEvs(finPlanRes.calendar_reminders.filter(r=>r.date).map(r=>({title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||""})),"finance");alert("All reminders added to your schedule!");}}}>Add All Reminders to Schedule</button>
+          </div>}
+
+          <button onClick={()=>{setFinPlanRes(null);setFinPlanText("");setFinPlanFile(null);setFinPlanB64(null);const el=document.getElementById("fin-plan-textarea");if(el)el.value="";}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:4}}>Clear</button>
         </div>}
       </div>}
 
