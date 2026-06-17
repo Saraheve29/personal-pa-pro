@@ -1,4 +1,4 @@
-// VERSION_CHECK: Tap-Anything-Updates-Memory build - June 17 2026 v4
+// VERSION_CHECK: Conflict-Dismiss-Fix build - June 17 2026 v5
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -126,8 +126,9 @@ const ImportIcon=({type,size=36})=>{
   return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={p.stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={p.d}/></svg>);
 };
 
-function ConflictAlert({cfls,events,onDelete}){
-  const [open,setOpen]=useState(false);
+function ConflictAlert({cfls,events,onDelete,onDismiss,defaultOpen}){
+  const [open,setOpen]=useState(defaultOpen||false);
+  useEffect(()=>{if(defaultOpen)setOpen(true);},[defaultOpen]);
   if(!cfls.length)return null;
   const dupes=cfls.filter(c=>c[2]==="duplicate");
   const conflicts=cfls.filter(c=>c[2]==="conflict");
@@ -166,6 +167,7 @@ function ConflictAlert({cfls,events,onDelete}){
               </div>
               {isDupe&&<div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:6,textAlign:"center"}}>Same event added twice — remove one.</div>}
               {!isDupe&&<div style={{fontSize:11,color:C.crimson,fontFamily:FB,marginTop:6,textAlign:"center"}}>{e1.date} — both at {e1.time}</div>}
+              {onDismiss&&<button onClick={()=>onDismiss(id1,id2)} style={{width:"100%",marginTop:8,padding:"7px",border:`1px solid ${C.borderSoft}`,borderRadius:3,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Keep Both — Dismiss This Warning</button>}
             </div>
           );
         })}
@@ -598,6 +600,7 @@ function AppInner(){
   const [swRegistered,setSwRegistered]=useState(false);
   const [conflictWarning,setConflictWarning]=useState(null);
   const [dismissedConflicts,setDismissedConflicts]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_conflicts")||"[]");}catch{return [];}});
+  const [forceConflictOpen,setForceConflictOpen]=useState(false);
   const [finances,setFinances]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_finances")||"[]");}catch{return [];}});
   const [tripAlerts,setTripAlerts]=useState([]);
   const [voiceText,setVoiceText]=useState("");
@@ -767,8 +770,10 @@ function AppInner(){
 
   useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[msgs,paStatus]);
 
-  const cfls=getConflicts(events);
+  const cflsRaw=getConflicts(events);
+  const cfls=cflsRaw.filter(c=>!dismissedConflicts.includes(c[0]+"_"+c[1])&&!dismissedConflicts.includes(c[1]+"_"+c[0]));
   const cflIds=new Set(cfls.flat());
+  const dismissConflict=(id1,id2)=>setDismissedConflicts(d=>[...d,id1+"_"+id2]);
   const todayEvs=events.filter(e=>e.date===fmt(today)).sort((a,b)=>a.time.localeCompare(b.time));
   const weekDays=Array.from({length:7},(_,i)=>{const d=new Date(today.getTime()+i*86400000),ds=fmt(d);return{ds,label:i===0?"Today":d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}),evs:events.filter(e=>e.date===ds).sort((a,b)=>a.time.localeCompare(b.time))};});
   const nextHol=upcomingHols(1)[0];
@@ -2569,7 +2574,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={SL}>Today's Schedule</div>
           <button onClick={()=>setView("week")} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>See Week →</button>
         </div>
-        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
+        {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del} onDismiss={dismissConflict} defaultOpen={forceConflictOpen}/>}
         {todayEvs.length===0
           ?<div style={{textAlign:"center",color:C.inkFaint,padding:"20px 0",background:C.card,borderRadius:6,border:`1px solid ${C.borderSoft}`}}><div style={{fontSize:16,fontFamily:FD,fontStyle:"italic",color:C.inkLight}}>Your day is clear.</div></div>
           :todayEvs.map((e,i)=><EvCard key={e.id} e={e} delay={i*50} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>)}
@@ -2592,7 +2597,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     const criticalEvs=events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
     const displayEvs=criticalOnly?criticalEvs:todayEvs;
     return(<div>
-      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del}/>}
+      {cfls.length>0&&<ConflictAlert cfls={cfls} events={events} onDelete={del} onDismiss={dismissConflict} defaultOpen={forceConflictOpen}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div style={SL}>{criticalOnly?`${criticalEvs.length} Critical Events`:today.toLocaleDateString("en-GB",{weekday:"long"})+" — "+todayEvs.length+" appointment"+(todayEvs.length!==1?"s":"")}</div>
         {criticalOnly&&<div style={{display:"flex",gap:6}}>
@@ -4477,7 +4482,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={{width:44,height:1,background:`linear-gradient(90deg,${C.goldBorder},transparent)`,margin:"7px 0"}}/>
             <div style={{fontSize:12,color:C.inkLight,letterSpacing:"0.07em",fontFamily:FB}}>{today.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
           </div>
-          {cfls.length>0&&<div className="gold-pulse" onClick={()=>setView(view==="home"?"schedule":view)} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
+          {cfls.length>0&&<div className="gold-pulse" onClick={()=>{setForceConflictOpen(true);setView("schedule");}} style={{background:C.crimsonBg,border:`1.5px solid ${C.crimson}`,color:C.crimson,padding:"5px 12px",fontSize:9,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",borderRadius:2,cursor:"pointer"}}>⚠ {cfls.length} Conflict{cfls.length>1?"s":""}</div>}
         </div>
         {view==="home"&&<div style={{display:"flex",gap:0,marginTop:16,border:`1px solid ${C.border}`,borderRadius:4,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
           {[{n:todayEvs.length,l:"Today",a:C.gold,action:()=>setView("schedule")},{n:events.filter(e=>e.priority==="critical"&&!dismissedCriticalIds.includes(e.id)).length,l:"Critical",a:C.crimson,action:()=>{setCriticalOnly(true);setView("schedule");}},{n:events.filter(e=>{const d=new Date(e.date+"T12:00:00");const now=new Date();const next7=new Date(now.getTime()+7*86400000);return d>=now&&d<=next7;}).length,l:"This Week",a:C.emerald,action:()=>setView("week")}].map((s,i)=>(
