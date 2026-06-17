@@ -1,4 +1,4 @@
-// VERSION_CHECK: Conflict-Dismiss-Fix build - June 17 2026 v5
+// VERSION_CHECK: Import-Add-Note build - June 17 2026 v6
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1088,7 +1088,7 @@ Rules:
           max_tokens:16000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
 Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
-Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT CONTEXT FROM USER: ${importContext} — use this to filter and prioritise what to extract.`:""}`,
+Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT NOTE FROM SARAH: "${importContext}" — Use this note to correctly NAME and LABEL the appointment in the title field. If the note says what the appointment is (e.g. "this is a blood test"), use that as the event title even if the screenshot doesn't mention it. Also use it to filter and prioritise.`:""}`,
           messages:[{role:"user",content:`Analyse this text and extract all information:
 
 ${pasteText}`}]
@@ -2892,13 +2892,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     <div>
       <div style={SL}>Import Appointments</div>
 
-      {/* Context note box - uncontrolled to prevent typing lag */}
+      {/* Add a note for Eleanor - uncontrolled to prevent typing lag */}
       <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:16}}>
-        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>Help Eleanor understand what to extract</div>
-        <input
+        <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>📝 Add a note (optional)</div>
+        <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:8,lineHeight:1.5}}>Tell Eleanor anything the screenshot doesn't say. She'll use this to label and save the appointment correctly.</div>
+        <textarea
           id="import-context-input"
-          style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box"}}
-          placeholder="e.g. 'My daughter is in Year 4' · 'Only extract my appointments' · 'Focus on July dates'"
+          style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box",minHeight:60,resize:"vertical"}}
+          placeholder={"e.g. 'This is a blood test appointment' · 'This is Maleeka's hospital visit' · 'Save this as my PIP review' · 'This appointment is at Hinchingbrooke'"}
           defaultValue={importContext}
           onBlur={e=>{setImportContext(e.target.value);importContextRef.current=e.target.value;}}
         />
