@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finances+ConflictDismiss build - June 17 2026
+// VERSION_CHECK: TapToEdit-Events build - June 17 2026 v3
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -604,6 +604,10 @@ function AppInner(){
   const [wishlist,  setWishlist]  =useState(()=>{try{return JSON.parse(localStorage.getItem("papa_wishlist")||"[]");}catch{return [];}});
   const [wishlistPaste,setWishlistPaste]=useState("");
   const [finPlanText,setFinPlanText]=useState("");
+  const [eventAction,setEventAction]=useState(null); // {event} for quick edit modal
+  const [eventActionBusy,setEventActionBusy]=useState(false);
+  const [finAction,setFinAction]=useState(null); // {item} for finance quick edit
+  const [finActionBusy,setFinActionBusy]=useState(false);
   const [todayMeal,setTodayMeal]=useState(()=>localStorage.getItem("papa_meal_"+new Date().toDateString())||"");
   const [mealDismissed,setMealDismissed]=useState(()=>localStorage.getItem("papa_meal_dismissed_"+new Date().toDateString())==="true");
   const [finPlanFile,setFinPlanFile]=useState(null);
@@ -2485,6 +2489,28 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
       </div>
 
+      {/* ══ HERO — FINANCES ══ */}
+      <div className="hero-card" onClick={()=>setView("finances")} style={{marginBottom:18,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s",animationDelay:"90ms"}}>
+        <div style={{background:`linear-gradient(135deg,#3D2E0A 0%,#4A3A10 55%,#2E2208 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",right:-10,top:-10,fontSize:110,fontFamily:FD,color:"rgba(255,255,255,0.04)",lineHeight:1,userSelect:"none",fontStyle:"italic"}}>£</div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${C.goldBorder},transparent)`}}/>
+          <div style={{fontSize:9,color:C.goldLight,letterSpacing:"0.3em",textTransform:"uppercase",fontFamily:FM,marginBottom:8,opacity:0.75}}>Money & Planning</div>
+          <div style={{fontFamily:FD,fontSize:30,color:C.goldLight,fontStyle:"italic",fontWeight:300,lineHeight:1.1,marginBottom:8}}>Finances</div>
+          <div style={{fontSize:12,color:"rgba(232,201,122,0.65)",fontFamily:FB,lineHeight:1.6}}>Income · Outgoings · Payment history · Eleanor's planning advice</div>
+        </div>
+        <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          {(()=>{
+            const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+            const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+            return <div style={{display:"flex",gap:16}}>
+              <div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>In</div><div style={{fontSize:13,fontFamily:FD,color:C.emerald,marginTop:2}}>£{inc.toFixed(2)}</div></div>
+              <div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Out</div><div style={{fontSize:13,fontFamily:FD,color:C.crimson,marginTop:2}}>£{out.toFixed(2)}</div></div>
+            </div>;
+          })()}
+          <div style={{fontSize:11,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Tap to open →</div>
+        </div>
+      </div>
+
       {/* ══ HERO 3 — CALENDAR ══ */}
       <div className="hero-card" onClick={()=>setView("calendar")} style={{marginBottom:10,borderRadius:8,overflow:"hidden",boxShadow:`0 6px 24px ${C.shadowMed}`,cursor:"pointer",transition:"all 0.25s",animationDelay:"120ms"}}>
         <div style={{background:`linear-gradient(135deg,#1A2038 0%,#0F1628 55%,#0A1020 100%)`,padding:"24px 22px 20px",position:"relative",overflow:"hidden"}}>
@@ -2557,7 +2583,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         :displayEvs.map((e,i)=>(
           <div key={e.id} style={{position:"relative"}}>
             {criticalOnly&&<button onClick={()=>setDismissedCriticalIds(ids=>[...ids,e.id])} style={{position:"absolute",top:14,right:40,zIndex:10,background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:3,padding:"2px 8px",color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Seen</button>}
-            <EvCard e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>
+            <div onClick={()=>setEventAction({event:e})} style={{cursor:"pointer"}}>
+              <EvCard e={e} delay={i*55} cflIds={cflIds} del={del} fetchEventWeather={fetchEventWeather} travelLink={travelLink} travelMode={travelMode} transportLinks={transportLinks} homeAddress={homeAddress} getAppointmentBriefing={getAppointmentBriefing} today={today} fmt={fmt} C={C} FD={FD} FB={FB} FM={FM} PM={PM} chip={chip} SL={SL} goldBtn={goldBtn}/>
+            </div>
           </div>
         ))}
       {criticalOnly&&dismissedCriticalIds.length>0&&<button onClick={()=>setDismissedCriticalIds([])} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:8}}>↺ Show all dismissed</button>}
@@ -3567,7 +3595,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           :selectedEvs.map((e,i)=>{
             const p=PM[e.priority]||PM.medium;
             return(
-              <div key={e.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,borderRadius:4,padding:"12px 14px",marginBottom:8,display:"flex",gap:12,alignItems:"flex-start"}}>
+              <div key={e.id} onClick={()=>setEventAction({event:e})} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,borderRadius:4,padding:"12px 14px",marginBottom:8,display:"flex",gap:12,alignItems:"flex-start",cursor:"pointer"}}>
                 <div style={{textAlign:"center",minWidth:36}}>
                   <div style={{fontSize:18,fontFamily:FD,color:C.gold,fontWeight:300,lineHeight:1}}>{e.time?.slice(0,2)||"—"}</div>
                   <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{e.time?.slice(3)||"00"}</div>
@@ -3592,6 +3620,69 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   };
 
   // ── FINANCES VIEW ──
+  // -- QUICK EVENT ACTION (tap any event, type a command) --
+  async function processEventAction(command){
+    if(!eventAction?.event||!command.trim())return;
+    setEventActionBusy(true);
+    const ev=eventAction.event;
+    try{
+      const raw=await callAI({
+        system:"You are Eleanor managing Sarah's calendar. She has tapped a specific event and typed a command. Today is "+fmt(today)+". The event is: \""+ev.title+"\" on "+ev.date+(ev.time?" at "+ev.time:"")+". Interpret her command and respond with ONLY raw JSON: {\"action\":\"delete|move|edit|none\",\"newDate\":\"YYYY-MM-DD or null\",\"newTime\":\"HH:MM or null\",\"newTitle\":\"string or null\",\"confirmation\":\"plain English confirmation of what you did\"}. For dates with no year assume "+today.getFullYear()+" unless passed. delete=remove event, move=change date/time, edit=change title.",
+        messages:[{role:"user",content:command}]
+      });
+      const parsed=robustJSON(raw);
+      if(parsed){
+        if(parsed.action==="delete"){
+          setEvents(evs=>evs.filter(e=>e.id!==ev.id));
+        } else if(parsed.action==="move"){
+          setEvents(evs=>evs.map(e=>e.id===ev.id?{...e,date:parsed.newDate||e.date,time:parsed.newTime||e.time}:e));
+        } else if(parsed.action==="edit"){
+          setEvents(evs=>evs.map(e=>e.id===ev.id?{...e,title:parsed.newTitle||e.title,date:parsed.newDate||e.date,time:parsed.newTime||e.time}:e));
+        }
+        setEventAction({event:ev,result:parsed.confirmation||"Done."});
+      } else {
+        setEventAction({event:ev,result:"I couldn't understand that. Please try again e.g. 'delete this event' or 'move to Friday'."});
+      }
+    }catch(e){
+      setEventAction({event:ev,result:"Something went wrong. Please try again."});
+    }
+    setEventActionBusy(false);
+  }
+
+  // -- QUICK FINANCE ACTION (tap any finance item, type a command) --
+  async function processFinAction(command){
+    if(!finAction?.item||!command.trim())return;
+    setFinActionBusy(true);
+    const it=finAction.item;
+    try{
+      const raw=await callAI({
+        system:"You are Eleanor managing Sarah's finances. She tapped a finance item and typed a command. Today is "+fmt(today)+". The item is: \""+it.label+"\" amount GBP "+(it.amount||0)+(it.date?" dated "+it.date:"")+" type "+it.type+". Interpret her command. Respond with ONLY raw JSON: {\"action\":\"edit|delete|none\",\"newLabel\":\"string or null\",\"newAmount\":number or null,\"newDate\":\"YYYY-MM-DD or null\",\"memoryFact\":\"a fact to remember about Sarah or her family, or null\",\"confirmation\":\"plain English confirmation\"}. If she states a fact (e.g. a child's age, a benefit change), capture it in memoryFact so you remember it. For dates with no year assume "+today.getFullYear()+".",
+        messages:[{role:"user",content:command}]
+      });
+      const parsed=robustJSON(raw);
+      if(parsed){
+        if(parsed.action==="delete"){
+          setFinances(fs=>fs.filter(f=>f.id!==it.id));
+        } else if(parsed.action==="edit"){
+          setFinances(fs=>fs.map(f=>f.id===it.id?{...f,label:parsed.newLabel||f.label,amount:parsed.newAmount!=null?parsed.newAmount:f.amount,date:parsed.newDate||f.date}:f));
+        }
+        // Save fact to memory
+        if(parsed.memoryFact){
+          const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
+          const upd={...existing,facts:[...(existing.facts||[]),parsed.memoryFact].slice(-25)};
+          localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+          setPersistentMemory(upd);
+        }
+        setFinAction({item:it,result:parsed.confirmation||"Done."+(parsed.memoryFact?" I'll remember that.":"")});
+      } else {
+        setFinAction({item:it,result:"I couldn't understand that. Try e.g. 'change to £250' or 'Maliki is 19 now'."});
+      }
+    }catch(e){
+      setFinAction({item:it,result:"Something went wrong. Please try again."});
+    }
+    setFinActionBusy(false);
+  }
+
   const FinancesView=()=>{
     const [editingId,setEditingId]=useState(null);
     const [editDraft,setEditDraft]=useState({});
@@ -4439,6 +4530,64 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       </div>}
 
       {/* Conflict Warning Modal */}
+      {/* Quick Finance Action Modal */}
+      {finAction&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}} onClick={()=>!finActionBusy&&setFinAction(null)}>
+        <div style={{background:C.card,borderRadius:8,padding:"22px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}} onClick={e=>e.stopPropagation()}>
+          <div style={{fontFamily:FD,fontSize:19,color:C.ink,fontStyle:"italic",marginBottom:4}}>Edit / Ask Eleanor</div>
+          <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:14}}>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{finAction.item.label}</div>
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM}}>£{(finAction.item.amount||0).toFixed(2)}{finAction.item.date?" · "+finAction.item.date:""}</div>
+          </div>
+          {finAction.result?(
+            <div>
+              <div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 14px",marginBottom:14,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>✦ {finAction.result}</div>
+              <button onClick={()=>setFinAction(null)} style={{width:"100%",padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Done</button>
+            </div>
+          ):(
+            <div>
+              <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10,lineHeight:1.5}}>Type a change or tell Eleanor something to remember:</div>
+              <textarea id="fin-action-input" style={{...inp,minHeight:60,resize:"none",marginBottom:10}} placeholder="e.g. change to £250 · Maliki is 19 now · this stops next month · rename to PIP payment"/>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{const v=document.getElementById("fin-action-input")?.value;if(v)processFinAction(v);}} disabled={finActionBusy} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:finActionBusy?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>{finActionBusy?"Working…":"✦ Do It"}</button>
+                <button onClick={()=>setFinAction(null)} disabled={finActionBusy} style={{padding:"11px 16px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>}
+
+      {/* Quick Event Action Modal */}
+      {eventAction&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}} onClick={()=>!eventActionBusy&&setEventAction(null)}>
+        <div style={{background:C.card,borderRadius:8,padding:"22px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}} onClick={e=>e.stopPropagation()}>
+          <div style={{fontFamily:FD,fontSize:19,color:C.ink,fontStyle:"italic",marginBottom:4}}>Edit Event</div>
+          <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",marginBottom:14}}>
+            <div style={{fontSize:14,fontFamily:FD,color:C.ink}}>{eventAction.event.title}</div>
+            <div style={{fontSize:11,color:C.inkFaint,fontFamily:FM}}>{eventAction.event.date}{eventAction.event.time?" at "+eventAction.event.time:""}</div>
+          </div>
+          {eventAction.result?(
+            <div>
+              <div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 14px",marginBottom:14,fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.6}}>✦ {eventAction.result}</div>
+              <button onClick={()=>setEventAction(null)} style={{width:"100%",padding:"11px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>Done</button>
+            </div>
+          ):(
+            <div>
+              <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10,lineHeight:1.5}}>Type what you'd like to do with this event:</div>
+              <textarea id="event-action-input" style={{...inp,minHeight:60,resize:"none",marginBottom:10}} placeholder="e.g. delete this event · move to Friday 4th July · change time to 2pm · rename to Dentist"/>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{const v=document.getElementById("event-action-input")?.value;if(v)processEventAction(v);}} disabled={eventActionBusy} style={{flex:1,padding:"11px",borderRadius:4,border:"none",background:eventActionBusy?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer"}}>{eventActionBusy?"Working…":"✦ Do It"}</button>
+                <button onClick={()=>setEventAction(null)} disabled={eventActionBusy} style={{padding:"11px 16px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+              </div>
+              {/* Quick action shortcuts */}
+              <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+                {["Delete this event","Move to tomorrow","Move to next week"].map(q=>(
+                  <button key={q} onClick={()=>processEventAction(q)} disabled={eventActionBusy} style={{padding:"6px 10px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:9,fontFamily:FM,letterSpacing:"0.08em",cursor:"pointer"}}>{q}</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>}
+
       {conflictWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
         <div style={{background:C.card,borderRadius:8,padding:"24px",width:"100%",maxWidth:420,boxShadow:`0 8px 32px rgba(0,0,0,0.3)`}}>
           <div style={{fontFamily:FD,fontSize:20,color:C.crimson,fontStyle:"italic",marginBottom:4}}>⚠ Schedule Conflict Detected</div>
