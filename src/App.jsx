@@ -1,4 +1,4 @@
-// VERSION_CHECK: Import-Add-Note build - June 17 2026 v6
+// VERSION_CHECK: Finance-Hooks-Fix build - June 17 2026 v7
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -611,6 +611,10 @@ function AppInner(){
   const [eventActionBusy,setEventActionBusy]=useState(false);
   const [finAction,setFinAction]=useState(null); // {item} for finance quick edit
   const [finActionBusy,setFinActionBusy]=useState(false);
+  const [finEditingId,setFinEditingId]=useState(null);
+  const [finEditDraft,setFinEditDraft]=useState({});
+  const [finShowAdd,setFinShowAdd]=useState(false);
+  const [finShowHistory,setFinShowHistory]=useState(false);
   const [todayMeal,setTodayMeal]=useState(()=>localStorage.getItem("papa_meal_"+new Date().toDateString())||"");
   const [mealDismissed,setMealDismissed]=useState(()=>localStorage.getItem("papa_meal_dismissed_"+new Date().toDateString())==="true");
   const [finPlanFile,setFinPlanFile]=useState(null);
@@ -3725,15 +3729,15 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   }
 
   const FinancesView=()=>{
-    const [editingId,setEditingId]=useState(null);
-    const [editDraft,setEditDraft]=useState({});
+    const editingId=finEditingId,setEditingId=setFinEditingId;
+    const editDraft=finEditDraft,setEditDraft=setFinEditDraft;
+    const showAdd=finShowAdd,setShowAdd=setFinShowAdd;
+    const showHistory=finShowHistory,setShowHistory=setFinShowHistory;
     const income=finances.filter(f=>f.type==="income"&&f.status!=="paid");
     const expenses=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
     const cleared=finances.filter(f=>f.status==="paid");
     const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
     const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
-    const [showAdd,setShowAdd]=useState(false);
-    const [showHistory,setShowHistory]=useState(false);
 
     // Load finance session history
     const finHistory=(() => { try { return JSON.parse(localStorage.getItem("papa_finance_history")||"[]"); } catch { return []; } })();
@@ -3759,7 +3763,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       setEditingId(null);
     }
 
-    const FinItem=({f,accentColor})=>(
+    const renderFinItem=(f,accentColor)=>(
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${accentColor}`,borderRadius:6,marginBottom:8,overflow:"hidden"}}>
         {editingId===f.id?(
           <div style={{padding:"12px"}}>
@@ -3830,13 +3834,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {/* Income */}
       {income.length>0&&<div style={{marginBottom:14}}>
         <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Income</div>
-        {income.map(f=><FinItem key={f.id} f={f} accentColor={C.emerald}/>)}
+        {income.map(f=><div key={f.id}>{renderFinItem(f,C.emerald)}</div>)}
       </div>}
 
       {/* Expenses */}
       {expenses.length>0&&<div style={{marginBottom:14}}>
         <div style={{fontSize:9,color:C.crimson,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>⬆ Outgoings</div>
-        {expenses.map(f=><FinItem key={f.id} f={f} accentColor={C.crimson}/>)}
+        {expenses.map(f=><div key={f.id}>{renderFinItem(f,C.crimson)}</div>)}
       </div>}
 
       {/* Cleared */}
