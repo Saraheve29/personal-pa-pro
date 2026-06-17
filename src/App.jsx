@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Hooks-Fix build - June 17 2026 v7
+// VERSION_CHECK: Finance-Analysis-Fix build - June 17 2026 v9
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -621,6 +621,7 @@ function AppInner(){
   const [finPlanB64,setFinPlanB64]=useState(null);
   const [finPlanBusy,setFinPlanBusy]=useState(false);
   const [finPlanRes,setFinPlanRes]=useState(null);
+  const [finReminderEdit,setFinReminderEdit]=useState(null);
   const [wishlistImportMode,setWishlistImportMode]=useState(null);
   const [wishlistImgFile,setWishlistImgFile]=useState(null);
   const [wishlistImgB64,setWishlistImgB64]=useState(null);
@@ -1623,13 +1624,21 @@ ${e.notes||""}`.trim();
       }
       const raw=await callAI({
         system:`You are Eleanor, a knowledgeable Personal Assistant helping Sarah (single mother, Cambridgeshire, children Maleeka and Maliki, ME/CFS, Rover dog-sitter, app developer) understand her finances. Today is ${fmt(today)}.
-Analyse the plan and return ONLY raw JSON:
+Analyse the plan and return ONLY raw JSON (no markdown, no text before or after):
 {"summary":string,"positives":["string"],"considerations":["string"],"action_steps":[{"step":string,"when":string,"priority":"high|medium|low"}],"calendar_reminders":[{"title":string,"date":"YYYY-MM-DD","notes":string}],"questions_to_ask":["string"],"monthly_impact":{"amount":number,"label":string},"projected_value":string,"risk_level":"low|medium|high","eleanor_advice":string}
-Rules: summary=2-3 plain English sentences. positives=max 4 strengths. considerations=max 4 watch-outs. action_steps=concrete things to do with timing. calendar_reminders=specific dates including ISA year end 5 April, 6-month review, monthly investment day. questions_to_ask=smart questions for her platform or adviser. eleanor_advice=warm personal 2-3 sentences for Sarah as single parent. Be encouraging but honest.`,
+Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 short strengths. considerations=max 3 short watch-outs. action_steps=max 3, each step under 100 chars. calendar_reminders=max 4 key dates (ISA year end 5 April, 6-month review, monthly investment day). questions_to_ask=max 3 short questions. eleanor_advice=2 warm sentences. Keep every string under 150 characters. Be encouraging but honest.`,
         messages,
-        max_tokens:2000
+        max_tokens:4000
       });
-      const parsed=robustJSON(raw);
+      let parsed=robustJSON(raw);
+      // Fallback: if parsing failed, give a simple text-based result
+      if(!parsed&&raw){
+        parsed={
+          summary:"Eleanor reviewed your plan but had trouble formatting the full breakdown. Here are her thoughts:",
+          eleanor_advice:raw.replace(/[{}\[\]"]/g,"").slice(0,600),
+          positives:[],considerations:[],action_steps:[],calendar_reminders:[],questions_to_ask:[]
+        };
+      }
       if(parsed)setFinPlanRes(parsed);
       else setFinPlanRes({error:true});
     }catch(e){console.error(e);setFinPlanRes({error:true});}
@@ -3147,11 +3156,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
 
         {/* Paste text */}
-        <textarea id="fin-plan-textarea" style={{...inp,minHeight:140,resize:"vertical",marginBottom:10}}
+        <textarea id="fin-plan-textarea" style={{...inp,minHeight:140,resize:"vertical",marginBottom:6}}
           placeholder={"Paste your financial plan, investment details, budget or statement here...\ne.g. VUSA ETF plan, ISA strategy, monthly budget, bank statement"}
           defaultValue={finPlanText}
           onBlur={e=>setFinPlanText(e.target.value)}
         />
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+          <button onClick={()=>{setFinPlanText("");setFinPlanRes(null);const el=document.getElementById("fin-plan-textarea");if(el)el.value="";}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear Text</button>
+        </div>
 
         {/* Or upload PDF/statement */}
         <div style={{display:"flex",alignItems:"center",gap:8,margin:"10px 0"}}>
@@ -3232,14 +3244,34 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {/* Calendar reminders */}
           {finPlanRes.calendar_reminders?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>📅 Add to Your Calendar</div>
+            <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:8,fontStyle:"italic"}}>Tap any reminder to edit it before adding.</div>
             {finPlanRes.calendar_reminders.map((r,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
-                <div>
-                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{r.title}</div>
-                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.date}</div>
-                  {r.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>{r.notes}</div>}
-                </div>
-                <button onClick={()=>{if(r.date)addEvs([{title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||"Financial reminder"}],"finance");}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,marginLeft:8}}>＋ Add</button>
+              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
+                {finReminderEdit===i?(
+                  <div>
+                    <input defaultValue={r.title} onChange={e=>{const cr=[...finPlanRes.calendar_reminders];cr[i]={...cr[i],title:e.target.value};setFinPlanRes({...finPlanRes,calendar_reminders:cr});}} style={{...inp,marginBottom:6}} placeholder="Title"/>
+                    <div style={{display:"flex",gap:6}}>
+                      <input type="date" defaultValue={r.date} onChange={e=>{const cr=[...finPlanRes.calendar_reminders];cr[i]={...cr[i],date:e.target.value};setFinPlanRes({...finPlanRes,calendar_reminders:cr});}} style={{...inp,flex:1,marginBottom:6}}/>
+                    </div>
+                    <input defaultValue={r.notes||""} onChange={e=>{const cr=[...finPlanRes.calendar_reminders];cr[i]={...cr[i],notes:e.target.value};setFinPlanRes({...finPlanRes,calendar_reminders:cr});}} style={{...inp,marginBottom:8}} placeholder="Notes"/>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>setFinReminderEdit(null)} style={goldBtn()}>✓ Done Editing</button>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{flex:1}} onClick={()=>setFinReminderEdit(i)}>
+                      <div style={{fontSize:13,fontFamily:FD,color:C.ink,cursor:"pointer"}}>{r.title}</div>
+                      <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{r.date}</div>
+                      {r.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:2}}>{r.notes}</div>}
+                      <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginTop:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to edit</div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:8}}>
+                      <button onClick={()=>setFinReminderEdit(i)} style={{padding:"6px 10px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,cursor:"pointer"}}>✎</button>
+                      <button onClick={()=>{if(r.date)addEvs([{title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||"Financial reminder"}],"finance");}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             <button style={goldBtn()} onClick={()=>{if(finPlanRes.calendar_reminders?.length){addEvs(finPlanRes.calendar_reminders.filter(r=>r.date).map(r=>({title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||""})),"finance");alert("All reminders added to your schedule!");}}}>Add All Reminders to Schedule</button>
