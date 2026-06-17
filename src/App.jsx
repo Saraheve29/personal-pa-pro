@@ -1,3 +1,4 @@
+// VERSION_CHECK: Finances+ConflictDismiss build - June 17 2026
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -3378,6 +3379,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
         {/* Action buttons row */}
         <div style={{display:"flex",gap:6,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
+          <button onClick={()=>{setCriticalOnly(false);setView("finances");}} style={{flex:1,padding:"7px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>💰 Finances</button>
           <button onClick={()=>{
             const next=!eleanorVoiceOn;
             setEleanorVoiceOn(next);
@@ -3660,7 +3662,17 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     );
 
     return(<div style={{paddingBottom:90}}>
-      <div style={SL}>💰 Finances</div>
+      {/* Big bold header matching Executive Briefing style */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={SL}>Financial Overview</div>
+      </div>
+      <div style={{display:"flex",gap:14,alignItems:"center",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:18,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{width:56,height:56,borderRadius:"50%",background:`linear-gradient(145deg,${C.cream},${C.creamDeep})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,border:`2px solid ${C.goldBorder}`,boxShadow:`0 0 12px rgba(196,153,62,0.3)`}}>💰</div>
+        <div>
+          <div style={{fontFamily:FD,fontSize:24,color:C.ink,fontStyle:"italic",marginBottom:2}}>Finances</div>
+          <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.5}}>Track income, outgoings and payment history all in one place.</div>
+        </div>
+      </div>
 
       {/* Summary cards */}
       <div style={{display:"flex",gap:10,marginBottom:14}}>
@@ -4336,7 +4348,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{padding:"12px 16px",border:"none",background:"none",cursor:"pointer",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",borderRight:`1px solid ${C.borderSoft}`,whiteSpace:"nowrap"}}>← Home</button>
             <div style={{flex:1,padding:"0 16px",fontSize:10,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase"}}>{VIEW_LABELS[view]}</div>
           </>
-          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["finances","💰"],["add","＋ Add"]].map(([v,l])=>(
+          :[["home","Home"],["calendar","Calendar"],["wishlist","✦ Wishlist"],["chat","Eleanor"],["finances","💰 Finances"],["add","＋ Add"]].map(([v,l])=>(
             <button key={v} onClick={()=>{if(v==="home")setCriticalOnly(false);setView(v);}} style={{padding:"12px 14px",border:"none",cursor:"pointer",fontSize:9,letterSpacing:"0.18em",textTransform:"uppercase",fontFamily:FM,whiteSpace:"nowrap",background:"transparent",color:view===v?C.gold:C.inkFaint,borderBottom:view===v?`2px solid ${C.gold}`:"2px solid transparent",transition:"all 0.2s"}}>{l}</button>
           ))
         }
