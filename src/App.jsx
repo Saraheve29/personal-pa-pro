@@ -1,4 +1,4 @@
-// VERSION_CHECK: Full-Finance-Sync build - June 18 2026 v14
+// VERSION_CHECK: Save-Sync-Income-Fix build - June 18 2026 v17
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -3201,10 +3201,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em"}}>OR UPLOAD FILE</div>
           <div style={{flex:1,height:1,background:C.borderSoft}}/>
         </div>
-        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"16px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:finPlanFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:6}}>
-          {finPlanFile?"✦ "+finPlanFile.name:"📄 Upload PDF statement or plan (optional)"}
+        <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"16px",textAlign:"center",cursor:"pointer",marginBottom:finPlanFile?6:12,background:C.cardWarm,color:finPlanFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:6}}>
+          {finPlanFile?"✦ "+finPlanFile.name:"📄 Upload PDF or screenshot (optional)"}
           <input type="file" accept="application/pdf,.pdf,image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setFinPlanFile(f);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setFinPlanB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
         </label>
+        {finPlanFile&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+          <button onClick={()=>{setFinPlanFile(null);setFinPlanB64(null);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Remove File</button>
+        </div>}
 
         {/* Notes for Eleanor */}
         <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:12}}>
@@ -3243,7 +3246,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             </div>
             <button onClick={()=>{
-              setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label:finPlanRes.monthly_impact.label||"Investment",amount:finPlanRes.monthly_impact.amount,date:fmt(today),type:"expense",notes:"From financial plan",status:"pending",source:"finplan"}]);
+              setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label:finPlanRes.monthly_impact.label||"Investment",amount:finPlanRes.monthly_impact.amount,date:fmt(today),type:(/income|earning|rover|wage|salary|benefit|allowance|received|saving/i.test((finPlanRes.monthly_impact.label||"")+" "+(finPlanNote||"")))?"income":"expense",notes:"From financial plan",status:"pending",source:"finplan"}]);
               alert("Saved to your Finances — it'll now show in your briefing and Finances section.");
             }} style={{width:"100%",padding:"9px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.sapphire},${C.sapphire}cc)`,color:"#fff",fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>💰 Save to My Finances</button>
           </div>}
@@ -3267,7 +3270,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {finPlanRes.positives?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>✓ What's Good About This Plan</div>
             {finPlanRes.positives.map((p,i)=>(
-              <div key={i} style={{padding:"8px 12px",background:C.emeraldBg,borderLeft:`3px solid ${C.emerald}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB}}>✓ {p}</div>
+              <div key={i} style={{padding:"8px 12px",background:C.emeraldBg,borderLeft:`3px solid ${C.emerald}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}><span style={{flex:1}}>✓ {p}</span><button onClick={()=>{const arr=finPlanRes.positives.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,positives:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button></div>
             ))}
           </div>}
 
@@ -3275,7 +3278,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {finPlanRes.considerations?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>⚠ Things to Be Aware Of</div>
             {finPlanRes.considerations.map((p,i)=>(
-              <div key={i} onClick={()=>setFinAction({item:{id:"plan-note",label:p,amount:0,type:"note"},isPlanNote:true})} style={{padding:"8px 12px",background:C.goldPale,borderLeft:`3px solid ${C.goldBorder}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB,cursor:"pointer"}}>⚠ {p} <span style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em"}}>· tap to correct</span></div>
+              <div key={i} style={{padding:"8px 12px",background:C.goldPale,borderLeft:`3px solid ${C.goldBorder}`,borderRadius:3,marginBottom:5,fontSize:13,color:C.inkMid,fontFamily:FB,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <span style={{flex:1}}>⚠ {p}</span>
+                <button onClick={()=>{const arr=finPlanRes.considerations.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,considerations:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
+              </div>
             ))}
           </div>}
 
@@ -3283,9 +3289,12 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {finPlanRes.action_steps?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>What to Do Next</div>
             {finPlanRes.action_steps.map((a,i)=>{const col=a.priority==="high"?C.crimson:a.priority==="medium"?C.gold:C.emerald;return(
-              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:6}}>
-                <div style={{fontSize:13,color:C.ink,fontFamily:FB}}>→ {a.step}</div>
-                {a.when&&<div style={{fontSize:10,color:col,fontFamily:FM,marginTop:3}}>When: {a.when}</div>}
+              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,color:C.ink,fontFamily:FB}}>→ {a.step}</div>
+                  {a.when&&<div style={{fontSize:10,color:col,fontFamily:FM,marginTop:3}}>When: {a.when}</div>}
+                </div>
+                <button onClick={()=>{const arr=finPlanRes.action_steps.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,action_steps:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
               </div>
             );})}
           </div>}
@@ -3294,7 +3303,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {finPlanRes.questions_to_ask?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>Questions to Ask Your Platform</div>
             {finPlanRes.questions_to_ask.map((q,i)=>(
-              <div key={i} style={{padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4,fontSize:12,color:C.inkMid,fontFamily:FB}}>? {q}</div>
+              <div key={i} style={{padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4,fontSize:12,color:C.inkMid,fontFamily:FB,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <span style={{flex:1}}>? {q}</span>
+                <button onClick={()=>{const arr=finPlanRes.questions_to_ask.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,questions_to_ask:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+              </div>
             ))}
           </div>}
 
@@ -3326,6 +3338,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                     <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:8}}>
                       <button onClick={()=>setFinReminderEdit(i)} style={{padding:"6px 10px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,cursor:"pointer"}}>✎</button>
                       <button onClick={()=>{if(r.date)addEvs([{title:r.title,date:r.date,time:"09:00",priority:"medium",notes:r.notes||"Financial reminder"}],"finance");}} style={{padding:"6px 12px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>＋ Add</button>
+                      <button onClick={()=>{const arr=finPlanRes.calendar_reminders.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,calendar_reminders:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13}}>✕</button>
                     </div>
                   </div>
                 )}
@@ -3861,6 +3874,11 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               <input id={`edit-amount-${f.id}`} defaultValue={f.amount} type="number" onChange={e=>setEditDraft(d=>({...d,amount:e.target.value}))} style={{...inp,flex:1,marginBottom:6}} placeholder="Amount"/>
               <input id={`edit-date-${f.id}`} defaultValue={f.date||""} type="date" onChange={e=>setEditDraft(d=>({...d,date:e.target.value}))} style={{...inp,flex:1,marginBottom:6}}/>
             </div>
+            {/* Income / Outgoing toggle */}
+            <div style={{display:"flex",gap:6,marginBottom:8}}>
+              <button onClick={()=>setEditDraft(d=>({...d,type:"income"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)==="income"?C.emerald:C.borderSoft}`,background:(editDraft.type||f.type)==="income"?C.emeraldBg:C.card,color:(editDraft.type||f.type)==="income"?C.emerald:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↓ Money In (Income)</button>
+              <button onClick={()=>setEditDraft(d=>({...d,type:"expense"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)!=="income"?C.crimson:C.borderSoft}`,background:(editDraft.type||f.type)!=="income"?C.crimsonBg:C.card,color:(editDraft.type||f.type)!=="income"?C.crimson:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↑ Money Out</button>
+            </div>
             <input id={`edit-notes-${f.id}`} defaultValue={f.notes||""} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} style={{...inp,marginBottom:8}} placeholder="Notes (optional)"/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>saveEdit(f.id)} style={goldBtn()}>✓ Save</button>
@@ -3888,6 +3906,18 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     );
 
     return(<div style={{paddingBottom:90}}>
+      {/* Save & Sync — forces a save and confirms everything is in sync */}
+      <button onClick={()=>{
+        // finances already auto-saves; this confirms and re-triggers sync to localStorage
+        localStorage.setItem("papa_finances",JSON.stringify(finances));
+        const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+        const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+        alert("✓ Saved & synced everywhere.\n\nMoney In: £"+inc.toFixed(2)+"\nMoney Out: £"+out.toFixed(2)+"\n\nEleanor's chat, your briefing and schedule checker now all see this.");
+      }} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.emerald},${C.emerald}cc)`,color:"#fff",fontFamily:FM,fontSize:11,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginBottom:12,boxShadow:`0 4px 16px ${C.shadowMed}`}}>✓ Save & Sync Everywhere</button>
+
+      {/* Quick access to Financial Planner at very top */}
+      <button onClick={()=>{setImpTab("finance");setView("import");}} style={{width:"100%",padding:"14px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:11,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginBottom:16,boxShadow:`0 4px 16px ${C.shadowMed}`}}>✦ Upload / Analyse a Financial Plan</button>
+
       {/* Big bold header matching Executive Briefing style */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={SL}>Financial Overview</div>
