@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Analysis-Fix build - June 17 2026 v9
+// VERSION_CHECK: Finance-Sync-And-Delete-Fix build - June 18 2026 v11
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -906,8 +906,14 @@ Rules:
 
       const thisMonth=new Date().getMonth();
       const thisYear=new Date().getFullYear();
-      const monthFin=finances.filter(f=>f.status!=="paid"&&f.date&&new Date(f.date+"T12:00:00").getMonth()===thisMonth&&new Date(f.date+"T12:00:00").getFullYear()===thisYear);
-      const finCtx=monthFin.length>0?"THIS MONTH'S FINANCES:\n"+monthFin.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+" ("+f.type+") due "+f.date).join("\n"):"";
+      const allIncome=finances.filter(f=>f.type==="income"&&f.status!=="paid");
+      const allOutgoings=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+      const totalIncome=allIncome.reduce((s,f)=>s+(f.amount||0),0);
+      const totalOutgoings=allOutgoings.reduce((s,f)=>s+(f.amount||0),0);
+      const finParts=[];
+      if(allIncome.length>0)finParts.push("MONEY COMING IN (income, total £"+totalIncome.toFixed(2)+"):\n"+allIncome.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+(f.date?" ("+f.date+")":"")).join("\n"));
+      if(allOutgoings.length>0)finParts.push("MONEY GOING OUT (outgoings, total £"+totalOutgoings.toFixed(2)+"):\n"+allOutgoings.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+(f.date?" ("+f.date+")":"")).join("\n"));
+      const finCtx=finParts.length>0?"SARAH'S FINANCES (from her Finances section — treat income as money IN, outgoings as money OUT, never swap them):\n"+finParts.join("\n\n"):"";
 
       const goalsCtx=weeklyGoals?.goals?.length>0?"THIS WEEK'S GOALS:\n"+weeklyGoals.goals.map((g,i)=>"- "+g+(weeklyGoals.done?.[i]?" [DONE]":"")).join("\n"):"";
 
@@ -972,7 +978,7 @@ Rules:
         "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year. NEVER assume 2027 or beyond unless Sarah explicitly says so.",
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
-        "YOU CAN EDIT THE SCHEDULE DIRECTLY. When Sarah asks you to delete, move, add or reschedule an event, you MUST add a SCHEDULE_ACTION block at the very END of your reply. Confirm the change in plain words first, THEN add the block. Examples (use the exact title from the schedule): To delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. To add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. To move (deletes old, adds new) - [SCHEDULE_ACTION:{action:move,title:Garden Centre,fromDate:2026-06-20,toDate:2026-07-04,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. NEVER say you changed something without including the block. Use the current year for any date without a year.",
+        "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. Examples (use the exact title from the schedule): To delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. To add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. To move (deletes old AND adds new in one step) - [SCHEDULE_ACTION:{action:move,title:Garden Centre,fromDate:2026-06-20,toDate:2026-07-04,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. To reschedule something, ALWAYS use a move action so the old one is deleted automatically. Use the current year for any date without a year.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
@@ -1092,8 +1098,8 @@ Rules:
           model:"claude-sonnet-4-5",
           max_tokens:16000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
-Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"cost|saving|payment","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
-Rules: extract every date/trip/payment/cost. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT NOTE FROM SARAH: "${importContext}" — Use this note to correctly NAME and LABEL the appointment in the title field. If the note says what the appointment is (e.g. "this is a blood test"), use that as the event title even if the screenshot doesn't mention it. Also use it to filter and prioritise.`:""}`,
+Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"income|expense","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
+Rules: extract every date/trip/payment/cost. For financials: money Sarah RECEIVES (Rover earnings, wages, benefits, refunds, payments TO her) = type "income". Money Sarah PAYS (bills, costs, purchases) = type "expense". Rover dog-sitting payments are ALWAYS income. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT NOTE FROM SARAH: "${importContext}" — Use this note to correctly NAME and LABEL the appointment in the title field. If the note says what the appointment is (e.g. "this is a blood test"), use that as the event title even if the screenshot doesn't mention it. Also use it to filter and prioritise.`:""}`,
           messages:[{role:"user",content:`Analyse this text and extract all information:
 
 ${pasteText}`}]
@@ -1234,7 +1240,13 @@ ${importContext?"CONTEXT: "+importContext:""}`;
         parsed.events=parsed.events.filter(ev=>ev.title&&ev.date);
                 setImgRes(parsed);
         if(parsed.financials?.length){
-          setFinances(f=>[...f,...parsed.financials.map(fi=>({...fi,id:Date.now()+Math.random(),status:"pending",source:"image"}))]);
+          setFinances(f=>[...f,...parsed.financials.map(fi=>{
+            // Normalise type: saving/earning/income/received = income, everything else = expense
+            const t=(fi.type||"").toLowerCase();
+            const label=(fi.label||"").toLowerCase();
+            const isIncome=t==="saving"||t==="income"||t==="earning"||t==="received"||/earning|income|payment received|paid to you|rover|wage|salary|benefit|allowance/.test(label);
+            return {...fi,type:isIncome?"income":"expense",id:Date.now()+Math.random(),status:"pending",source:"image"};
+          })]);
         }
       }
     }catch(e){
@@ -1639,7 +1651,13 @@ Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 sh
           positives:[],considerations:[],action_steps:[],calendar_reminders:[],questions_to_ask:[]
         };
       }
-      if(parsed)setFinPlanRes(parsed);
+      if(parsed){
+        // If the plan mentions a monthly amount, offer to save it to finances
+        if(parsed.monthly_impact?.amount){
+          parsed._canSaveToFinances=true;
+        }
+        setFinPlanRes(parsed);
+      }
       else setFinPlanRes({error:true});
     }catch(e){console.error(e);setFinPlanRes({error:true});}
     setFinPlanBusy(false);
@@ -3189,6 +3207,20 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {finPlanRes.eleanor_advice&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"14px 16px",marginBottom:14}}>
             <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6}}>✦ Eleanor's Advice for You</div>
             <div style={{fontSize:14,color:C.ink,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{finPlanRes.eleanor_advice}"</div>
+          </div>}
+
+          {/* Monthly impact + save to finances */}
+          {finPlanRes.monthly_impact?.amount&&<div style={{background:C.sapphireBg,border:`1px solid ${C.sapphire}30`,borderLeft:`4px solid ${C.sapphire}`,borderRadius:4,padding:"12px 14px",marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div>
+                <div style={{fontSize:9,color:C.sapphire,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase"}}>Monthly Commitment</div>
+                <div style={{fontFamily:FD,fontSize:18,color:C.ink}}>£{finPlanRes.monthly_impact.amount} {finPlanRes.monthly_impact.label||""}</div>
+              </div>
+            </div>
+            <button onClick={()=>{
+              setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label:finPlanRes.monthly_impact.label||"Investment",amount:finPlanRes.monthly_impact.amount,date:fmt(today),type:"expense",notes:"From financial plan",status:"pending",source:"finplan"}]);
+              alert("Saved to your Finances — it'll now show in your briefing and Finances section.");
+            }} style={{width:"100%",padding:"9px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.sapphire},${C.sapphire}cc)`,color:"#fff",fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>💰 Save to My Finances</button>
           </div>}
 
           {/* Summary */}
