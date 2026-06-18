@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Sync-And-Delete-Fix build - June 18 2026 v11
+// VERSION_CHECK: Full-Finance-Sync build - June 18 2026 v14
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -622,6 +622,8 @@ function AppInner(){
   const [finPlanBusy,setFinPlanBusy]=useState(false);
   const [finPlanRes,setFinPlanRes]=useState(null);
   const [finReminderEdit,setFinReminderEdit]=useState(null);
+  const [expandedPlanId,setExpandedPlanId]=useState(null);
+  const [finPlanNote,setFinPlanNote]=useState("");
   const [wishlistImportMode,setWishlistImportMode]=useState(null);
   const [wishlistImgFile,setWishlistImgFile]=useState(null);
   const [wishlistImgB64,setWishlistImgB64]=useState(null);
@@ -1068,6 +1070,16 @@ Rules:
     const freshEvs=JSON.parse(localStorage.getItem("papa_events")||"[]");
     const allEvs=freshEvs.length>=events.length?freshEvs:events;
     const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
+
+    // Finance context for briefing - same source as chat and finances section
+    const brIncome=finances.filter(f=>f.type==="income"&&f.status!=="paid");
+    const brOut=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+    const brInTotal=brIncome.reduce((s,f)=>s+(f.amount||0),0);
+    const brOutTotal=brOut.reduce((s,f)=>s+(f.amount||0),0);
+    const brFinParts=[];
+    if(brIncome.length>0)brFinParts.push("MONEY COMING IN (total GBP "+brInTotal.toFixed(2)+"): "+brIncome.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)).join(", "));
+    if(brOut.length>0)brFinParts.push("MONEY GOING OUT (total GBP "+brOutTotal.toFixed(2)+"): "+brOut.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)).join(", "));
+    const brFinCtx=brFinParts.length>0?"SARAH'S FINANCES (income is money IN, outgoings money OUT, never swap):\n"+brFinParts.join("\n"):"";
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
     const hour=new Date().getHours();
     const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
@@ -1078,7 +1090,7 @@ Rules:
     const wxBriefCtx=weekWeather?.length>0
       ?"7-DAY WEATHER:\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°/"+w.min+"°, rain "+w.rain+"%").join("\n")
       :"";
-    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+"\n\nConflicts:"+cfls.length+"."}]});
+    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling. If finances are provided, you may gently mention money coming in or due out in your summary or recommendations — but treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+"\n\nConflicts:"+cfls.length+"."}]});
     const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
@@ -1629,10 +1641,10 @@ ${e.notes||""}`.trim();
         const isPDF=finPlanFile.type==="application/pdf";
         messages=[{role:"user",content:[
           {type:isPDF?"document":"image",source:{type:"base64",media_type:finPlanFile.type,data:finPlanB64}},
-          {type:"text",text:"Analyse this financial document and give personalised advice."}
+          {type:"text",text:"Analyse this financial document and give personalised advice."+(finPlanNote?" IMPORTANT NOTE FROM SARAH: "+finPlanNote+" Use this to correctly understand income vs outgoings and context.":"")}
         ]}];
       }else{
-        messages=[{role:"user",content:"Analyse this financial plan:\n\n"+text}];
+        messages=[{role:"user",content:"Analyse this financial plan:\n\n"+text+(finPlanNote?"\n\nIMPORTANT NOTE FROM SARAH: "+finPlanNote+"\nUse this note to correctly understand what is income vs outgoing and any context.":"")}];
       }
       const raw=await callAI({
         system:`You are Eleanor, a knowledgeable Personal Assistant helping Sarah (single mother, Cambridgeshire, children Maleeka and Maliki, ME/CFS, Rover dog-sitter, app developer) understand her finances. Today is ${fmt(today)}.
@@ -3180,7 +3192,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           onBlur={e=>setFinPlanText(e.target.value)}
         />
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-          <button onClick={()=>{setFinPlanText("");setFinPlanRes(null);const el=document.getElementById("fin-plan-textarea");if(el)el.value="";}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear Text</button>
+          <button onClick={()=>{setFinPlanText("");setFinPlanRes(null);setFinPlanNote("");const el=document.getElementById("fin-plan-textarea");if(el)el.value="";const nl=document.getElementById("fin-plan-note");if(nl)nl.value="";}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear Text</button>
         </div>
 
         {/* Or upload PDF/statement */}
@@ -3194,7 +3206,20 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <input type="file" accept="application/pdf,.pdf,image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setFinPlanFile(f);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setFinPlanB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
         </label>
 
-        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("fin-plan-textarea");if(el)setFinPlanText(el.value);analyseFinancialPlan();}} disabled={finPlanBusy}>
+        {/* Notes for Eleanor */}
+        <div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:12,color:C.inkMid,fontFamily:FD,fontStyle:"italic",marginBottom:6}}>📝 Add a note (optional)</div>
+          <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:8,lineHeight:1.5}}>Tell Eleanor anything the plan doesn't say — what's income, what's a bill, context she should know.</div>
+          <textarea
+            id="fin-plan-note"
+            style={{width:"100%",padding:"9px 12px",borderRadius:3,border:`1px solid ${C.border}`,fontSize:12,background:C.card,color:C.ink,fontFamily:FB,outline:"none",boxSizing:"border-box",minHeight:54,resize:"vertical"}}
+            placeholder={"e.g. 'The £48 from Rover is income, not a bill' · 'This £225 is my monthly investment going out' · 'The Nationwide figure is savings'"}
+            defaultValue={finPlanNote}
+            onBlur={e=>setFinPlanNote(e.target.value)}
+          />
+        </div>
+
+        <button style={goldBtn()} onClick={()=>{const el=document.getElementById("fin-plan-textarea");if(el)setFinPlanText(el.value);const nl=document.getElementById("fin-plan-note");if(nl)setFinPlanNote(nl.value);analyseFinancialPlan();}} disabled={finPlanBusy}>
           {finPlanBusy?"Eleanor is analysing…":"✦ Analyse My Financial Plan"}
         </button>
 
@@ -3311,9 +3336,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
           <button onClick={()=>{
             const saved=JSON.parse(localStorage.getItem("papa_saved_plans")||"[]");
-            saved.unshift({id:Date.now(),date:new Date().toLocaleDateString("en-GB"),summary:finPlanRes.summary||"Financial plan",data:finPlanRes});
+            saved.unshift({id:Date.now(),date:new Date().toLocaleDateString("en-GB"),summary:finPlanRes.summary||"Financial plan",data:finPlanRes,planText:finPlanText||document.getElementById("fin-plan-textarea")?.value||""});
             localStorage.setItem("papa_saved_plans",JSON.stringify(saved.slice(0,20)));
-            alert("Plan saved! You can find it in the Finances section.");
+            alert("Plan saved! You can find it in the Finances section — tap it to open the full plan.");
           }} style={{...goldBtn(),marginTop:8}}>💾 Save This Plan & Advice</button>
           <button onClick={()=>{setFinPlanRes(null);setFinPlanText("");setFinPlanFile(null);setFinPlanB64(null);const el=document.getElementById("fin-plan-textarea");if(el)el.value="";}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:8}}>Clear</button>
         </div>}
@@ -3977,15 +4002,38 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         return(<div style={{marginTop:14,marginBottom:14}}>
           <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✦ Saved Plans & Advice</div>
           {savedPlans.map((p)=>(
-            <div key={p.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px 14px",marginBottom:8}}>
+            <div key={p.id} style={{background:C.card,border:`1px solid ${expandedPlanId===p.id?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"12px 14px",marginBottom:8}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={{flex:1}}>
+                <div style={{flex:1,cursor:"pointer"}} onClick={()=>setExpandedPlanId(expandedPlanId===p.id?null:p.id)}>
                   <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginBottom:4}}>{p.date}</div>
                   <div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{p.summary}</div>
+                  <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginTop:4,letterSpacing:"0.1em",textTransform:"uppercase"}}>{expandedPlanId===p.id?"▲ tap to close":"▼ tap to open full plan"}</div>
                 </div>
                 <button onClick={()=>{const sp=JSON.parse(localStorage.getItem("papa_saved_plans")||"[]").filter(x=>x.id!==p.id);localStorage.setItem("papa_saved_plans",JSON.stringify(sp));setView("home");setTimeout(()=>setView("finances"),50);}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12,marginLeft:8}}>✕</button>
               </div>
               {p.data?.eleanor_advice&&<div style={{marginTop:8,padding:"8px 10px",background:C.goldPale,borderRadius:4,fontSize:12,color:C.inkMid,fontFamily:FB,fontStyle:"italic",lineHeight:1.5}}>"{p.data.eleanor_advice}"</div>}
+
+              {/* Expanded full plan */}
+              {expandedPlanId===p.id&&<div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>
+                {p.planText&&<div style={{marginBottom:10}}>
+                  <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Your Plan</div>
+                  <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.6,whiteSpace:"pre-wrap",background:C.parchment,padding:"10px",borderRadius:4}}>{p.planText}</div>
+                </div>}
+                {p.data?.positives?.length>0&&<div style={{marginBottom:8}}>
+                  <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>✓ Strengths</div>
+                  {p.data.positives.map((x,i)=><div key={i} style={{fontSize:12,color:C.inkMid,fontFamily:FB,padding:"4px 0",lineHeight:1.5}}>✓ {x}</div>)}
+                </div>}
+                {p.data?.considerations?.length>0&&<div style={{marginBottom:8}}>
+                  <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>⚠ Watch-outs</div>
+                  {p.data.considerations.map((x,i)=><div key={i} style={{fontSize:12,color:C.inkMid,fontFamily:FB,padding:"4px 0",lineHeight:1.5}}>⚠ {x}</div>)}
+                </div>}
+                {p.data?.action_steps?.length>0&&<div style={{marginBottom:8}}>
+                  <div style={{fontSize:9,color:C.sapphire,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:4}}>Action Steps</div>
+                  {p.data.action_steps.map((x,i)=><div key={i} style={{fontSize:12,color:C.inkMid,fontFamily:FB,padding:"4px 0",lineHeight:1.5}}>→ {x.step}{x.when?" ("+x.when+")":""}</div>)}
+                </div>}
+                {p.data?.projected_value&&<div style={{fontSize:12,color:C.inkMid,fontFamily:FB,padding:"6px 0"}}>Projected value: <span style={{fontFamily:FD,color:C.gold}}>{p.data.projected_value}</span></div>}
+                <button onClick={()=>{setFinPlanRes(p.data);setFinPlanText(p.planText||"");setImpTab("finance");setView("import");}} style={{...goldBtn(true),marginTop:8}}>Re-open in Financial Planner</button>
+              </div>}
             </div>
           ))}
         </div>);
