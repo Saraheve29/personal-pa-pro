@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Answerable-Steps build - June 18 2026 v18
+// VERSION_CHECK: Confirm-Costs-Typing-Fix build - June 19 2026 v19
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -125,6 +125,20 @@ const ImportIcon=({type,size=36})=>{
   const p=paths[type]||paths.text;
   return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={p.stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={p.d}/></svg>);
 };
+
+function AmountInput({initial,color,onSave}){
+  const [val,setVal]=React.useState(initial==null?"":String(initial));
+  return(
+    <input
+      type="number"
+      inputMode="decimal"
+      value={val}
+      onChange={e=>setVal(e.target.value)}
+      onBlur={()=>onSave(parseFloat(val)||0)}
+      style={{width:80,padding:"6px 8px",border:"1px solid #D4B86A",borderRadius:3,fontSize:14,fontFamily:"'Cormorant Garamond',Georgia,serif",color,textAlign:"right",background:"#F7EDCC",outline:"none"}}
+    />
+  );
+}
 
 function ConflictAlert({cfls,events,onDelete,onDismiss,defaultOpen}){
   const [open,setOpen]=useState(defaultOpen||false);
@@ -2233,11 +2247,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:4}}>
                   <span style={{fontSize:13,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontFamily:FD}}>£</span>
-                  <input
-                    type="number"
-                    defaultValue={f.amount||0}
-                    onBlur={e=>{const updated=[...editedFinancials];updated[i]={...f,amount:parseFloat(e.target.value)||0};setEditedFinancials(updated);}}
-                    style={{width:80,padding:"6px 8px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:14,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,textAlign:"right",background:C.goldPale,outline:"none"}}
+                  <AmountInput
+                    initial={f.amount||0}
+                    color={f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson}
+                    onSave={amt=>{const updated=[...editedFinancials];updated[i]={...f,amount:amt};setEditedFinancials(updated);}}
                   />
                 </div>
               </div>
