@@ -1,4 +1,4 @@
-// VERSION_CHECK: Save-Sync-Income-Fix build - June 18 2026 v17
+// VERSION_CHECK: Finance-Answerable-Steps build - June 18 2026 v18
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -624,6 +624,8 @@ function AppInner(){
   const [finReminderEdit,setFinReminderEdit]=useState(null);
   const [expandedPlanId,setExpandedPlanId]=useState(null);
   const [finPlanNote,setFinPlanNote]=useState("");
+  const [finStepEdit,setFinStepEdit]=useState(null);
+  const [finQEdit,setFinQEdit]=useState(null);
   const [wishlistImportMode,setWishlistImportMode]=useState(null);
   const [wishlistImgFile,setWishlistImgFile]=useState(null);
   const [wishlistImgB64,setWishlistImgB64]=useState(null);
@@ -2224,7 +2226,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>}
             </div>}
             {editedFinancials.map((f,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,gap:10}}>
+              <div key={f.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 13px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
                   {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:1}}>{f.date}</div>}
@@ -2233,8 +2235,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   <span style={{fontSize:13,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,fontFamily:FD}}>£</span>
                   <input
                     type="number"
-                    value={f.amount||0}
-                    onChange={e=>{const updated=[...editedFinancials];updated[i]={...f,amount:parseFloat(e.target.value)||0};setEditedFinancials(updated);}}
+                    defaultValue={f.amount||0}
+                    onBlur={e=>{const updated=[...editedFinancials];updated[i]={...f,amount:parseFloat(e.target.value)||0};setEditedFinancials(updated);}}
                     style={{width:80,padding:"6px 8px",border:`1px solid ${C.goldBorder}`,borderRadius:3,fontSize:14,fontFamily:FD,color:f.type==="saving"?C.emerald:f.type==="payment"?C.gold:C.crimson,textAlign:"right",background:C.goldPale,outline:"none"}}
                   />
                 </div>
@@ -3288,13 +3290,26 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {/* Action steps */}
           {finPlanRes.action_steps?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>What to Do Next</div>
+            <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:8,fontStyle:"italic"}}>Tap any step to edit or add your notes.</div>
             {finPlanRes.action_steps.map((a,i)=>{const col=a.priority==="high"?C.crimson:a.priority==="medium"?C.gold:C.emerald;return(
-              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,color:C.ink,fontFamily:FB}}>→ {a.step}</div>
-                  {a.when&&<div style={{fontSize:10,color:col,fontFamily:FM,marginTop:3}}>When: {a.when}</div>}
-                </div>
-                <button onClick={()=>{const arr=finPlanRes.action_steps.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,action_steps:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+              <div key={i} style={{padding:"10px 12px",background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:6}}>
+                {finStepEdit===i?(
+                  <div>
+                    <textarea defaultValue={a.step} onChange={e=>{const arr=[...finPlanRes.action_steps];arr[i]={...arr[i],step:e.target.value};setFinPlanRes({...finPlanRes,action_steps:arr});}} style={{...inp,minHeight:50,marginBottom:6}} placeholder="Step"/>
+                    <textarea defaultValue={a.answer||""} onChange={e=>{const arr=[...finPlanRes.action_steps];arr[i]={...arr[i],answer:e.target.value};setFinPlanRes({...finPlanRes,action_steps:arr});}} style={{...inp,minHeight:50,marginBottom:6}} placeholder="Your notes / answer (saved when you tap Done)"/>
+                    <button onClick={()=>{setFinStepEdit(null);localStorage.setItem("papa_working_plan",JSON.stringify(finPlanRes));}} style={goldBtn()}>✓ Done & Save</button>
+                  </div>
+                ):(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{flex:1,cursor:"pointer"}} onClick={()=>setFinStepEdit(i)}>
+                      <div style={{fontSize:13,color:C.ink,fontFamily:FB}}>→ {a.step}</div>
+                      {a.when&&<div style={{fontSize:10,color:col,fontFamily:FM,marginTop:3}}>When: {a.when}</div>}
+                      {a.answer&&<div style={{fontSize:12,color:C.emerald,fontFamily:FB,marginTop:4,padding:"6px 8px",background:C.emeraldBg,borderRadius:3}}>✓ {a.answer}</div>}
+                      <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginTop:3,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to edit / answer</div>
+                    </div>
+                    <button onClick={()=>{const arr=finPlanRes.action_steps.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,action_steps:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+                  </div>
+                )}
               </div>
             );})}
           </div>}
@@ -3302,12 +3317,29 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {/* Questions to ask */}
           {finPlanRes.questions_to_ask?.length>0&&<div style={{marginBottom:12}}>
             <div style={SL}>Questions to Ask Your Platform</div>
-            {finPlanRes.questions_to_ask.map((q,i)=>(
-              <div key={i} style={{padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:4,fontSize:12,color:C.inkMid,fontFamily:FB,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <span style={{flex:1}}>? {q}</span>
-                <button onClick={()=>{const arr=finPlanRes.questions_to_ask.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,questions_to_ask:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+            <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:8,fontStyle:"italic"}}>Tap a question to write your answer — it saves with the plan.</div>
+            {finPlanRes.questions_to_ask.map((q,i)=>{
+              const qObj=typeof q==="string"?{question:q,answer:""}:q;
+              return(
+              <div key={i} style={{padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:3,marginBottom:6}}>
+                {finQEdit===i?(
+                  <div>
+                    <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:6}}>? {qObj.question}</div>
+                    <textarea defaultValue={qObj.answer||""} onChange={e=>{const arr=[...finPlanRes.questions_to_ask];arr[i]={question:qObj.question,answer:e.target.value};setFinPlanRes({...finPlanRes,questions_to_ask:arr});}} style={{...inp,minHeight:54,marginBottom:6}} placeholder="Type your answer here..."/>
+                    <button onClick={()=>{setFinQEdit(null);localStorage.setItem("papa_working_plan",JSON.stringify(finPlanRes));}} style={goldBtn()}>✓ Save Answer</button>
+                  </div>
+                ):(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{flex:1,cursor:"pointer"}} onClick={()=>setFinQEdit(i)}>
+                      <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>? {qObj.question}</div>
+                      {qObj.answer&&<div style={{fontSize:12,color:C.emerald,fontFamily:FB,marginTop:4,padding:"6px 8px",background:C.emeraldBg,borderRadius:3}}>✓ {qObj.answer}</div>}
+                      <div style={{fontSize:9,color:C.gold,fontFamily:FM,marginTop:3,letterSpacing:"0.1em",textTransform:"uppercase"}}>{qObj.answer?"tap to edit answer":"tap to answer"}</div>
+                    </div>
+                    <button onClick={()=>{const arr=finPlanRes.questions_to_ask.filter((_,j)=>j!==i);setFinPlanRes({...finPlanRes,questions_to_ask:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+                  </div>
+                )}
               </div>
-            ))}
+            );})}
           </div>}
 
           {/* Calendar reminders */}
