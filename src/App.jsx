@@ -1,4 +1,4 @@
-// VERSION_CHECK: Confirm-Costs-Typing-Fix build - June 19 2026 v19
+// VERSION_CHECK: Smarter-Year-Detection build - June 20 2026 v21
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1127,7 +1127,7 @@ Rules:
           max_tokens:16000,
           system:`You are a life assistant. Extract info from text as compact JSON. Return ONLY raw JSON, no markdown.
 Format: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"income|expense","date":string,"notes":string}],"destinations":[{"name":string,"dates":string}],"insights":[{"text":string}],"summary":string,"total_cost":number,"total_saving":number}
-Rules: extract every date/trip/payment/cost. For financials: money Sarah RECEIVES (Rover earnings, wages, benefits, refunds, payments TO her) = type "income". Money Sarah PAYS (bills, costs, purchases) = type "expense". Rover dog-sitting payments are ALWAYS income. No time="09:00". Use future year if none stated. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT NOTE FROM SARAH: "${importContext}" — Use this note to correctly NAME and LABEL the appointment in the title field. If the note says what the appointment is (e.g. "this is a blood test"), use that as the event title even if the screenshot doesn't mention it. Also use it to filter and prioritise.`:""}`,
+Rules: extract every date/trip/payment/cost. For financials: money Sarah RECEIVES (Rover earnings, wages, benefits, refunds, payments TO her) = type "income". Money Sarah PAYS (bills, costs, purchases) = type "expense". Rover dog-sitting payments are ALWAYS income. No time="09:00". YEAR RULE: if the text states a year (e.g. "23.6.26"=2026, "Term 2026/2027" means Sep-Dec=2026 and Jan-Aug=2027) ALWAYS use that exact year and never override it. Only if no year can be inferred, use the next upcoming occurrence from today. Keep ALL string values under 80 chars. Max 4 insights. Empty array if nothing relevant.${importContext?` IMPORTANT NOTE FROM SARAH: "${importContext}" — Use this note to correctly NAME and LABEL the appointment in the title field. If the note says what the appointment is (e.g. "this is a blood test"), use that as the event title even if the screenshot doesn't mention it. Also use it to filter and prioritise.`:""}`,
           messages:[{role:"user",content:`Analyse this text and extract all information:
 
 ${pasteText}`}]
@@ -1199,26 +1199,34 @@ ${pasteText}`}]
         setImgErr("Could not read image. Please try selecting it again.");
         setImgBusy(false);return;
       }
-      const mt=imgFile?.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg";
+      const isPDF=imgFile?.type==="application/pdf";
+      const mt=isPDF?"application/pdf":(imgFile?.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg");
 
-      const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this image carefully.
-This may be: NHS message, Rover booking, ticket, poster, letter, invoice, payslip, bank statement, benefit letter, or screenshot.
+      const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this ${isPDF?"PDF (it may have multiple pages — read every page)":"image"} carefully.
+This may be: NHS message, Rover booking, ticket, poster, letter, invoice, payslip, bank statement, benefit letter, school calendar, or screenshot.
 Extract EVERY date, event, appointment AND financial amount visible.
 Return ONLY raw JSON — no markdown, no backticks:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"financials":[{"label":string,"amount":number,"type":"income|expense|payment","date":string,"notes":string}],"summary":string}
 Rules:
-- title: clear description e.g. "NHS Therapy Appointment", "Dog Boarding — Ringo"
-- date: convert all formats. "22 Jun 2026"="2026-06-22"
-- No year: use ${today.getFullYear()} if future else ${today.getFullYear()+1}
-- time: "13:30"="13:30", "3pm"="15:00", unknown="09:00"
+- title: clear description e.g. "NHS Therapy Appointment", "Year 5 Sports Day"
+- date: convert all formats. "22 Jun 2026"="2026-06-22", "23.6.26"="2026-06-23", "23.6.2026"="2026-06-23"
+- YEAR INTELLIGENCE — be smart about which year a date belongs to:
+  - If the document states a year explicitly (e.g. "23.6.26", "2026/2027", "Autumn Term 2026"), ALWAYS use that exact year. Never override it.
+  - A short date like "23.6.26" means 2026; "5.1.27" means 2027. The last number is the year.
+  - If a section is headed "Term Dates 2026/2027" use the correct year for each month: Sep-Dec = 2026, Jan-Aug = 2027.
+  - If a section is headed "2025/2026": Sep-Dec = 2025, Jan-Aug = 2026.
+  - Only when NO year can be inferred at all, use ${today.getFullYear()} if the month is still ahead this year, otherwise ${today.getFullYear()+1}.
+  - Today is ${fmt(today)} — use this only as a last resort, never to overwrite a year the document already gives.
+- time: "13:30"="13:30", "3pm"="15:00", "9am"="09:00", "1.45pm"="13:45", unknown="09:00"
 - financials: extract ANY money amounts — earnings, payments due, costs, fees, benefits
 - notes: name, price, reference, location. Max 100 chars
-- priority: medical=critical, bookings=high, social=medium
+- priority: medical=critical, bookings=high, social/school=medium
 - NEVER return empty events — include any date you see
-${importContext?"CONTEXT: "+importContext:""}`;
+- For school calendars: extract every term date, sports day, trip, training day, holiday
+${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
 
       const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),30000);
+      const timer=setTimeout(()=>controller.abort(),45000);
       let response;
       try{
         response=await fetch("/api/ai",{
@@ -1227,11 +1235,11 @@ ${importContext?"CONTEXT: "+importContext:""}`;
           signal:controller.signal,
           body:JSON.stringify({
             model:"claude-sonnet-4-5",
-            max_tokens:2000,
+            max_tokens:8000,
             system:imgPrompt,
             messages:[{role:"user",content:[
-              {type:"image",source:{type:"base64",media_type:mt,data:b64}},
-              {type:"text",text:"Extract all dates, times and events from this image. Return as JSON."}
+              isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:mt,data:b64}},
+              {type:"text",text:"Extract all dates, times and events from this "+(isPDF?"PDF, reading every page":"image")+". Return as JSON."}
             ]}]
           })
         });
@@ -1574,7 +1582,7 @@ EXTRACTION RULES:
       });
       const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:8000,
-          system:`You are Eleanor, an expert document analyst. Read this entire PDF thoroughly. Extract every date, appointment, deadline, payment, event, action item and key piece of information. Return ONLY raw JSON, no markdown: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string}. Today is ${fmt(today)}. If no year stated use ${today.getFullYear()} or ${today.getFullYear()+1} whichever is future. Extract EVERYTHING you can find.`,
+          system:`You are Eleanor, an expert document analyst. Read this entire PDF thoroughly. Extract every date, appointment, deadline, payment, event, action item and key piece of information. Return ONLY raw JSON, no markdown: {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"actions":[{"text":string,"deadline":string}],"key_info":[{"label":string,"value":string}],"summary":string}. Today is ${fmt(today)}. YEAR RULE: if the document states a year (short dates like "5.1.27"=2027, or headings like "2026/2027" meaning Sep-Dec=2026 Jan-Aug=2027) ALWAYS use that exact year, never override it. Only if no year can be inferred use ${today.getFullYear()} or ${today.getFullYear()+1} whichever is future. Extract EVERYTHING you can find.`,
           messages:[{role:"user",content:[
             {type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},
             {type:"text",text:"Please read this entire PDF carefully and extract all dates, events, appointments, deadlines, payments and action items. Be thorough."}
@@ -2999,13 +3007,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setCriticalOnly(false);setView("home");}} onDiscard={()=>setPasteRes(null)}/>
       </div>}
       {impTab==="image"&&<div>
-        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image</strong> — a poster, flyer, event ticket, booking confirmation, screenshot, letter, or even a handwritten note. Eleanor will read the whole image and extract every date, time, and location she can find.</div>
+        <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image or PDF</strong> — a poster, flyer, ticket, booking confirmation, screenshot, letter, or a school calendar PDF. Eleanor will read the whole thing (every page of a PDF) and extract every date, time, and location she can find.</div>
         <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,letterSpacing:"0.06em",borderRadius:6}}>
-          {imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter…"}
-          <input type="file" accept="image/*" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
+          {imgFile?.type==="application/pdf"?"✦ PDF ready ("+imgFile.name+") — tap Extract below":imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter, PDF…"}
+          <input type="file" accept="image/*,application/pdf,.pdf" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
         </label>
-        {imgPrev&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
-        {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?"Reading image…":"Extract Appointments from Image"}</button>}
+        {imgPrev&&imgFile?.type!=="application/pdf"&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
+        {imgFile?.type==="application/pdf"&&<div style={{padding:"14px",marginBottom:12,background:C.parchment,border:`1px solid ${C.border}`,borderRadius:4,textAlign:"center",fontSize:13,fontFamily:FB,color:C.inkMid}}>📄 {imgFile.name}</div>}
+        {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?(imgFile?.type==="application/pdf"?"Reading PDF…":"Reading image…"):"Extract Appointments"}</button>}
         {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
         {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
         {imgRes&&!imgRes.error&&imgRes.events?.length>0&&<div>
