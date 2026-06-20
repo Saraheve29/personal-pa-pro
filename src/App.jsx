@@ -1,4 +1,4 @@
-// VERSION_CHECK: Import-Events-Editable build - June 20 2026 v26
+// VERSION_CHECK: Import-Clear-File build - June 20 2026 v27
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -3135,8 +3135,11 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {imgFile?.type==="application/pdf"?"✦ PDF ready ("+imgFile.name+") — tap Extract below":imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter, PDF…"}
           <input type="file" accept="image/*,application/pdf,.pdf" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
         </label>
-        {imgPrev&&imgFile?.type!=="application/pdf"&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:12,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
-        {imgFile?.type==="application/pdf"&&<div style={{padding:"14px",marginBottom:12,background:C.parchment,border:`1px solid ${C.border}`,borderRadius:4,textAlign:"center",fontSize:13,fontFamily:FB,color:C.inkMid}}>📄 {imgFile.name}</div>}
+        {imgPrev&&imgFile?.type!=="application/pdf"&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:8,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
+        {imgFile?.type==="application/pdf"&&<div style={{padding:"14px",marginBottom:8,background:C.parchment,border:`1px solid ${C.border}`,borderRadius:4,textAlign:"center",fontSize:13,fontFamily:FB,color:C.inkMid}}>📄 {imgFile.name}</div>}
+        {imgFile&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+          <button onClick={()=>{setImgFile(null);setImgPrev(null);setImgB64(null);setImgRes(null);setMultiImgQueue([]);setImgEventEdit(null);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 14px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear / Choose Different File</button>
+        </div>}
         {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?(imgFile?.type==="application/pdf"?"Reading PDF…":"Reading image…"):"Extract Appointments"}</button>}
         {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
         {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
