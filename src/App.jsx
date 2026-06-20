@@ -1,4 +1,4 @@
-// VERSION_CHECK: Storage-Diagnostic build - June 20 2026 v24
+// VERSION_CHECK: Import-Events-Editable build - June 20 2026 v26
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -167,6 +167,48 @@ function safeSave(key,value){
       return false;
     }
   }
+}
+
+// Compress/resize an image file before processing to avoid running the phone out of RAM.
+// Phone photos can be 20MB+; this shrinks them to a sane size for OCR while staying readable.
+function compressImage(file,maxDim=2000,quality=0.8){
+  return new Promise((resolve)=>{
+    // PDFs and non-images pass through unchanged
+    if(!file||!file.type||!file.type.startsWith("image/")){
+      const r=new FileReader();
+      r.onload=()=>resolve({b64:(r.result.split(",")[1]||""),dataUrl:r.result,type:file.type});
+      r.onerror=()=>resolve(null);
+      r.readAsDataURL(file);
+      return;
+    }
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      try{
+        let{width,height}=img;
+        if(width>maxDim||height>maxDim){
+          if(width>height){height=Math.round(height*maxDim/width);width=maxDim;}
+          else{width=Math.round(width*maxDim/height);height=maxDim;}
+        }
+        const canvas=document.createElement("canvas");
+        canvas.width=width;canvas.height=height;
+        const ctx=canvas.getContext("2d");
+        ctx.drawImage(img,0,0,width,height);
+        const dataUrl=canvas.toDataURL("image/jpeg",quality);
+        URL.revokeObjectURL(url);
+        resolve({b64:dataUrl.split(",")[1]||"",dataUrl,type:"image/jpeg"});
+      }catch(e){
+        URL.revokeObjectURL(url);
+        // fallback to raw read
+        const r=new FileReader();
+        r.onload=()=>resolve({b64:(r.result.split(",")[1]||""),dataUrl:r.result,type:file.type});
+        r.onerror=()=>resolve(null);
+        r.readAsDataURL(file);
+      }
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);resolve(null);};
+    img.src=url;
+  });
 }
 
 function AmountInput({initial,color,onSave}){
@@ -620,6 +662,7 @@ function AppInner(){
   const [imgFile,   setImgFile]  =useState(null);
   const [imgB64,    setImgB64]   =useState(null);
   const [multiImgQueue,setMultiImgQueue]=useState([]);
+  const [imgEventEdit,setImgEventEdit]=useState(null);
   const [imgPrev,   setImgPrev]  =useState(null);
   const [imgBusy,   setImgBusy]  =useState(false);
   const [imgRes,    setImgRes]   =useState(null);
@@ -1200,41 +1243,38 @@ ${pasteText}`}]
     setPasteBusy(false);
   }
 
-    function handleImgMultiple(e){
+    async function handleImgMultiple(e){
     const files=Array.from(e.target.files);
     if(!files.length)return;
-    setImgRes(null);setMultiImgQueue(files);
-    const readFile=(file)=>new Promise((res,rej)=>{
-      const r=new FileReader();
-      r.onload=ev=>{const parts=ev.target.result.split(",");res({file,b64:parts[1]||"",prev:ev.target.result});};
-      r.onerror=rej;
-      r.readAsDataURL(file);
-    });
-    Promise.all(files.map(readFile)).then(results=>{
-      if(results.length>0){
-        setImgFile(results[0].file);
-        setImgPrev(results[0].prev);
-        setImgB64(results[0].b64);
-        if(results.length>1){
-          setMultiImgQueue(results.map(r=>({...r,name:r.file.name})));
-        }
+    setImgRes(null);
+    // Compress each file BEFORE holding it in memory — prevents phone running out of RAM
+    const results=[];
+    for(const file of files){
+      const c=await compressImage(file);
+      if(c)results.push({file,b64:c.b64,prev:c.dataUrl,name:file.name});
+    }
+    if(results.length>0){
+      setImgFile(results[0].file);
+      setImgPrev(results[0].file.type==="application/pdf"?null:results[0].prev);
+      setImgB64(results[0].b64);
+      if(results.length>1){
+        // Only keep b64 + name in the queue, not the full preview data, to save memory
+        setMultiImgQueue(results.map(r=>({b64:r.b64,name:r.name,type:r.file.type})));
+      }else{
+        setMultiImgQueue([]);
       }
-    }).catch(err=>console.error("File read error:",err));
+    }
   }
 
-  function handleImg(e){
+  async function handleImg(e){
     const f=e.target.files[0];
     if(!f)return;
     setImgFile(f);setImgRes(null);setImgB64(null);
-    const r=new FileReader();
-    r.onload=ev=>{
-      const result=ev.target.result;
-      setImgPrev(result);
-      const parts=result.split(",");
-      if(parts.length>=2) setImgB64(parts[1]);
-    };
-    r.onerror=()=>console.error("Preview read failed");
-    r.readAsDataURL(f);
+    const c=await compressImage(f);
+    if(c){
+      setImgPrev(f.type==="application/pdf"?null:c.dataUrl);
+      setImgB64(c.b64);
+    }
   }
 
   async function parseImg(){
@@ -3101,18 +3141,37 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
         {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
         {imgRes&&!imgRes.error&&imgRes.events?.length>0&&<div>
-          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:12}}>{imgRes.events.length} Events Found</div>
+          <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:6}}>{imgRes.events.length} Events Found</div>
+          <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:12,fontStyle:"italic"}}>Tap any event to edit it, or ✕ to remove ones you don't need. Then add only the ones you want.</div>
           {imgRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
-            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
-              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
-              <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
-              {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
-              <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+            <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
+              {imgEventEdit===i?(
+                <div>
+                  <input defaultValue={e.title} onChange={ev=>{const arr=[...imgRes.events];arr[i]={...arr[i],title:ev.target.value};setImgRes({...imgRes,events:arr});}} style={{...inp,marginBottom:6}} placeholder="Title"/>
+                  <div style={{display:"flex",gap:6}}>
+                    <input type="date" defaultValue={e.date} onChange={ev=>{const arr=[...imgRes.events];arr[i]={...arr[i],date:ev.target.value};setImgRes({...imgRes,events:arr});}} style={{...inp,flex:1,marginBottom:6}}/>
+                    <input type="time" defaultValue={e.time} onChange={ev=>{const arr=[...imgRes.events];arr[i]={...arr[i],time:ev.target.value};setImgRes({...imgRes,events:arr});}} style={{...inp,flex:1,marginBottom:6}}/>
+                  </div>
+                  <input defaultValue={e.notes||""} onChange={ev=>{const arr=[...imgRes.events];arr[i]={...arr[i],notes:ev.target.value};setImgRes({...imgRes,events:arr});}} style={{...inp,marginBottom:8}} placeholder="Notes (optional)"/>
+                  <button onClick={()=>setImgEventEdit(null)} style={goldBtn()}>✓ Done</button>
+                </div>
+              ):(
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>setImgEventEdit(i)}>
+                    <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                    <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
+                    {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
+                    <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
+                    <span style={{fontSize:9,color:C.gold,fontFamily:FM,marginLeft:8,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to edit</span>
+                  </div>
+                  <button onClick={()=>{const arr=imgRes.events.filter((_,j)=>j!==i);setImgRes({...imgRes,events:arr});}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"2px 4px"}}>✕</button>
+                </div>
+              )}
             </div>
           );})}
           <div style={{height:8}}/>
-          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
-          <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);}}>Discard</button>
+          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setImgEventEdit(null);setCriticalOnly(false);setView("home");}}>Add {imgRes.events.length} Event{imgRes.events.length!==1?"s":""} to Schedule</button>
+          <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);setImgEventEdit(null);}}>Discard All</button>
         </div>}
       </div>}
       {impTab==="doc"&&<div>
@@ -3310,7 +3369,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
         <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"16px",textAlign:"center",cursor:"pointer",marginBottom:finPlanFile?6:12,background:C.cardWarm,color:finPlanFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:6}}>
           {finPlanFile?"✦ "+finPlanFile.name:"📄 Upload PDF or screenshot (optional)"}
-          <input type="file" accept="application/pdf,.pdf,image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setFinPlanFile(f);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setFinPlanB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+          <input type="file" accept="application/pdf,.pdf,image/*" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setFinPlanFile(f);const c=await compressImage(f);if(c)setFinPlanB64(c.b64);}}} style={{display:"none"}}/>
         </label>
         {finPlanFile&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
           <button onClick={()=>{setFinPlanFile(null);setFinPlanB64(null);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Remove File</button>
@@ -4251,14 +4310,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {wishlistImportMode==="image"&&<div>
           <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
             {wishlistImgFile?"✦ "+wishlistImgFile.name:"📸 Tap to upload screenshot or photo"}
-            <input type="file" accept="image/*" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+            <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const c=await compressImage(f);if(c)setWishlistImgB64(c.b64);}}} style={{display:"none"}}/>
           </label>
           {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("image",null,wishlistImgB64,wishlistImgFile?.type)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in Photo"}</button>}
         </div>}
         {wishlistImportMode==="pdf"&&<div>
           <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
             {wishlistImgFile?"✦ "+wishlistImgFile.name:"📄 Tap to upload PDF"}
-            <input type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const r=new FileReader();r.onload=ev=>{const p=ev.target.result.split(",");if(p.length>=2)setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
+            <input type="file" accept="application/pdf,.pdf" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const c=await compressImage(f);if(c)setWishlistImgB64(c.b64);}}} style={{display:"none"}}/>
           </label>
           {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("pdf",null,wishlistImgB64)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in PDF"}</button>}
         </div>}
