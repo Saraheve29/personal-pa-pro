@@ -1,4 +1,4 @@
-// VERSION_CHECK: Smarter-Year-Detection build - June 20 2026 v21
+// VERSION_CHECK: Storage-Diagnostic build - June 20 2026 v24
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -125,6 +125,49 @@ const ImportIcon=({type,size=36})=>{
   const p=paths[type]||paths.text;
   return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={p.stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={p.d}/></svg>);
 };
+
+// Safe localStorage with quota handling and auto-cleanup of stale per-date keys
+function cleanupOldStorage(){
+  try{
+    const now=Date.now();
+    const keysToCheck=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(!k)continue;
+      // Remove old per-date keys (meal, trip alerts, dated notifs) older than ~45 days
+      if(k.startsWith("papa_meal_")||k.startsWith("papa_meal_dismissed_")||k.startsWith("papa_trip_alert_")){
+        keysToCheck.push(k);
+      }
+    }
+    // Keep only the most recent 20 dated keys of each type, remove the rest
+    const mealKeys=keysToCheck.filter(k=>k.startsWith("papa_meal_"));
+    const tripKeys=keysToCheck.filter(k=>k.startsWith("papa_trip_alert_"));
+    [mealKeys,tripKeys].forEach(group=>{
+      if(group.length>20){
+        group.slice(0,group.length-20).forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+      }
+    });
+  }catch{}
+}
+
+function safeSave(key,value){
+  try{
+    localStorage.setItem(key,value);
+    return true;
+  }catch(e){
+    // Quota exceeded — try cleanup then retry once
+    cleanupOldStorage();
+    try{
+      // Also trim chat history aggressively as last resort
+      const msgs=localStorage.getItem("papa_msgs");
+      if(msgs){try{const arr=JSON.parse(msgs);if(arr.length>15)localStorage.setItem("papa_msgs",JSON.stringify(arr.slice(-15)));}catch{}}
+      localStorage.setItem(key,value);
+      return true;
+    }catch(e2){
+      return false;
+    }
+  }
+}
 
 function AmountInput({initial,color,onSave}){
   const [val,setVal]=React.useState(initial==null?"":String(initial));
@@ -603,6 +646,8 @@ function AppInner(){
   const [notifPermission,setNotifPermission]=useState(()=>typeof Notification!=="undefined"?Notification.permission:"default");
   const [onboarded,setOnboarded]=useState(()=>localStorage.getItem("papa_onboarded")==="true");
   const [weeklyGoals,setWeeklyGoals]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_weekly_goals")||"null");}catch{return null;}});
+  const [monthlyGoals,setMonthlyGoals]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_monthly_goals")||"null");}catch{return null;}});
+  const [monthlyCheckinDismissed,setMonthlyCheckinDismissed]=useState(()=>{try{return localStorage.getItem("papa_monthly_checkin_month")||"";}catch{return "";}});
   const [showGoalsModal,setShowGoalsModal]=useState(false);
   const [goalInput,setGoalInput]=useState(["","",""]);
   const [searchQuery,setSearchQuery]=useState("");
@@ -692,16 +737,18 @@ function AppInner(){
     setInstallPrompt(null);
   }
 
+  useEffect(()=>{cleanupOldStorage();},[]);
   useEffect(()=>{
-    try{ localStorage.setItem("papa_events",JSON.stringify(events)); }catch{}
+    try{ safeSave("papa_events",JSON.stringify(events)); }catch{}
   },[events]);
 
-  useEffect(()=>{try{localStorage.setItem("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
+  useEffect(()=>{try{safeSave("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
   useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
-  useEffect(()=>{try{localStorage.setItem("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
+  useEffect(()=>{try{safeSave("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
   useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
-  useEffect(()=>{try{localStorage.setItem("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
+  useEffect(()=>{try{safeSave("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
   useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
+  useEffect(()=>{if(monthlyGoals)localStorage.setItem("papa_monthly_goals",JSON.stringify(monthlyGoals));},[monthlyGoals]);
   useEffect(()=>{try{const s={eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts};Object.entries({papa_event_notes:eventNotes,papa_birthday_actions:birthdayActions,papa_dismissed_critical:dismissedCriticalIds,papa_dismissed_conflicts:dismissedConflicts}).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));}catch{}},[eventNotes,birthdayActions,dismissedCriticalIds,dismissedConflicts]);
   const msgSaveTimer=React.useRef(null);
   useEffect(()=>{
@@ -709,7 +756,7 @@ function AppInner(){
     msgSaveTimer.current=setTimeout(()=>{
       try{
         const toSave=msgs.slice(-30).map(m=>({...m,ts:m.ts?.toISOString?m.ts.toISOString():m.ts}));
-        localStorage.setItem("papa_msgs",JSON.stringify(toSave));
+        safeSave("papa_msgs",JSON.stringify(toSave));
       }catch{}
     },1000);
   },[msgs]);
@@ -1070,7 +1117,7 @@ Rules:
               if(p.facts?.length||p.pending_tasks?.length||p.preferences?.length){
                 const ex=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
                 const upd={...ex,facts:[...(ex.facts||[]),...(p.facts||[])].slice(-25),pending_tasks:[...(ex.pending_tasks||[]),...(p.pending_tasks||[])].slice(-10),preferences:[...(ex.preferences||[]),...(p.preferences||[])].slice(-15)};
-                localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+                safeSave("papa_persistent_memory",JSON.stringify(upd));
                 setPersistentMemory(upd);
               }
             }catch{}
@@ -1106,7 +1153,7 @@ Rules:
     const wxBriefCtx=weekWeather?.length>0
       ?"7-DAY WEATHER:\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°/"+w.min+"°, rain "+w.rain+"%").join("\n")
       :"";
-    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling. If finances are provided, you may gently mention money coming in or due out in your summary or recommendations — but treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+"\n\nConflicts:"+cfls.length+"."}]});
+    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling. If finances are provided, you may gently mention money coming in or due out in your summary or recommendations — but treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."}]});
     const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
@@ -1848,7 +1895,7 @@ Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 sh
     }
     const scheduled=JSON.parse(localStorage.getItem("papa_scheduled_notifs")||"[]");
     scheduled.push({title,body,fireAt:new Date(fireAt).toISOString(),tag});
-    localStorage.setItem("papa_scheduled_notifs",JSON.stringify(scheduled));
+    safeSave("papa_scheduled_notifs",JSON.stringify(scheduled.slice(-100)));
   }
 
   useEffect(()=>{
@@ -1946,7 +1993,7 @@ Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 sh
           emotional_notes:[...(parsed.emotional_notes||[])].slice(-5),
           preferences:[...(existing.preferences||[]),...(parsed.preferences||[])].slice(-15),
         };
-        localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+        safeSave("papa_persistent_memory",JSON.stringify(updated));
         setPersistentMemory(updated);
       }catch{}
     }catch(e){console.warn("Memory save failed:",e);}
@@ -2767,7 +2814,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               <button onClick={()=>{
                 const updated={...persistentMemory,pending_tasks:(persistentMemory.pending_tasks||[]).filter((_,j)=>j!==i)};
                 setPersistentMemory(updated);
-                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                safeSave("papa_persistent_memory",JSON.stringify(updated));
               }} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11,flexShrink:0,marginLeft:8}}>✓ Done</button>
             </div>
           ))}
@@ -2858,6 +2905,42 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               ))}
             </div>
           </div>);
+        })()}
+
+        {/* Monthly check-in — shows on the 1st of each month */}
+        {(()=>{
+          const thisMonthKey=today.getFullYear()+"-"+(today.getMonth()+1);
+          const isFirstOfMonth=today.getDate()===1;
+          const alreadyDone=monthlyCheckinDismissed===thisMonthKey;
+          if(!isFirstOfMonth||alreadyDone)return null;
+          const monthName=today.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+          const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+          const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+          return(
+            <div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1.5px solid ${C.goldBorder}`,borderRadius:8,padding:"16px 18px",marginBottom:14,boxShadow:`0 3px 14px ${C.shadow}`}}>
+              <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6}}>✦ New Month — {monthName}</div>
+              <div style={{fontFamily:FD,fontSize:19,color:C.ink,fontStyle:"italic",marginBottom:8}}>A fresh month, Sarah. Two things worth a moment.</div>
+
+              {/* Goals prompt */}
+              <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10}}>
+                <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:8,lineHeight:1.5}}>What would you like to focus on this month? Set a few goals and I'll keep them in view.</div>
+                <button onClick={()=>{sendChat("Help me set my goals for "+monthName+". Ask me what matters most this month.");setCriticalOnly(false);setView("chat");}} style={{width:"100%",padding:"9px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✦ Set This Month's Goals</button>
+              </div>
+
+              {/* Financial forecast prompt */}
+              <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10}}>
+                <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:6,lineHeight:1.5}}>Let's check your finances for the month ahead.</div>
+                <div style={{display:"flex",gap:12,marginBottom:8}}>
+                  <div><div style={{fontSize:8,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Expected In</div><div style={{fontFamily:FD,fontSize:15,color:C.emerald}}>£{inc.toFixed(2)}</div></div>
+                  <div><div style={{fontSize:8,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Due Out</div><div style={{fontFamily:FD,fontSize:15,color:C.crimson}}>£{out.toFixed(2)}</div></div>
+                  <div><div style={{fontSize:8,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>Net</div><div style={{fontFamily:FD,fontSize:15,color:inc-out>=0?C.emerald:C.crimson}}>£{(inc-out).toFixed(2)}</div></div>
+                </div>
+                <button onClick={()=>{setView("finances");}} style={{width:"100%",padding:"9px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>💰 Review Financial Forecast</button>
+              </div>
+
+              <button onClick={()=>{setMonthlyCheckinDismissed(thisMonthKey);localStorage.setItem("papa_monthly_checkin_month",thisMonthKey);}} style={{width:"100%",padding:"7px",borderRadius:4,border:"none",background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Done for this month</button>
+            </div>
+          );
         })()}
 
         {/* Weekly Goals in briefing */}
@@ -3404,7 +3487,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <button onClick={()=>{
             const saved=JSON.parse(localStorage.getItem("papa_saved_plans")||"[]");
             saved.unshift({id:Date.now(),date:new Date().toLocaleDateString("en-GB"),summary:finPlanRes.summary||"Financial plan",data:finPlanRes,planText:finPlanText||document.getElementById("fin-plan-textarea")?.value||""});
-            localStorage.setItem("papa_saved_plans",JSON.stringify(saved.slice(0,20)));
+            safeSave("papa_saved_plans",JSON.stringify(saved.slice(0,20)));
             alert("Plan saved! You can find it in the Finances section — tap it to open the full plan.");
           }} style={{...goldBtn(),marginTop:8}}>💾 Save This Plan & Advice</button>
           <button onClick={()=>{setFinPlanRes(null);setFinPlanText("");setFinPlanFile(null);setFinPlanB64(null);const el=document.getElementById("fin-plan-textarea");if(el)el.value="";}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase",marginTop:8}}>Clear</button>
@@ -3837,7 +3920,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         if(parsed.memoryFact){
           const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
           const upd={...existing,facts:[...(existing.facts||[]),parsed.memoryFact].slice(-25)};
-          localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+          safeSave("papa_persistent_memory",JSON.stringify(upd));
           setPersistentMemory(upd);
         }
         setEventAction({event:ev,result:(parsed.confirmation||"Done.")+(parsed.memoryFact?" I'll remember that.":"")});
@@ -3871,7 +3954,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         if(parsed.memoryFact){
           const existing=JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");
           const upd={...existing,facts:[...(existing.facts||[]),parsed.memoryFact].slice(-25)};
-          localStorage.setItem("papa_persistent_memory",JSON.stringify(upd));
+          safeSave("papa_persistent_memory",JSON.stringify(upd));
           setPersistentMemory(upd);
         }
         setFinAction({item:it,result:parsed.confirmation||"Done."+(parsed.memoryFact?" I'll remember that.":"")});
@@ -3963,7 +4046,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {/* Save & Sync — forces a save and confirms everything is in sync */}
       <button onClick={()=>{
         // finances already auto-saves; this confirms and re-triggers sync to localStorage
-        localStorage.setItem("papa_finances",JSON.stringify(finances));
+        safeSave("papa_finances",JSON.stringify(finances));
         const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
         const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
         alert("✓ Saved & synced everywhere.\n\nMoney In: £"+inc.toFixed(2)+"\nMoney Out: £"+out.toFixed(2)+"\n\nEleanor's chat, your briefing and schedule checker now all see this.");
@@ -4483,7 +4566,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                       arr[i]=val;
                       const updated={...persistentMemory,[key]:arr};
                       setPersistentMemory(updated);
-                      localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                      safeSave("papa_persistent_memory",JSON.stringify(updated));
                       setEditingMemory(null);
                     }} style={{padding:"5px 10px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>Save</button>
                     <button onClick={()=>setEditingMemory(null)} style={{padding:"5px 8px",borderRadius:3,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer"}}>✕</button>
@@ -4493,7 +4576,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                     <span style={{flex:1,lineHeight:1.4}}>• {f}</span>
                     <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:8}}>
                       <button onClick={()=>setEditingMemory({key,index:i})} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:2,padding:"2px 7px",color:C.inkFaint,fontFamily:FM,fontSize:8,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>Edit</button>
-                      <button onClick={()=>{const updated={...persistentMemory,[key]:(persistentMemory[key]||[]).filter((_,j)=>j!==i)};setPersistentMemory(updated);localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
+                      <button onClick={()=>{const updated={...persistentMemory,[key]:(persistentMemory[key]||[]).filter((_,j)=>j!==i)};setPersistentMemory(updated);safeSave("papa_persistent_memory",JSON.stringify(updated));}} style={{background:"none",border:"none",color:C.crimson,cursor:"pointer",fontSize:12}}>✕</button>
                     </div>
                   </div>
                 )}
@@ -4507,7 +4590,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 if(!val)return;
                 const updated={...persistentMemory,[key]:[...(persistentMemory[key]||[]),val]};
                 setPersistentMemory(updated);
-                localStorage.setItem("papa_persistent_memory",JSON.stringify(updated));
+                safeSave("papa_persistent_memory",JSON.stringify(updated));
                 const el=document.getElementById(`mem-add-${key}`);
                 if(el)el.value="";
               }} style={{padding:"5px 12px",borderRadius:3,border:"none",background:C.gold,color:C.card,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0,letterSpacing:"0.1em",textTransform:"uppercase"}}>＋</button>
@@ -4927,6 +5010,27 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               setHomeAddress("");
             }
           }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
+          <button onClick={()=>{
+            // Real diagnostic: measure every key's actual byte size
+            let report=[];
+            let total=0;
+            for(let i=0;i<localStorage.length;i++){
+              const k=localStorage.key(i);
+              const v=localStorage.getItem(k)||"";
+              const bytes=new Blob([k+v]).size;
+              total+=bytes;
+              report.push([k,bytes]);
+            }
+            report.sort((a,b)=>b[1]-a[1]);
+            const top=report.slice(0,8).map(([k,b])=>k+": "+(b/1024).toFixed(1)+"KB").join("\n");
+            alert("STORAGE USED: "+(total/1024/1024).toFixed(2)+"MB of ~5MB\n\nBIGGEST ITEMS:\n"+top);
+          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Check Storage</button>
+          <button onClick={()=>{
+            cleanupOldStorage();
+            try{const m=JSON.parse(localStorage.getItem("papa_msgs")||"[]");if(m.length>15)localStorage.setItem("papa_msgs",JSON.stringify(m.slice(-15)));}catch{}
+            try{localStorage.removeItem("papa_session_history");}catch{}
+            alert("✓ Freed up space. Old meal notes, alerts and excess chat history cleared. Your events, finances and plans are untouched.");
+          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Free Up Space</button>
           {!installed&&installPrompt&&<button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>⬇ Install App</button>}
           {installed&&<div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
           {!installed&&!installPrompt&&<div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
