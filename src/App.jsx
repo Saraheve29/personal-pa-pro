@@ -1,4 +1,4 @@
-// VERSION_CHECK: Import-Clear-File build - June 20 2026 v27
+// VERSION_CHECK: ThinkoGoals-Link build - June 20 2026 v28
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -2964,7 +2964,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               {/* Goals prompt */}
               <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10}}>
                 <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:8,lineHeight:1.5}}>What would you like to focus on this month? Set a few goals and I'll keep them in view.</div>
-                <button onClick={()=>{sendChat("Help me set my goals for "+monthName+". Ask me what matters most this month.");setCriticalOnly(false);setView("chat");}} style={{width:"100%",padding:"9px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✦ Set This Month's Goals</button>
+                <button onClick={()=>{sendChat("Help me set my goals for "+monthName+". Ask me what matters most this month.");setCriticalOnly(false);setView("chat");}} style={{width:"100%",padding:"9px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",marginBottom:6}}>✦ Set This Month's Goals with Eleanor</button>
+                <a href="https://thinko-goals.vercel.app/?screen=goals" target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",padding:"9px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer",boxSizing:"border-box"}}>🦔 Open Thinko Goals</a>
               </div>
 
               {/* Financial forecast prompt */}
@@ -2998,7 +2999,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             </div>
           ))}
-          <button onClick={()=>{setCriticalOnly(false);setView("briefing");setShowGoalsModal(true);}} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:"none",cursor:"pointer",marginTop:4,padding:"0"}}>+ Add goal</button>
+          <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center"}}>
+            <button onClick={()=>{setCriticalOnly(false);setView("briefing");setShowGoalsModal(true);}} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:"none",cursor:"pointer",padding:"0"}}>+ Add goal</button>
+            <a href="https://thinko-goals.vercel.app/?screen=goals" target="_blank" rel="noreferrer" style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer"}}>🦔 Thinko Goals</a>
+          </div>
         </div>}
 
         {/* Financial summary in briefing */}
