@@ -1,4 +1,4 @@
-// VERSION_CHECK: ThinkoGoals-Link build - June 20 2026 v28
+// VERSION_CHECK: Reminder-vs-Appointment build - June 20 2026 v29
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -996,7 +996,12 @@ Rules:
       
       const futureEvents=[...allEvents].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
       const futureCtx=futureEvents.length>0
-        ?futureEvents.map((e,i)=>(i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+(e.notes?" ["+e.notes+"]":"")).join("\n")
+        ?futureEvents.map((e,i)=>{
+          const txt=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+          const isReminder=/remind|remember|bring|pack|don't forget|dont forget|take |buy |pick up|water bottle|pe kit|homework|library book/.test(txt)||e.type==="reminder"||e.priority==="low";
+          const kind=isReminder?" [REMINDER - quick task, does not block the day]":(e.time&&e.time!=="09:00"?" [APPOINTMENT]":"");
+          return (i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+kind+(e.notes?" ["+e.notes+"]":"");
+        }).join("\n")
         :"No upcoming events";
       const memParts=[];
       if((persistentMemory.facts||[]).length>0)memParts.push("ELEANOR REMEMBERS:\n"+persistentMemory.facts.map(f=>"- "+f).join("\n"));
@@ -1086,6 +1091,7 @@ Rules:
         "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year. NEVER assume 2027 or beyond unless Sarah explicitly says so.",
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
+        "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
         "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. Examples (use the exact title from the schedule): To delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. To add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. To move (deletes old AND adds new in one step) - [SCHEDULE_ACTION:{action:move,title:Garden Centre,fromDate:2026-06-20,toDate:2026-07-04,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. To reschedule something, ALWAYS use a move action so the old one is deleted automatically. Use the current year for any date without a year.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
@@ -1551,16 +1557,20 @@ EXTRACTION RULES:
           return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
         }).join("\n");
 
-        // Full schedule - ALL events clearly labelled past and future
+        // Full schedule - ALL events clearly labelled past and future, with type so Eleanor knows reminders vs appointments
         const fullSchedule=allEvsSorted.map((e,i)=>{
           const evDate=new Date(e.date+"T12:00:00");
           const isPast=e.date<fmt(today);
-          return (i+1)+". "+e.date+" ("+evDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+") "+(e.time||"all day")+" — "+e.title+(isPast?" [PAST]":"")+(e.notes?" ["+e.notes+"]":"");
+          // Classify: a quick reminder (remind, remember, bring, pack, don't forget) does NOT block the day
+          const txt=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+          const isReminder=/remind|remember|bring|pack|don't forget|dont forget|take |buy |pick up|water bottle|pe kit|homework|library book/.test(txt)||e.type==="reminder"||e.priority==="low";
+          const kind=isReminder?"[REMINDER - quick task, does NOT block the day]":(e.time&&e.time!=="09:00"?"[APPOINTMENT at "+e.time+"]":"[EVENT]");
+          return (i+1)+". "+e.date+" ("+evDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+") "+(e.time||"all day")+" — "+e.title+" "+kind+(isPast?" [PAST]":"")+(e.notes?" ["+e.notes+"]":"");
         }).join("\n");
 
         const answer=await callAI({
-          system:"You are Eleanor, Sarah's Personal Assistant. Answer questions about her schedule with precision and clarity.\n\nTODAY IS: "+new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+fmt(today)+"). This is definitive — never use any other date as today.\n\nCRITICAL DATE RULES:\n- When Sarah mentions a date with NO year e.g. '4th July' — ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year\n- NEVER assume 2027 or any year beyond "+( today.getFullYear()+1)+" unless Sarah explicitly states it\n- Only use "+(today.getFullYear()+1)+" if the date has genuinely already passed in "+today.getFullYear()+"\n- 'Am I free on X' means check ONLY that exact date — ignore all other dates\n- If an event is marked [PAST] it has already happened — do not mention it as upcoming\n- Calculate weeks/days precisely from today "+fmt(today)+"\n- Give one clear direct answer — no markdown, no bullet points",
-          messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING (next 60 days — use this precisely):\n"+dayCalendar+"\n\nSARAH'S FULL SCHEDULE:\n"+fullSchedule+"\n\nQuestion: "+checkerText}]
+          system:"You are Eleanor, Sarah's Personal Assistant. Answer questions about her schedule with precision and clarity.\n\nTODAY IS: "+new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+fmt(today)+"). This is definitive — never use any other date as today.\n\nCRITICAL DATE RULES:\n- When Sarah mentions a date with NO year e.g. '4th July' — ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year\n- NEVER assume 2027 or any year beyond "+( today.getFullYear()+1)+" unless Sarah explicitly states it\n- Only use "+(today.getFullYear()+1)+" if the date has genuinely already passed in "+today.getFullYear()+"\n- If an event is marked [PAST] it has already happened — do not mention it as upcoming\n- Calculate weeks/days precisely from today "+fmt(today)+"\n- Give one clear direct answer — no markdown, no bullet points\n\nCRITICAL — UNDERSTAND THE DIFFERENCE BETWEEN EVENT TYPES:\n- [REMINDER] = a quick task like 'remind Maleeka to bring her water bottle' or 'pack PE kit'. These take seconds and DO NOT make Sarah busy or block her day. When she asks 'am I free' you MUST treat reminder days as FREE.\n- [APPOINTMENT] = a real timed commitment (doctor, meeting, hospital) that occupies a slot. These DO make her busy at that time.\n- [EVENT] = something happening (a trip, a fayre) — note it but it may not block the whole day.\n- When Sarah asks 'am I free on Wednesday for an appointment', answer YES if she only has reminders or minor events that day. Only say she is NOT free if there is a genuine timed APPOINTMENT that would clash. Always mention what's there, but make the free/not-free judgement based on real commitments, not reminders.",
+          messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING (next 60 days — use this precisely):\n"+dayCalendar+"\n\nSARAH'S FULL SCHEDULE (note the type label on each):\n"+fullSchedule+"\n\nQuestion: "+checkerText}]
         });
         setCheckerRes({isAnswer:true,answer,question:checkerText});
         setCheckerBusy(false);return;
