@@ -1,4 +1,4 @@
-// VERSION_CHECK: Reminder-vs-Appointment build - June 20 2026 v29
+// VERSION_CHECK: Day-Of-Week-Fix build - June 21 2026 v30
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -17,8 +17,11 @@ const FD="'Cormorant Garamond','Didot','Big Caslon',Georgia,serif";
 const FB="'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif";
 const FM="'Courier Prime','Courier New',monospace";
 
-const today=new Date();
-const fmt=d=>d.toISOString().slice(0,10);
+// Always compute "now" fresh so the app never gets stuck on a stale day.
+// (A PWA left open would otherwise freeze the date at first load.)
+const getToday=()=>new Date();
+// Format a date as YYYY-MM-DD in LOCAL time (not UTC) to avoid day-shift near midnight.
+const fmt=d=>{const x=d||new Date();const y=x.getFullYear();const m=String(x.getMonth()+1).padStart(2,"0");const day=String(x.getDate()).padStart(2,"0");return y+"-"+m+"-"+day;};
 
 const UK_HOLIDAYS=[
   {name:"Summer Holiday",      start:"2025-07-22",end:"2025-09-01",type:"school"},
@@ -30,8 +33,8 @@ const UK_HOLIDAYS=[
   {name:"Spring Half Term",    start:"2026-05-25",end:"2026-05-29",type:"school"},
   {name:"Summer Holiday 2026", start:"2026-07-21",end:"2026-09-07",type:"school"},
 ];
-const upcomingHols=(n=5)=>{const t=fmt(today);return UK_HOLIDAYS.filter(h=>h.end>=t).sort((a,b)=>a.start.localeCompare(b.start)).slice(0,n);};
-const daysUntil=ds=>Math.ceil((new Date(ds+"T12:00:00")-today)/86400000);
+const upcomingHols=(n=5)=>{const t=fmt(getToday());return UK_HOLIDAYS.filter(h=>h.end>=t).sort((a,b)=>a.start.localeCompare(b.start)).slice(0,n);};
+const daysUntil=ds=>Math.ceil((new Date(ds+"T12:00:00")-getToday())/86400000);
 const fmtRange=(s,e)=>{const sd=new Date(s+"T12:00:00"),ed=new Date(e+"T12:00:00");if(s===e)return sd.toLocaleDateString("en-GB",{day:"numeric",month:"long"});return`${sd.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${ed.toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`;};
 
 const INIT=[];
@@ -315,7 +318,7 @@ function ICalImport({onAdd}){
         date=d.slice(0,4)+"-"+d.slice(4,6)+"-"+d.slice(6,8);
         if(d.length>=12)time=d.slice(8,10)+":"+d.slice(10,12);
       }
-      if(date&&date>=fmt(today)){
+      if(date&&date>=fmt(getToday())){
         evs.push({title:summary,date,time,priority:"medium",notes:(loc||desc).slice(0,100),source:"calendar"});
       }
     }
@@ -598,6 +601,19 @@ const GLOBAL_CSS=`
 `;
 
 function AppInner(){
+  // Recompute today on every render AND tick it over at midnight so the date is never stale.
+  const [todayTick,setTodayTick]=useState(()=>getToday());
+  const today=todayTick;
+  useEffect(()=>{
+    // Re-check the date every time the app becomes visible (covers PWA left open)
+    const refresh=()=>setTodayTick(getToday());
+    const onVis=()=>{if(document.visibilityState==="visible")refresh();};
+    document.addEventListener("visibilitychange",onVis);
+    window.addEventListener("focus",refresh);
+    // Also tick every 5 minutes as a safety net
+    const iv=setInterval(refresh,5*60*1000);
+    return()=>{document.removeEventListener("visibilitychange",onVis);window.removeEventListener("focus",refresh);clearInterval(iv);};
+  },[]);
   const [events, setEvents] = useState(()=>{
     try{
       const saved=localStorage.getItem("papa_events");
@@ -1034,7 +1050,8 @@ Rules:
       const pastCtx=pastEvs.length>0?"RECENT PAST EVENTS:\n"+pastEvs.map(e=>"- "+e.date+" "+e.title).join("\n"):"";
 
       const contextContent=[
-        "DATE/TIME: "+dateStr+" at "+timeStr,
+        "TODAY IS "+dateStr+" at "+timeStr+". Today's day of the week is "+now.toLocaleDateString("en-GB",{weekday:"long"})+". This is absolute fact — never say it is a different day. Do not calculate the day yourself; use exactly what is stated here.",
+        "NEXT 7 DAYS (use this to map any day Sarah mentions):\n"+Array.from({length:7},(_,i)=>{const d=new Date(now.getTime()+i*86400000);return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});}).join("\n"),
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
         pastCtx,
         lastSession,
@@ -1084,11 +1101,13 @@ Rules:
 
       const contextMsg={role:"user",content:"[ELEANOR MEMORY SYNC - READ THIS FIRST]\n"+contextContent+(patternNotes.length?"\n\nPATTERNS NOTICED:\n"+patternNotes.join("\n"):"")+"\n[END SYNC]"};
       const trimmedMsgs=msgs.slice(-20);
+      const nowDate=new Date();
+      const nowYear=nowDate.getFullYear();
       const elSysPrompt=[
         "You are Eleanor - a warm, brilliant, deeply trusted Personal Executive Assistant to Sarah. You are not a generic AI. You know Sarah's life intimately and care about her wellbeing.",
         "SARAH: Single mother, indie app developer (Skyla, Thinko, GigNest), Rover dog-sitter, March, Cambridgeshire, UK. Children: Maleeka and Maliki (school age). Has ME/CFS. Benefits include Carer's Allowance. Dog: Ringo.",
-        "TODAY: "+new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+". NEVER contradict this date.",
-        "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year. NEVER assume 2027 or beyond unless Sarah explicitly says so.",
+        "TODAY IS: "+nowDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+nowDate.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+". This is the definitive current date and time — NEVER use any other date as today, NEVER contradict it, and NEVER work out the day of the week yourself. The MEMORY SYNC gives you the exact day-of-week and a 7-day map — always trust those, never recalculate.",
+        "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+nowYear+" UNLESS that exact date has already passed this year. NEVER assume "+(nowYear+1)+" or beyond unless Sarah explicitly says so.",
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
@@ -1541,6 +1560,7 @@ EXTRACTION RULES:
   }
 
   async function checkSchedule(){
+    const todayNow=getToday();
     if((!checkerText.trim()&&!checkerFile)||checkerBusy)return;
     setCheckerBusy(true);setCheckerRes(null);
     try{
@@ -1553,14 +1573,14 @@ EXTRACTION RULES:
 
         // Build 60-day exact date mapping so Eleanor cannot get days wrong
         const dayCalendar=Array.from({length:60},(_,i)=>{
-          const d=new Date(today.getTime()+i*86400000);
+          const d=new Date(todayNow.getTime()+i*86400000);
           return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
         }).join("\n");
 
         // Full schedule - ALL events clearly labelled past and future, with type so Eleanor knows reminders vs appointments
         const fullSchedule=allEvsSorted.map((e,i)=>{
           const evDate=new Date(e.date+"T12:00:00");
-          const isPast=e.date<fmt(today);
+          const isPast=e.date<fmt(todayNow);
           // Classify: a quick reminder (remind, remember, bring, pack, don't forget) does NOT block the day
           const txt=((e.title||"")+" "+(e.notes||"")).toLowerCase();
           const isReminder=/remind|remember|bring|pack|don't forget|dont forget|take |buy |pick up|water bottle|pe kit|homework|library book/.test(txt)||e.type==="reminder"||e.priority==="low";
@@ -1569,7 +1589,7 @@ EXTRACTION RULES:
         }).join("\n");
 
         const answer=await callAI({
-          system:"You are Eleanor, Sarah's Personal Assistant. Answer questions about her schedule with precision and clarity.\n\nTODAY IS: "+new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+fmt(today)+"). This is definitive — never use any other date as today.\n\nCRITICAL DATE RULES:\n- When Sarah mentions a date with NO year e.g. '4th July' — ALWAYS assume "+today.getFullYear()+" UNLESS that exact date has already passed this year\n- NEVER assume 2027 or any year beyond "+( today.getFullYear()+1)+" unless Sarah explicitly states it\n- Only use "+(today.getFullYear()+1)+" if the date has genuinely already passed in "+today.getFullYear()+"\n- If an event is marked [PAST] it has already happened — do not mention it as upcoming\n- Calculate weeks/days precisely from today "+fmt(today)+"\n- Give one clear direct answer — no markdown, no bullet points\n\nCRITICAL — UNDERSTAND THE DIFFERENCE BETWEEN EVENT TYPES:\n- [REMINDER] = a quick task like 'remind Maleeka to bring her water bottle' or 'pack PE kit'. These take seconds and DO NOT make Sarah busy or block her day. When she asks 'am I free' you MUST treat reminder days as FREE.\n- [APPOINTMENT] = a real timed commitment (doctor, meeting, hospital) that occupies a slot. These DO make her busy at that time.\n- [EVENT] = something happening (a trip, a fayre) — note it but it may not block the whole day.\n- When Sarah asks 'am I free on Wednesday for an appointment', answer YES if she only has reminders or minor events that day. Only say she is NOT free if there is a genuine timed APPOINTMENT that would clash. Always mention what's there, but make the free/not-free judgement based on real commitments, not reminders.",
+          system:"You are Eleanor, Sarah's Personal Assistant. Answer questions about her schedule with precision and clarity.\n\nTODAY IS: "+todayNow.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+todayNow.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+" ("+fmt(todayNow)+"). This is definitive — never use any other date as today.\n\nCRITICAL DATE RULES:\n- When Sarah mentions a date with NO year e.g. '4th July' — ALWAYS assume "+todayNow.getFullYear()+" UNLESS that exact date has already passed this year\n- NEVER assume 2027 or any year beyond "+( todayNow.getFullYear()+1)+" unless Sarah explicitly states it\n- Only use "+(todayNow.getFullYear()+1)+" if the date has genuinely already passed in "+todayNow.getFullYear()+"\n- If an event is marked [PAST] it has already happened — do not mention it as upcoming\n- Calculate weeks/days precisely from today "+fmt(todayNow)+"\n- Give one clear direct answer — no markdown, no bullet points\n\nCRITICAL — UNDERSTAND THE DIFFERENCE BETWEEN EVENT TYPES:\n- [REMINDER] = a quick task like 'remind Maleeka to bring her water bottle' or 'pack PE kit'. These take seconds and DO NOT make Sarah busy or block her day. When she asks 'am I free' you MUST treat reminder days as FREE.\n- [APPOINTMENT] = a real timed commitment (doctor, meeting, hospital) that occupies a slot. These DO make her busy at that time.\n- [EVENT] = something happening (a trip, a fayre) — note it but it may not block the whole day.\n- When Sarah asks 'am I free on Wednesday for an appointment', answer YES if she only has reminders or minor events that day. Only say she is NOT free if there is a genuine timed APPOINTMENT that would clash. Always mention what's there, but make the free/not-free judgement based on real commitments, not reminders.",
           messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING (next 60 days — use this precisely):\n"+dayCalendar+"\n\nSARAH'S FULL SCHEDULE (note the type label on each):\n"+fullSchedule+"\n\nQuestion: "+checkerText}]
         });
         setCheckerRes({isAnswer:true,answer,question:checkerText});
@@ -1595,7 +1615,7 @@ EXTRACTION RULES:
 
       const extractR=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,
-          system:`Extract all dates from this text or document. Return ONLY raw JSON: {"dates":[{"date":"YYYY-MM-DD","label":string,"time":"HH:MM or null"}]}. Today is ${fmt(today)}.`,
+          system:`Extract all dates from this text or document. Return ONLY raw JSON: {"dates":[{"date":"YYYY-MM-DD","label":string,"time":"HH:MM or null"}]}. Today is ${fmt(todayNow)}.`,
           messages
         })
       });
