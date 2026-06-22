@@ -1,4 +1,4 @@
-// VERSION_CHECK: Day-Of-Week-Fix build - June 21 2026 v30
+// VERSION_CHECK: Remove-Meal-Plan build - June 22 2026 v33
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1062,7 +1062,6 @@ Rules:
         weatherCtx,
         finCtx,
         goalsCtx,
-        todayMeal?"TODAY'S MEAL PLAN: "+todayMeal:"",
         "ABOUT SARAH: "+userContext,
         "CONFLICTS: "+cfls.length
       ].filter(Boolean).join("\n\n");
@@ -1276,18 +1275,16 @@ ${pasteText}`}]
     const results=[];
     for(const file of files){
       const c=await compressImage(file);
-      if(c)results.push({file,b64:c.b64,prev:c.dataUrl,name:file.name});
+      if(c)results.push({b64:c.b64,prev:c.dataUrl,name:file.name,type:file.type});
     }
     if(results.length>0){
-      setImgFile(results[0].file);
-      setImgPrev(results[0].file.type==="application/pdf"?null:results[0].prev);
-      setImgB64(results[0].b64);
-      if(results.length>1){
-        // Only keep b64 + name in the queue, not the full preview data, to save memory
-        setMultiImgQueue(results.map(r=>({b64:r.b64,name:r.name,type:r.file.type})));
-      }else{
-        setMultiImgQueue([]);
-      }
+      // Append to anything already queued so Sarah can add files across several taps
+      const existing=multiImgQueue.length>0?multiImgQueue:(imgFile&&imgB64?[{b64:imgB64,name:imgFile.name,type:imgFile.type,prev:imgPrev}]:[]);
+      const combined=[...existing,...results];
+      setImgFile(files[0]);
+      setImgPrev(results[0].type==="application/pdf"?null:results[0].prev);
+      setImgB64(combined[0].b64);
+      setMultiImgQueue(combined.length>1?combined:[]);
     }
   }
 
@@ -1303,18 +1300,15 @@ ${pasteText}`}]
   }
 
   async function parseImg(){
-    if(!imgFile||imgBusy)return;
+    if(imgBusy)return;
+    // Build the list of files to process — the queue if multiple, else the single file
+    const queue=(multiImgQueue&&multiImgQueue.length>0)
+      ? multiImgQueue
+      : (imgFile&&imgB64?[{b64:imgB64,name:imgFile.name,type:imgFile.type}]:[]);
+    if(queue.length===0)return;
     setImgBusy(true);setImgRes(null);
-    try{
-      const b64=imgB64;
-      if(!b64){
-        setImgErr("Could not read image. Please try selecting it again.");
-        setImgBusy(false);return;
-      }
-      const isPDF=imgFile?.type==="application/pdf";
-      const mt=isPDF?"application/pdf":(imgFile?.type&&imgFile.type.startsWith("image/")?imgFile.type:"image/jpeg");
 
-      const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this ${isPDF?"PDF (it may have multiple pages — read every page)":"image"} carefully.
+    const imgPrompt=`You are Eleanor, an expert PA with perfect vision reading a document for Sarah. Read ALL text in this document carefully.
 This may be: NHS message, Rover booking, ticket, poster, letter, invoice, payslip, bank statement, benefit letter, school calendar, or screenshot.
 Extract EVERY date, event, appointment AND financial amount visible.
 Return ONLY raw JSON — no markdown, no backticks:
@@ -1337,59 +1331,80 @@ Rules:
 - For school calendars: extract every term date, sports day, trip, training day, holiday
 ${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
 
-      const controller=new AbortController();
-      const timer=setTimeout(()=>controller.abort(),45000);
-      let response;
-      try{
-        response=await fetch("/api/ai",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          signal:controller.signal,
-          body:JSON.stringify({
-            model:"claude-sonnet-4-5",
-            max_tokens:8000,
-            system:imgPrompt,
-            messages:[{role:"user",content:[
-              isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:mt,data:b64}},
-              {type:"text",text:"Extract all dates, times and events from this "+(isPDF?"PDF, reading every page":"image")+". Return as JSON."}
-            ]}]
-          })
-        });
-      }finally{clearTimeout(timer);}
+    const allEvents=[];
+    const allFinancials=[];
+    const summaries=[];
+    let errorCount=0;
 
-      const text=await response.text();
-      let d;
-      try{d=JSON.parse(text);}catch{
-        setImgRes({error:true,msg:"Server error: "+text.slice(0,150)});
-        setImgBusy(false);return;
-      }
-      if(d.error){
-        setImgRes({error:true,msg:"API error: "+(d.error?.message||JSON.stringify(d.error).slice(0,100))});
-        setImgBusy(false);return;
-      }
-      const raw=d.content?.find(b=>b.type==="text")?.text||"";
-      if(!raw){setImgRes({error:true,msg:"No response from AI."});setImgBusy(false);return;}
+    try{
+      for(let qi=0;qi<queue.length;qi++){
+        const item=queue[qi];
+        const isPDF=item.type==="application/pdf";
+        const mt=isPDF?"application/pdf":(item.type&&item.type.startsWith("image/")?item.type:"image/jpeg");
+        setImgRes({progress:"Reading "+(qi+1)+" of "+queue.length+"…"});
 
-      let parsed=null;
-      const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
-      if(s>=0&&e>s){
-        try{parsed=JSON.parse(raw.slice(s,e+1));}catch{
-          let sub=raw.slice(s,e+1).replace(/,?\s*"[^"]*$/,"");
-          let opens=0,openSq=0;
-          for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
-          for(let i=0;i<openSq;i++)sub+="]";
-          for(let i=0;i<opens;i++)sub+="}";
-          try{parsed=JSON.parse(sub);}catch{}
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),45000);
+        let response;
+        try{
+          response=await fetch("/api/ai",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            signal:controller.signal,
+            body:JSON.stringify({
+              model:"claude-sonnet-4-5",
+              max_tokens:8000,
+              system:imgPrompt,
+              messages:[{role:"user",content:[
+                isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:item.b64}}:{type:"image",source:{type:"base64",media_type:mt,data:item.b64}},
+                {type:"text",text:"Extract all dates, times and events from this "+(isPDF?"PDF, reading every page":"image")+". Return as JSON."}
+              ]}]
+            })
+          });
+        }finally{clearTimeout(timer);}
+
+        const text=await response.text();
+        let d;
+        try{d=JSON.parse(text);}catch{errorCount++;continue;}
+        if(d.error){errorCount++;continue;}
+        const raw=d.content?.find(b=>b.type==="text")?.text||"";
+        if(!raw){errorCount++;continue;}
+
+        let parsed=null;
+        const s=raw.indexOf("{"),e=raw.lastIndexOf("}");
+        if(s>=0&&e>s){
+          try{parsed=JSON.parse(raw.slice(s,e+1));}catch{
+            let sub=raw.slice(s,e+1).replace(/,?\s*"[^"]*$/,"");
+            let opens=0,openSq=0;
+            for(const ch of sub){if(ch==="{")opens++;else if(ch==="}")opens--;else if(ch==="[")openSq++;else if(ch==="]")openSq--;}
+            for(let i=0;i<openSq;i++)sub+="]";
+            for(let i=0;i<opens;i++)sub+="}";
+            try{parsed=JSON.parse(sub);}catch{}
+          }
         }
+        if(parsed?.events?.length){
+          allEvents.push(...parsed.events.filter(ev=>ev.title&&ev.date));
+        }
+        if(parsed?.financials?.length){
+          allFinancials.push(...parsed.financials);
+        }
+        if(parsed?.summary)summaries.push(parsed.summary);
       }
-      if(!parsed?.events?.length){
-        setImgRes({error:true,msg:"No dates found. Make sure dates are clearly visible in the image."});
+
+      // Deduplicate events by title+date
+      const seen=new Set();
+      const dedupEvents=allEvents.filter(ev=>{
+        const k=(ev.title||"").toLowerCase().slice(0,25)+"_"+ev.date;
+        if(seen.has(k))return false;
+        seen.add(k);return true;
+      });
+
+      if(dedupEvents.length===0){
+        setImgRes({error:true,msg:errorCount>0?"Couldn't read "+errorCount+" file(s). Make sure dates are clearly visible.":"No dates found. Make sure dates are clearly visible."});
       }else{
-        parsed.events=parsed.events.filter(ev=>ev.title&&ev.date);
-                setImgRes(parsed);
-        if(parsed.financials?.length){
-          setFinances(f=>[...f,...parsed.financials.map(fi=>{
-            // Normalise type: saving/earning/income/received = income, everything else = expense
+        setImgRes({events:dedupEvents,financials:allFinancials,summary:(queue.length>1?"Combined from "+queue.length+" files. ":"")+(summaries.join(" ").slice(0,400))});
+        if(allFinancials.length){
+          setFinances(f=>[...f,...allFinancials.map(fi=>{
             const t=(fi.type||"").toLowerCase();
             const label=(fi.label||"").toLowerCase();
             const isIncome=t==="saving"||t==="income"||t==="earning"||t==="received"||/earning|income|payment received|paid to you|rover|wage|salary|benefit|allowance/.test(label);
@@ -1400,9 +1415,7 @@ ${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
     }catch(e){
       console.error("parseImg:",e);
       const msg=e.name==="AbortError"?"Timed out — please try again":
-        e instanceof Error?e.message:
-        String(e).includes("ProgressEvent")?"Could not read image file — please try again":
-        "Error: "+String(e);
+        e instanceof Error?e.message:"Error reading files";
       setImgRes({error:true,msg});
     }
     setImgBusy(false);
@@ -2897,46 +2910,6 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
         </div>}
 
-        {/* Meal plan question */}
-        {!mealDismissed&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontFamily:FD,fontSize:15,color:C.ink,fontStyle:"italic"}}>🍽 What are you planning to eat today?</div>
-            <button onClick={()=>{setMealDismissed(true);localStorage.setItem("papa_meal_dismissed_"+new Date().toDateString(),"true");}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
-          </div>
-          {todayMeal
-            ?<div style={{background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:4,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:13,color:C.ink,fontFamily:FB,lineHeight:1.5,flex:1}}>{todayMeal}</div>
-              <button onClick={()=>{setTodayMeal("");localStorage.removeItem("papa_meal_"+new Date().toDateString());}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:12,marginLeft:8,flexShrink:0}}>✎</button>
-            </div>
-            :<div>
-              <textarea
-                id="meal-plan-input"
-                style={{...inp,minHeight:60,resize:"none",marginBottom:8,fontSize:13}}
-                placeholder={"e.g. Breakfast: porridge · Lunch: soup · Dinner: pasta\nOr just type tonight's dinner..."}
-              />
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{
-                  const el=document.getElementById("meal-plan-input");
-                  const val=el?.value?.trim();
-                  if(!val)return;
-                  setTodayMeal(val);
-                  localStorage.setItem("papa_meal_"+new Date().toDateString(),val);
-                }} style={{flex:1,...goldBtn(),margin:0}}>✓ Save</button>
-                <button onClick={()=>{setMealDismissed(true);localStorage.setItem("papa_meal_dismissed_"+new Date().toDateString(),"true");}} style={{...goldBtn(true),margin:0,flex:0,padding:"9px 14px"}}>Skip</button>
-              </div>
-            </div>
-          }
-          <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center",flexWrap:"wrap"}}>
-            <a
-              href="https://thinko-chores.vercel.app/?screen=meals"
-              target="_blank"
-              rel="noreferrer"
-              style={{display:"inline-flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer"}}>
-              🦔 Open Thinko Chores Meal Plan
-            </a>
-          </div>
-        </div>}
-
         {/* Best day this week */}
         {briefing.best_day_this_week?.day_name&&<div style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,borderRadius:4,padding:"12px 16px",marginBottom:14}}>
           <div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4}}>Best Day to Schedule Something</div>
@@ -3166,15 +3139,28 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {impTab==="image"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image or PDF</strong> — a poster, flyer, ticket, booking confirmation, screenshot, letter, or a school calendar PDF. Eleanor will read the whole thing (every page of a PDF) and extract every date, time, and location she can find.</div>
         <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"32px 20px",textAlign:"center",cursor:"pointer",marginBottom:12,background:C.cardWarm,color:C.gold,fontSize:13,fontFamily:FB,letterSpacing:"0.06em",borderRadius:6}}>
-          {imgFile?.type==="application/pdf"?"✦ PDF ready ("+imgFile.name+") — tap Extract below":imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — poster, ticket, flyer, screenshot, letter, PDF…"}
+          {multiImgQueue.length>1?"✦ "+multiImgQueue.length+" files ready — tap Extract below":imgFile?.type==="application/pdf"?"✦ PDF ready ("+imgFile.name+") — tap Extract below":imgPrev?"✦ Image ready — tap Extract below":"📸 Tap to upload — you can select MULTIPLE screenshots, photos, PDFs at once"}
           <input type="file" accept="image/*,application/pdf,.pdf" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
         </label>
-        {imgPrev&&imgFile?.type!=="application/pdf"&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:8,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
-        {imgFile?.type==="application/pdf"&&<div style={{padding:"14px",marginBottom:8,background:C.parchment,border:`1px solid ${C.border}`,borderRadius:4,textAlign:"center",fontSize:13,fontFamily:FB,color:C.inkMid}}>📄 {imgFile.name}</div>}
-        {imgFile&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
-          <button onClick={()=>{setImgFile(null);setImgPrev(null);setImgB64(null);setImgRes(null);setMultiImgQueue([]);setImgEventEdit(null);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 14px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear / Choose Different File</button>
+        {multiImgQueue.length>1&&<div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginBottom:6,fontStyle:"italic"}}>{multiImgQueue.length} files selected — Eleanor will read them all and combine the dates:</div>
+          <label style={{display:"block",textAlign:"center",padding:"8px",marginBottom:8,border:`1px dashed ${C.goldBorder}`,borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:FM,color:C.gold,letterSpacing:"0.1em",textTransform:"uppercase"}}>
+            ＋ Add More Files
+            <input type="file" accept="image/*,application/pdf,.pdf" multiple onChange={handleImgMultiple} style={{display:"none"}}/>
+          </label>
+          {multiImgQueue.map((q,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:4}}>
+              <span style={{fontSize:12,fontFamily:FB,color:C.inkMid,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{q.type==="application/pdf"?"📄":"🖼"} {q.name}</span>
+              <button onClick={()=>{const arr=multiImgQueue.filter((_,j)=>j!==i);setMultiImgQueue(arr.length>1?arr:[]);if(arr.length===1){setImgB64(arr[0].b64);}else if(arr.length===0){setImgFile(null);setImgB64(null);setImgPrev(null);}}} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:13,flexShrink:0,marginLeft:8}}>✕</button>
+            </div>
+          ))}
         </div>}
-        {imgFile&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?(imgFile?.type==="application/pdf"?"Reading PDF…":"Reading image…"):"Extract Appointments"}</button>}
+        {imgPrev&&multiImgQueue.length<=1&&imgFile?.type!=="application/pdf"&&<img src={imgPrev} alt="Preview" style={{width:"100%",marginBottom:8,maxHeight:220,objectFit:"contain",border:`1px solid ${C.border}`,background:C.parchment,borderRadius:4}}/>}
+        {imgFile?.type==="application/pdf"&&multiImgQueue.length<=1&&<div style={{padding:"14px",marginBottom:8,background:C.parchment,border:`1px solid ${C.border}`,borderRadius:4,textAlign:"center",fontSize:13,fontFamily:FB,color:C.inkMid}}>📄 {imgFile.name}</div>}
+        {(imgFile||multiImgQueue.length>0)&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+          <button onClick={()=>{setImgFile(null);setImgPrev(null);setImgB64(null);setImgRes(null);setMultiImgQueue([]);setImgEventEdit(null);}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"6px 14px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear All / Start Over</button>
+        </div>}
+        {(imgFile||multiImgQueue.length>0)&&<button style={goldBtn()} onClick={parseImg} disabled={imgBusy}>{imgBusy?(imgRes?.progress||"Reading…"):"Extract Appointments"+(multiImgQueue.length>1?" from "+multiImgQueue.length+" Files":"")}</button>}
         {imgRes&&!imgRes.error&&imgRes.summary&&<div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"13px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`,lineHeight:1.6}}>✦ {imgRes.summary}</div>}
         {imgRes?.error&&<div style={{border:`1px solid ${C.crimson}`,background:C.crimsonBg,padding:"14px 16px",marginTop:8,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4,lineHeight:1.6}}><div style={{fontWeight:600,marginBottom:4}}>⚠ Could not extract</div><div>{imgRes.msg||"Please try again."}</div></div>}
         {imgRes&&!imgRes.error&&imgRes.events?.length>0&&<div>
@@ -4607,6 +4593,36 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   const SettingsView=()=>(
     <div>
       <div style={SL}>Settings</div>
+
+      {/* Storage & Data */}
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:6}}>Storage & Data</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.5}}>Check how much space the app is using, free up room, or clear everything for a fresh start.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={()=>{
+            let report=[];let total=0;
+            for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);const v=localStorage.getItem(k)||"";const bytes=new Blob([k+v]).size;total+=bytes;report.push([k,bytes]);}
+            report.sort((a,b)=>b[1]-a[1]);
+            const top=report.slice(0,8).map(([k,b])=>k+": "+(b/1024).toFixed(1)+"KB").join("\n");
+            alert("STORAGE USED: "+(total/1024/1024).toFixed(2)+"MB of ~5MB\n\nBIGGEST ITEMS:\n"+top);
+          }} style={{padding:"10px",borderRadius:4,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Check Storage</button>
+          <button onClick={()=>{
+            cleanupOldStorage();
+            try{const m=JSON.parse(localStorage.getItem("papa_msgs")||"[]");if(m.length>15)localStorage.setItem("papa_msgs",JSON.stringify(m.slice(-15)));}catch{}
+            try{localStorage.removeItem("papa_session_history");}catch{}
+            alert("✓ Freed up space. Old meal notes, alerts and excess chat history cleared. Your events, finances and plans are untouched.");
+          }} style={{padding:"10px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Free Up Space</button>
+          <button onClick={()=>{
+            if(window.confirm("⚠ Clear ALL data?\n\nThis will permanently delete all events, chat history, reminders, birthdays and notes.\n\nThis cannot be undone.")){
+              localStorage.clear();
+              setEvents([]);
+              setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. All data has been cleared — a fresh start. How may I assist you?",ts:new Date()}]);
+              setReminders([]);setBirthdays([]);setBirthdayActions({});setEventNotes({});setWishlist([]);setHomeAddress("");
+            }
+          }} style={{padding:"10px",borderRadius:4,border:`1px solid ${C.crimson}`,background:"transparent",color:C.crimson,fontFamily:FM,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear All Data</button>
+        </div>
+      </div>
+
       {/* Eleanor Voice */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
@@ -5093,40 +5109,6 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {view!=="chat"&&<div style={{padding:"11px 20px",borderTop:`1px solid ${C.border}`,background:C.cream,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.22em",textTransform:"uppercase"}}>Personal PA Pro · Private Service</div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>{
-            if(window.confirm("⚠ Clear ALL data?\n\nThis will permanently delete all events, chat history, reminders, birthdays and notes.\n\nThis cannot be undone.")){
-              localStorage.clear();
-              setEvents([]);
-              setMsgs([{role:"assistant",text:"Good morning. I'm Eleanor. All data has been cleared — a fresh start. How may I assist you?",ts:new Date()}]);
-              setReminders([]);
-              setBirthdays([]);
-              setBirthdayActions({});
-              setEventNotes({});
-              setWishlist([]);
-              setHomeAddress("");
-            }
-          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.border}`,background:"transparent",color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Clear Data</button>
-          <button onClick={()=>{
-            // Real diagnostic: measure every key's actual byte size
-            let report=[];
-            let total=0;
-            for(let i=0;i<localStorage.length;i++){
-              const k=localStorage.key(i);
-              const v=localStorage.getItem(k)||"";
-              const bytes=new Blob([k+v]).size;
-              total+=bytes;
-              report.push([k,bytes]);
-            }
-            report.sort((a,b)=>b[1]-a[1]);
-            const top=report.slice(0,8).map(([k,b])=>k+": "+(b/1024).toFixed(1)+"KB").join("\n");
-            alert("STORAGE USED: "+(total/1024/1024).toFixed(2)+"MB of ~5MB\n\nBIGGEST ITEMS:\n"+top);
-          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Check Storage</button>
-          <button onClick={()=>{
-            cleanupOldStorage();
-            try{const m=JSON.parse(localStorage.getItem("papa_msgs")||"[]");if(m.length>15)localStorage.setItem("papa_msgs",JSON.stringify(m.slice(-15)));}catch{}
-            try{localStorage.removeItem("papa_session_history");}catch{}
-            alert("✓ Freed up space. Old meal notes, alerts and excess chat history cleared. Your events, finances and plans are untouched.");
-          }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>Free Up Space</button>
           {!installed&&installPrompt&&<button onClick={installApp} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontSize:9,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>⬇ Install App</button>}
           {installed&&<div style={{fontSize:9,color:C.emerald,fontFamily:FM,letterSpacing:"0.14em",textTransform:"uppercase"}}>✓ Installed</div>}
           {!installed&&!installPrompt&&<div style={{fontSize:11,color:C.goldBorder,fontFamily:FD}}>✦</div>}
