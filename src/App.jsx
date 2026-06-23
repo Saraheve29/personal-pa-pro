@@ -1,4 +1,4 @@
-// VERSION_CHECK: Notes-Sync-Calendar build - June 23 2026 v35
+// VERSION_CHECK: Finance-Dedup-Recurring build - June 23 2026 v37
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -909,6 +909,42 @@ function AppInner(){
   const weekDays=Array.from({length:7},(_,i)=>{const d=new Date(today.getTime()+i*86400000),ds=fmt(d);return{ds,label:i===0?"Today":d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}),evs:events.filter(e=>e.date===ds).sort((a,b)=>a.time.localeCompare(b.time))};});
   const nextHol=upcomingHols(1)[0];
 
+  // Add finance items with smart duplicate detection.
+  // A duplicate = same amount + same date + overlapping label words (catches "Universal Credit" vs "Universal Credit Payment").
+  function normLabel(s){return (s||"").toLowerCase().replace(/payment|paid|received|\[|\]|£|\$|:|-/g," ").replace(/\s+/g," ").trim();}
+  function labelsMatch(a,b){
+    const na=normLabel(a),nb=normLabel(b);
+    if(!na||!nb)return false;
+    if(na===nb)return true;
+    if(na.includes(nb)||nb.includes(na))return true;
+    // word-overlap: if the shorter label's words are all in the longer one
+    const wa=na.split(" ").filter(w=>w.length>2),wb=nb.split(" ").filter(w=>w.length>2);
+    if(!wa.length||!wb.length)return false;
+    const shorter=wa.length<=wb.length?wa:wb, longer=wa.length<=wb.length?wb:wa;
+    return shorter.every(w=>longer.includes(w));
+  }
+  function isDuplicateFinance(item,list){
+    return list.some(f=>
+      Math.abs((f.amount||0)-(item.amount||0))<0.01 &&
+      (f.date||"")===(item.date||"") &&
+      labelsMatch(f.label,item.label)
+    );
+  }
+  function addFinances(items){
+    setFinances(prev=>{
+      const running=[...prev];
+      const toAdd=[];
+      for(const it of items){
+        if(isDuplicateFinance(it,running))continue; // skip near-duplicate
+        const entry={id:Date.now()+Math.random(),status:"pending",...it};
+        running.push(entry);
+        toAdd.push(entry);
+      }
+      if(!toAdd.length)return prev;
+      return [...prev,...toAdd];
+    });
+  }
+
   function addEvs(list,src){
     setEvents(ev=>{
       const mx=Math.max(0,...ev.map(e=>e.id));
@@ -1042,8 +1078,10 @@ Rules:
       const totalIncome=allIncome.reduce((s,f)=>s+(f.amount||0),0);
       const totalOutgoings=allOutgoings.reduce((s,f)=>s+(f.amount||0),0);
       const finParts=[];
-      if(allIncome.length>0)finParts.push("MONEY COMING IN (income, total £"+totalIncome.toFixed(2)+"):\n"+allIncome.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+(f.date?" ("+f.date+")":"")).join("\n"));
-      if(allOutgoings.length>0)finParts.push("MONEY GOING OUT (outgoings, total £"+totalOutgoings.toFixed(2)+"):\n"+allOutgoings.map(f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+(f.date?" ("+f.date+")":"")).join("\n"));
+      const fmtFin=f=>"- "+f.label+": £"+(f.amount||0).toFixed(2)+(f.recurrence?" ["+f.recurrence.toUpperCase()+(f.date?" from "+f.date:"")+"]":(f.date?" ("+f.date+")":""));
+      if(allIncome.length>0)finParts.push("MONEY COMING IN (income, total £"+totalIncome.toFixed(2)+"):\n"+allIncome.map(fmtFin).join("\n"));
+      if(allOutgoings.length>0)finParts.push("MONEY GOING OUT (outgoings, total £"+totalOutgoings.toFixed(2)+"):\n"+allOutgoings.map(fmtFin).join("\n"));
+      finParts.push("RECURRING NOTE FOR ELEANOR: Items marked [MONTHLY] repeat each month; [EVERY 4 WEEKS] repeat every 4 weeks. Use these to forecast monthly income and spot gaps or duplicates. Never list the same payment twice.");
       const finCtx=finParts.length>0?"SARAH'S FINANCES (from her Finances section — treat income as money IN, outgoings as money OUT, never swap them):\n"+finParts.join("\n\n"):"";
 
       const goalsCtx=weeklyGoals?.goals?.length>0?"THIS WEEK'S GOALS:\n"+weeklyGoals.goals.map((g,i)=>"- "+g+(weeklyGoals.done?.[i]?" [DONE]":"")).join("\n"):"";
@@ -1209,8 +1247,8 @@ Rules:
     const brInTotal=brIncome.reduce((s,f)=>s+(f.amount||0),0);
     const brOutTotal=brOut.reduce((s,f)=>s+(f.amount||0),0);
     const brFinParts=[];
-    if(brIncome.length>0)brFinParts.push("MONEY COMING IN (total GBP "+brInTotal.toFixed(2)+"): "+brIncome.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)).join(", "));
-    if(brOut.length>0)brFinParts.push("MONEY GOING OUT (total GBP "+brOutTotal.toFixed(2)+"): "+brOut.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)).join(", "));
+    if(brIncome.length>0)brFinParts.push("MONEY COMING IN (total GBP "+brInTotal.toFixed(2)+"): "+brIncome.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)+(f.recurrence?" ["+f.recurrence.toUpperCase()+"]":"")).join(", "));
+    if(brOut.length>0)brFinParts.push("MONEY GOING OUT (total GBP "+brOutTotal.toFixed(2)+"): "+brOut.map(f=>f.label+" GBP "+(f.amount||0).toFixed(2)+(f.recurrence?" ["+f.recurrence.toUpperCase()+"]":"")).join(", "));
     const brFinCtx=brFinParts.length>0?"SARAH'S FINANCES (income is money IN, outgoings money OUT, never swap):\n"+brFinParts.join("\n"):"";
     const holCtx=hols.map(h=>`${h.name}: ${h.start} to ${h.end} (${daysUntil(h.start)} days away)`).join("\n");
     const hour=new Date().getHours();
@@ -1406,12 +1444,12 @@ ${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
       }else{
         setImgRes({events:dedupEvents,financials:allFinancials,summary:(queue.length>1?"Combined from "+queue.length+" files. ":"")+(summaries.join(" ").slice(0,400))});
         if(allFinancials.length){
-          setFinances(f=>[...f,...allFinancials.map(fi=>{
+          addFinances(allFinancials.map(fi=>{
             const t=(fi.type||"").toLowerCase();
             const label=(fi.label||"").toLowerCase();
             const isIncome=t==="saving"||t==="income"||t==="earning"||t==="received"||/earning|income|payment received|paid to you|rover|wage|salary|benefit|allowance/.test(label);
-            return {...fi,type:isIncome?"income":"expense",id:Date.now()+Math.random(),status:"pending",source:"image"};
-          })]);
+            return {...fi,type:isIncome?"income":"expense",source:"image"};
+          }));
         }
       }
     }catch(e){
@@ -3139,11 +3177,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Paste any text — an email, WhatsApp conversation, a list of dates. Eleanor will identify all commitments automatically.</div>
         <textarea
           id="paste-text-input"
-          style={{...inp,minHeight:150,resize:"vertical"}}
+          style={{...inp,minHeight:150,resize:"vertical",marginBottom:6}}
           defaultValue={pasteText}
           onChange={e=>{setPasteText(e.target.value);}}
           placeholder={"e.g. 'Dentist Thursday 14th at 2:30pm'\nor paste a full email confirmation\nor 'Can you do school pickup Monday at 3:30?'"}
         />
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+          <button onClick={()=>{setPasteText("");setPasteRes(null);const el=document.getElementById("paste-text-input");if(el)el.value="";}} style={{background:"none",border:`1px solid ${C.borderSoft}`,borderRadius:3,padding:"5px 12px",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear Text</button>
+        </div>
         <button style={goldBtn()} onClick={()=>{
           const el=document.getElementById("paste-text-input");
           if(el)setPasteText(el.value);
@@ -3450,7 +3491,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             </div>
             <button onClick={()=>{
-              setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label:finPlanRes.monthly_impact.label||"Investment",amount:finPlanRes.monthly_impact.amount,date:fmt(today),type:(/income|earning|rover|wage|salary|benefit|allowance|received|saving/i.test((finPlanRes.monthly_impact.label||"")+" "+(finPlanNote||"")))?"income":"expense",notes:"From financial plan",status:"pending",source:"finplan"}]);
+              addFinances([{label:finPlanRes.monthly_impact.label||"Investment",amount:finPlanRes.monthly_impact.amount,date:fmt(today),type:(/income|earning|rover|wage|salary|benefit|allowance|received|saving/i.test((finPlanRes.monthly_impact.label||"")+" "+(finPlanNote||"")))?"income":"expense",notes:"From financial plan",source:"finplan"}]);
               alert("Saved to your Finances — it'll now show in your briefing and Finances section.");
             }} style={{width:"100%",padding:"9px",borderRadius:3,border:"none",background:`linear-gradient(135deg,${C.sapphire},${C.sapphire}cc)`,color:"#fff",fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>💰 Save to My Finances</button>
           </div>}
@@ -4145,6 +4186,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               <button onClick={()=>setEditDraft(d=>({...d,type:"income"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)==="income"?C.emerald:C.borderSoft}`,background:(editDraft.type||f.type)==="income"?C.emeraldBg:C.card,color:(editDraft.type||f.type)==="income"?C.emerald:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↓ Money In (Income)</button>
               <button onClick={()=>setEditDraft(d=>({...d,type:"expense"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)!=="income"?C.crimson:C.borderSoft}`,background:(editDraft.type||f.type)!=="income"?C.crimsonBg:C.card,color:(editDraft.type||f.type)!=="income"?C.crimson:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↑ Money Out</button>
             </div>
+            <select defaultValue={f.recurrence||""} onChange={e=>setEditDraft(d=>({...d,recurrence:e.target.value}))} style={{...inp,marginBottom:8}}>
+              <option value="">One-off (no repeat)</option>
+              <option value="Monthly">Monthly</option>
+              <option value="Every 4 weeks">Every 4 weeks</option>
+              <option value="Weekly">Weekly</option>
+              <option value="Fortnightly">Fortnightly</option>
+            </select>
             <input id={`edit-notes-${f.id}`} defaultValue={f.notes||""} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} style={{...inp,marginBottom:8}} placeholder="Notes (optional)"/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>saveEdit(f.id)} style={goldBtn()}>✓ Save</button>
@@ -4155,7 +4203,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{flex:1}} onClick={()=>setFinAction({item:f})}>
               <div style={{fontSize:13,fontFamily:FD,color:C.ink,cursor:"pointer"}}>{f.label}</div>
-              {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
+                {f.recurrence&&<div style={{fontSize:8,color:accentColor,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:accentColor+"15",padding:"1px 6px",borderRadius:8}}>↻ {f.recurrence}</div>}
+              </div>
               {f.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB}}>{f.notes}</div>}
               <div style={{fontSize:9,color:accentColor,fontFamily:FM,marginTop:2,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to edit</div>
             </div>
@@ -4252,15 +4303,25 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <option value="income">Income</option>
           <option value="expense">Outgoing / Payment</option>
         </select>
+        <select id="fin-recurrence" style={inp}>
+          <option value="">One-off (no repeat)</option>
+          <option value="Monthly">Monthly</option>
+          <option value="Every 4 weeks">Every 4 weeks</option>
+          <option value="Weekly">Weekly</option>
+          <option value="Fortnightly">Fortnightly</option>
+        </select>
         <input id="fin-notes" style={inp} placeholder="Notes (optional)"/>
         <button style={goldBtn()} onClick={()=>{
           const label=document.getElementById("fin-label")?.value?.trim();
           const amount=parseFloat(document.getElementById("fin-amount")?.value||"0");
           const date=document.getElementById("fin-date")?.value||"";
           const type=document.getElementById("fin-type")?.value||"income";
+          const recurrence=document.getElementById("fin-recurrence")?.value||"";
           const notes=document.getElementById("fin-notes")?.value||"";
           if(!label)return;
-          setFinances(fs=>[...fs,{id:Date.now()+Math.random(),label,amount,date,type,notes,status:"pending",source:"manual"}]);
+          const dupe=finances.find(f=>(f.label||"").toLowerCase().trim()===label.toLowerCase()&&(f.amount||0)===amount&&(f.date||"")===date);
+          if(dupe&&!window.confirm("You already have \""+label+"\" for £"+amount.toFixed(2)+(date?" on "+date:"")+". Add it again anyway?"))return;
+          addFinances([{label,amount,date,type,recurrence,notes,source:"manual"}]);
           ["fin-label","fin-amount","fin-date","fin-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
           setShowAdd(false);
         }}>Add</button>
