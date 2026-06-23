@@ -1,4 +1,4 @@
-// VERSION_CHECK: Remove-Meal-Plan build - June 22 2026 v33
+// VERSION_CHECK: Notes-Sync-Calendar build - June 23 2026 v35
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -741,6 +741,8 @@ function AppInner(){
   const [finPlanRes,setFinPlanRes]=useState(null);
   const [finReminderEdit,setFinReminderEdit]=useState(null);
   const [expandedPlanId,setExpandedPlanId]=useState(null);
+  const [noteEditIdx,setNoteEditIdx]=useState(null);
+  const [noteEditText,setNoteEditText]=useState("");
   const [finPlanNote,setFinPlanNote]=useState("");
   const [finStepEdit,setFinStepEdit]=useState(null);
   const [finQEdit,setFinQEdit]=useState(null);
@@ -2891,17 +2893,30 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {/* Eleanor chat updates notice */}
         {(persistentMemory.pending_tasks||[]).length>0&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"12px 16px",marginBottom:14}}>
           <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✦ Eleanor's Notes from Chat</div>
+          <div style={{fontSize:10,color:C.inkLight,fontFamily:FB,marginBottom:8,fontStyle:"italic"}}>Tap any note to correct it — Eleanor saves the change and updates your calendar if it relates to an appointment.</div>
           {(persistentMemory.pending_tasks||[]).map((t,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<(persistentMemory.pending_tasks||[]).length-1?`1px solid ${C.borderSoft}`:"none"}}>
-              <div style={{fontSize:12,color:C.inkMid,fontFamily:FB}}>→ {t}</div>
-              <button onClick={()=>{
-                const updated={...persistentMemory,pending_tasks:(persistentMemory.pending_tasks||[]).filter((_,j)=>j!==i)};
-                setPersistentMemory(updated);
-                safeSave("papa_persistent_memory",JSON.stringify(updated));
-              }} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11,flexShrink:0,marginLeft:8}}>✓ Done</button>
+            <div key={i} style={{padding:"6px 0",borderBottom:i<(persistentMemory.pending_tasks||[]).length-1?`1px solid ${C.borderSoft}`:"none"}}>
+              {noteEditIdx===i?(
+                <div>
+                  <textarea defaultValue={t} onChange={e=>setNoteEditText(e.target.value)} style={{...inp,minHeight:54,marginBottom:6}} placeholder="Correct this note..."/>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>saveNoteAndSync(i,t,noteEditText)} disabled={noteSyncBusy} style={{...goldBtn(),margin:0,flex:1}}>{noteSyncBusy?"Syncing…":"✓ Save & Sync to Calendar"}</button>
+                    <button onClick={()=>{setNoteEditIdx(null);setNoteEditText("");}} disabled={noteSyncBusy} style={{...goldBtn(true),margin:0,flex:0,padding:"9px 14px"}}>Cancel</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,flex:1,cursor:"pointer"}} onClick={()=>{setNoteEditIdx(i);setNoteEditText(t);}}>→ {t} <span style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.08em"}}>· tap to edit</span></div>
+                  <button onClick={()=>{
+                    const updated={...persistentMemory,pending_tasks:(persistentMemory.pending_tasks||[]).filter((_,j)=>j!==i)};
+                    setPersistentMemory(updated);
+                    safeSave("papa_persistent_memory",JSON.stringify(updated));
+                  }} style={{background:"none",border:"none",color:C.inkFaint,cursor:"pointer",fontSize:11,flexShrink:0,marginLeft:8}}>✓ Done</button>
+                </div>
+              )}
             </div>
           ))}
-          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:8,fontStyle:"italic"}}>Note: To change events mentioned in chat, please update them directly in Calendar.</div>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:8,fontStyle:"italic"}}>Corrections sync to Eleanor's chat, your briefing and calendar automatically.</div>
         </div>}
 
         {/* Eleanor's personal greeting */}
@@ -4013,6 +4028,38 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       setEventAction({event:ev,result:"Something went wrong. Please try again."});
     }
     setEventActionBusy(false);
+  }
+
+  // -- SMART NOTE EDIT: correct a chat note and sync any matching calendar event --
+  const [noteSyncBusy,setNoteSyncBusy]=useState(false);
+  async function saveNoteAndSync(index,oldText,newText){
+    const txt=(newText||oldText).trim();
+    // 1. Update the note in memory immediately
+    const tasks=[...(persistentMemory.pending_tasks||[])];
+    tasks[index]=txt;
+    const updatedMem={...persistentMemory,pending_tasks:tasks};
+    setPersistentMemory(updatedMem);
+    safeSave("papa_persistent_memory",JSON.stringify(updatedMem));
+
+    // 2. Ask Eleanor if this note refers to a calendar event that needs updating
+    setNoteSyncBusy(true);
+    try{
+      const evList=events.map(e=>({id:e.id,title:e.title,date:e.date,time:e.time})).slice(0,60);
+      const raw=await callAI({
+        system:"You manage Sarah's calendar. She corrected a note. Today is "+fmt(today)+". Decide if the corrected note refers to an existing calendar event that should change. Respond with ONLY raw JSON: {\"action\":\"update|add|none\",\"eventId\":number or null,\"title\":string or null,\"date\":\"YYYY-MM-DD or null\",\"time\":\"HH:MM or null\"}. action=update if an existing event matches and its date/title changed; add if the note describes a new dated event not in the list; none if it's just a reminder with no calendar impact. For dates with no year assume "+today.getFullYear()+". Match events loosely by topic.",
+        messages:[{role:"user",content:"Corrected note: \""+txt+"\"\n\nExisting events:\n"+JSON.stringify(evList)}]
+      });
+      const parsed=robustJSON(raw);
+      if(parsed){
+        if(parsed.action==="update"&&parsed.eventId!=null){
+          setEvents(evs=>evs.map(e=>e.id===parsed.eventId?{...e,title:parsed.title||e.title,date:parsed.date||e.date,time:parsed.time||e.time}:e));
+        }else if(parsed.action==="add"&&parsed.date){
+          setEvents(evs=>[...evs,{id:Date.now()+Math.random()*1000,title:parsed.title||txt.slice(0,40),date:parsed.date,time:parsed.time||"09:00",priority:"medium",notes:"From corrected note",source:"note"}]);
+        }
+      }
+    }catch(e){console.warn("note sync:",e);}
+    setNoteSyncBusy(false);
+    setNoteEditIdx(null);setNoteEditText("");
   }
 
   // -- QUICK FINANCE ACTION (tap any finance item, type a command) --
