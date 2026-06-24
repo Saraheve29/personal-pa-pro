@@ -1,4 +1,4 @@
-// VERSION_CHECK: Clean-Reschedule-Cancel build - June 23 2026 v38
+// VERSION_CHECK: Copy-Button-And-Reminder-Validation build - June 23 2026 v39
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -742,6 +742,7 @@ function AppInner(){
   const [finReminderEdit,setFinReminderEdit]=useState(null);
   const [expandedPlanId,setExpandedPlanId]=useState(null);
   const [noteEditIdx,setNoteEditIdx]=useState(null);
+  const [copiedMsg,setCopiedMsg]=useState(null);
   const [noteEditText,setNoteEditText]=useState("");
   const [finPlanNote,setFinPlanNote]=useState("");
   const [finStepEdit,setFinStepEdit]=useState(null);
@@ -1153,6 +1154,7 @@ Rules:
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
         "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. RESCHEDULING MUST BE ATOMIC: if Sarah says something moved (e.g. 'the fair moved from 24 June to 13 July'), you MUST use a single move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old one behind. CANCELLATION: if Sarah says an event is cancelled or off, use a cancel/delete action to remove it entirely — do not keep it. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Summer Fair,fromDate:2026-06-24,toDate:2026-07-13,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year.",
         "SUPERSEDED EVENTS: Before mentioning any event as upcoming, check if a later note, correction, or memory says it was cancelled, postponed, or its date changed. If so, treat the OLD date as superseded — only ever present the NEW date, and never mention the cancelled/old one as if it is still happening. If an event's notes contain 'cancelled', 'postponed', or 'date changed', do not present it as current.",
+        "RELATIVE-DATE REMINDER CHECK: Some entries are reminders worded relative to an appointment, e.g. 'Sox coming tomorrow'. A 'tomorrow' reminder is only correct if it is dated EXACTLY ONE day before the actual appointment. Before presenting such a reminder or judging whether a day is free: find the actual appointment it refers to (e.g. the real Sox booking date) and check the reminder sits exactly 1 day before it. A 'coming tomorrow' reminder on Sunday for a Monday booking is CORRECT. The same reminder on Sunday for a Tuesday booking (2 days away) is WRONG/misplaced. If you spot a misplaced reminder (dated 2+ days before, or after, its real appointment), proactively tell Sarah it looks wrong and OFFER to delete it right away using a delete SCHEDULE_ACTION — do not wait for her to ask. Never treat a day as 'free' or 'busy' based on a reminder whose date does not line up with its real appointment.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
@@ -3844,7 +3846,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             {isPA&&<PaAvatar size={30} pulse={false}/>}
             <div style={{maxWidth:"76%"}}>
               <div style={{padding:"12px 16px",borderRadius:isPA?"4px 16px 16px 4px":"16px 4px 4px 16px",background:isPA?C.card:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:isPA?C.ink:C.card,fontSize:14,lineHeight:1.65,fontFamily:FB,letterSpacing:"0.025em",border:isPA?`1px solid ${C.borderSoft}`:"none",boxShadow:isPA?`0 2px 10px ${C.shadow}`:`0 3px 12px rgba(154,123,60,0.28)`}}>{m.text}</div>
-              <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,marginTop:3,textAlign:isPA?"left":"right",letterSpacing:"0.08em"}}>{fmtTime(m.ts)}</div>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginTop:3,justifyContent:isPA?"flex-start":"flex-end"}}>
+                <span style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.08em"}}>{fmtTime(m.ts)}</span>
+                <button onClick={()=>{navigator.clipboard?.writeText(m.text).then(()=>{setCopiedMsg(i);setTimeout(()=>setCopiedMsg(null),1500);}).catch(()=>{});}} style={{background:"none",border:"none",color:copiedMsg===i?C.emerald:C.inkFaint,cursor:"pointer",fontSize:9,fontFamily:FM,letterSpacing:"0.08em",textTransform:"uppercase",padding:0}}>{copiedMsg===i?"✓ Copied":"⧉ Copy"}</button>
+              </div>
             </div>
           </div>);
         })}
