@@ -1,4 +1,4 @@
-// VERSION_CHECK: Copy-Button-And-Reminder-Validation build - June 23 2026 v39
+// VERSION_CHECK: Reminders-Not-Conflicts build - June 24 2026 v40
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -44,6 +44,16 @@ const PM={
   medium:  {label:"Medium",  color:C.sapphire, bg:C.sapphireBg,glyph:"◇"},
   low:     {label:"Low",     color:C.inkFaint, bg:C.parchment, glyph:"○"},
 };
+// An entry is a "reminder" (not a physical event you attend) if its source/type says so,
+// or its wording is clearly a prompt rather than an appointment.
+const isReminderEntry=e=>{
+  if(!e)return false;
+  if(e.kind==="reminder"||e.type==="reminder"||e.source==="reminder")return true;
+  const t=(e.title||"").toLowerCase();
+  // Wording that signals a reminder/note rather than an event you attend at a place
+  return /\b(coming tomorrow|coming today|reminder|remember to|don't forget|dont forget|check |pay |renew |order |buy |call |email |chase |follow up|drop off|pick up reminder|due\b|payment|deadline)\b/.test(t);
+};
+
 const getConflicts=evs=>{
   const out=[];
   const byD={};
@@ -55,7 +65,11 @@ const getConflicts=evs=>{
         if(a.title.toLowerCase()===b.title.toLowerCase()){
           out.push([a.id,b.id,"duplicate"]);
         } else if(a.time&&b.time&&a.time===b.time){
-          out.push([a.id,b.id,"conflict"]);
+          // Only a real time conflict if BOTH are things Sarah physically attends.
+          // A reminder sharing a time with an event is not a clash.
+          if(!isReminderEntry(a)&&!isReminderEntry(b)){
+            out.push([a.id,b.id,"conflict"]);
+          }
         }
       }
     }
@@ -1154,7 +1168,8 @@ Rules:
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
         "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. RESCHEDULING MUST BE ATOMIC: if Sarah says something moved (e.g. 'the fair moved from 24 June to 13 July'), you MUST use a single move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old one behind. CANCELLATION: if Sarah says an event is cancelled or off, use a cancel/delete action to remove it entirely — do not keep it. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Summer Fair,fromDate:2026-06-24,toDate:2026-07-13,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year.",
         "SUPERSEDED EVENTS: Before mentioning any event as upcoming, check if a later note, correction, or memory says it was cancelled, postponed, or its date changed. If so, treat the OLD date as superseded — only ever present the NEW date, and never mention the cancelled/old one as if it is still happening. If an event's notes contain 'cancelled', 'postponed', or 'date changed', do not present it as current.",
-        "RELATIVE-DATE REMINDER CHECK: Some entries are reminders worded relative to an appointment, e.g. 'Sox coming tomorrow'. A 'tomorrow' reminder is only correct if it is dated EXACTLY ONE day before the actual appointment. Before presenting such a reminder or judging whether a day is free: find the actual appointment it refers to (e.g. the real Sox booking date) and check the reminder sits exactly 1 day before it. A 'coming tomorrow' reminder on Sunday for a Monday booking is CORRECT. The same reminder on Sunday for a Tuesday booking (2 days away) is WRONG/misplaced. If you spot a misplaced reminder (dated 2+ days before, or after, its real appointment), proactively tell Sarah it looks wrong and OFFER to delete it right away using a delete SCHEDULE_ACTION — do not wait for her to ask. Never treat a day as 'free' or 'busy' based on a reminder whose date does not line up with its real appointment.",
+        "REMINDERS vs APPOINTMENTS: Distinguish between things Sarah physically ATTENDS (appointments, events, meetings, trips, family days) and REMINDERS/notes (e.g. 'Sox the dog coming tomorrow', 'pay rent', 'remember to call'). A reminder sharing a date or time with a real event is NOT a scheduling conflict — Sarah can attend the event and still have the reminder. Never flag a reminder against an appointment as a clash, and never imply she has to choose between them. Only two things she must be in two places for at once is a genuine conflict.",
+        "RELATIVE-DATE REMINDER CHECK: Some entries are reminders worded relative to an appointment, e.g. 'Sox coming tomorrow'. A 'tomorrow' reminder is only correct if it is dated EXACTLY ONE day before the actual appointment. Before presenting such a reminder or judging whether a day is free: find the actual appointment it refers to (e.g. the real Sox booking date) and check the reminder sits exactly 1 day before it. A 'coming tomorrow' reminder on Sunday for a Monday booking is CORRECT. The same reminder on Sunday for a Tuesday booking (2 days away) is WRONG/misplaced. If you spot a misplaced reminder, proactively tell Sarah it looks wrong and OFFER to delete it using a delete SCHEDULE_ACTION — do not wait for her to ask.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
@@ -2080,10 +2095,13 @@ Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 sh
   },[events]);
 
   function checkConflicts(newEvent){
-    const clashes=events.filter(e=>e.date===newEvent.date&&e.id!==newEvent.id);
+    // Reminders don't physically clash with anything, so don't warn for them
+    if(isReminderEntry(newEvent))return;
+    const sameDay=events.filter(e=>e.date===newEvent.date&&e.id!==newEvent.id);
+    const clashes=sameDay.filter(e=>!isReminderEntry(e)); // only real attended events count as clashes
     const dayBefore=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()-86400000));
     const dayAfter=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()+86400000));
-    const nearby=events.filter(e=>e.date===dayBefore||e.date===dayAfter);
+    const nearby=events.filter(e=>(e.date===dayBefore||e.date===dayAfter)&&!isReminderEntry(e));
     if(clashes.length>0||nearby.length>0){
       setConflictWarning({event:newEvent,clashes,nearby,dayBefore,dayAfter});
     }
