@@ -1,4 +1,4 @@
-// VERSION_CHECK: Reminders-Not-Conflicts build - June 24 2026 v40
+// VERSION_CHECK: Universal-Income-Detection build - June 24 2026 v43
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -44,14 +44,36 @@ const PM={
   medium:  {label:"Medium",  color:C.sapphire, bg:C.sapphireBg,glyph:"◇"},
   low:     {label:"Low",     color:C.inkFaint, bg:C.parchment, glyph:"○"},
 };
-// An entry is a "reminder" (not a physical event you attend) if its source/type says so,
-// or its wording is clearly a prompt rather than an appointment.
+// Decide if a finance item is INCOME (money in) vs an expense (money out).
+// Universal logic for ALL users, not tied to any one job or platform.
+// Priority: (1) trust a deliberate type set by manual edit or AI classification;
+// (2) otherwise reason from general income vs outgoing wording.
+const isIncomeFinance=(fi)=>{
+  if(!fi)return false;
+  const t=(fi.type||"").toLowerCase();
+  if(t==="income"||t==="saving"||t==="earning"||t==="received"||t==="credit")return true;
+  if(t==="expense"||t==="payment"||t==="bill"||t==="debit")return false;
+  // No explicit type — reason from the words.
+  const text=((fi.label||"")+" "+(fi.notes||"")).toLowerCase();
+  // OUTGOING signals (money leaving) — checked first, these are unambiguous
+  if(/\b(bill|bills|rent|mortgage|utilities|gas|electric|water|council tax|broadband|phone bill|subscription|insurance|repayment|instalment|installment|klarna|paypal credit|clearpay|loan|credit card|direct debit|standing order|invoice owed|expense|expenses|cost|costs|fee|fees|ticket|tickets|shopping|groceries|fuel|petrol|purchase|paid out|spent|due to pay|owe|owed)\b/.test(text))return false;
+  // INCOMING signals (money arriving) — wages, benefits, sales, earnings of ANY kind
+  if(/\b(income|earning|earnings|wage|wages|salary|pay\b|payment received|paid to (me|you|sarah)|paid by|received|refund|rebate|cashback|deposit received|sale|sales|sold|babysit|babysitting|childmind|tutoring|cleaning job|commission|tip|tips|payout|dividend|interest earned|benefit|benefits|allowance|universal credit|\bpip\b|\bdla\b|\besa\b|\buc\b|carer|child benefit|tax credit|pension|grant|booking price|booking|client|customer|invoice paid|freelance|gig|side hustle)\b/.test(text))return true;
+  // Default: if we genuinely can't tell, treat as expense (safer for budgeting — won't inflate income)
+  return false;
+};
+
+// An entry is a "reminder" or "payment" (not a physical event you attend) if its source/type says so,
+// or its wording is clearly a prompt/financial item rather than an appointment you go to.
 const isReminderEntry=e=>{
   if(!e)return false;
   if(e.kind==="reminder"||e.type==="reminder"||e.source==="reminder")return true;
+  if(e.kind==="payment"||e.type==="payment"||e.type==="income"||e.type==="expense"||e.source==="finance"||e.source==="finplan")return true;
   const t=(e.title||"").toLowerCase();
-  // Wording that signals a reminder/note rather than an event you attend at a place
-  return /\b(coming tomorrow|coming today|reminder|remember to|don't forget|dont forget|check |pay |renew |order |buy |call |email |chase |follow up|drop off|pick up reminder|due\b|payment|deadline)\b/.test(t);
+  // Financial / benefit wording — these are money in/out, not events Sarah attends
+  if(/\b(payment|klarna|paypal|pip|dla|universal credit|carer'?s allowance|child benefit|tax credit|direct debit|standing order|bill|bills|invoice|rent|wages?|salary|refund|deposit|instalment|installment|repayment)\b/.test(t))return true;
+  // Reminder/task wording
+  return /\b(coming tomorrow|coming today|going home today|reminder|remember to|don't forget|dont forget|check |pay |renew |order |buy |call |email |chase |follow up|due\b|deadline)\b/.test(t);
 };
 
 const getConflicts=evs=>{
@@ -1089,8 +1111,8 @@ Rules:
 
       const thisMonth=new Date().getMonth();
       const thisYear=new Date().getFullYear();
-      const allIncome=finances.filter(f=>f.type==="income"&&f.status!=="paid");
-      const allOutgoings=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+      const allIncome=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
+      const allOutgoings=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
       const totalIncome=allIncome.reduce((s,f)=>s+(f.amount||0),0);
       const totalOutgoings=allOutgoings.reduce((s,f)=>s+(f.amount||0),0);
       const finParts=[];
@@ -1261,8 +1283,8 @@ Rules:
     const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
 
     // Finance context for briefing - same source as chat and finances section
-    const brIncome=finances.filter(f=>f.type==="income"&&f.status!=="paid");
-    const brOut=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+    const brIncome=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
+    const brOut=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
     const brInTotal=brIncome.reduce((s,f)=>s+(f.amount||0),0);
     const brOutTotal=brOut.reduce((s,f)=>s+(f.amount||0),0);
     const brFinParts=[];
@@ -1384,6 +1406,11 @@ Rules:
   - Today is ${fmt(today)} — use this only as a last resort, never to overwrite a year the document already gives.
 - time: "13:30"="13:30", "3pm"="15:00", "9am"="09:00", "1.45pm"="13:45", unknown="09:00"
 - financials: extract ANY money amounts — earnings, payments due, costs, fees, benefits
+- financial TYPE — classify each money item carefully as "income" (money coming IN) or "expense" (money going OUT):
+  - INCOME = money the user RECEIVES: wages, salary, freelance or gig earnings, self-employment takings (e.g. dog-sitting, driving, selling items, commissions, tips), benefits (Universal Credit, PIP, DLA, Carer's Allowance, Child Benefit, tax credits, pension), refunds, rebates, money paid TO them. A booking the user is PAID for is income to them.
+  - EXPENSE = money the user PAYS OUT: bills, rent, mortgage, utilities, food/shopping, subscriptions, insurance, loan/credit repayments (Klarna, Clearpay, credit card), tickets or items they buy, fees they owe.
+  - The test: is this money ARRIVING to the user, or LEAVING their account? Arriving = income, leaving = expense.
+  - Don't assume a job type — work it out from context for THIS user.
 - notes: name, price, reference, location. Max 100 chars
 - priority: medical=critical, bookings=high, social/school=medium
 - NEVER return empty events — include any date you see
@@ -1464,10 +1491,7 @@ ${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
         setImgRes({events:dedupEvents,financials:allFinancials,summary:(queue.length>1?"Combined from "+queue.length+" files. ":"")+(summaries.join(" ").slice(0,400))});
         if(allFinancials.length){
           addFinances(allFinancials.map(fi=>{
-            const t=(fi.type||"").toLowerCase();
-            const label=(fi.label||"").toLowerCase();
-            const isIncome=t==="saving"||t==="income"||t==="earning"||t==="received"||/earning|income|payment received|paid to you|rover|wage|salary|benefit|allowance/.test(label);
-            return {...fi,type:isIncome?"income":"expense",source:"image"};
+            return {...fi,type:isIncomeFinance(fi)?"income":"expense",source:"image"};
           }));
         }
       }
@@ -2800,7 +2824,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
         <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           {(()=>{
-            const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+            const inc=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
             const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
             return <div style={{display:"flex",gap:16}}>
               <div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>In</div><div style={{fontSize:13,fontFamily:FD,color:C.emerald,marginTop:2}}>£{inc.toFixed(2)}</div></div>
@@ -3032,7 +3056,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           const alreadyDone=monthlyCheckinDismissed===thisMonthKey;
           if(!isFirstOfMonth||alreadyDone)return null;
           const monthName=today.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
-          const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+          const inc=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
           const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
           return(
             <div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1.5px solid ${C.goldBorder}`,borderRadius:8,padding:"16px 18px",marginBottom:14,boxShadow:`0 3px 14px ${C.shadow}`}}>
@@ -4167,8 +4191,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     const editDraft=finEditDraft,setEditDraft=setFinEditDraft;
     const showAdd=finShowAdd,setShowAdd=setFinShowAdd;
     const showHistory=finShowHistory,setShowHistory=setFinShowHistory;
-    const income=finances.filter(f=>f.type==="income"&&f.status!=="paid");
-    const expenses=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
+    const income=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
+    const expenses=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
     const cleared=finances.filter(f=>f.status==="paid");
     const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
     const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
@@ -4317,6 +4341,17 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>
         ))}
       </div>}
+
+      {/* Re-check categories — fixes any items wrongly filed as income/expense */}
+      <button onClick={()=>{
+        setFinances(fs=>fs.map(f=>{
+          // Re-classify ignoring stored type, using only the wording
+          const stripped={label:f.label,notes:f.notes};
+          const shouldBeIncome=isIncomeFinance(stripped);
+          return {...f,type:shouldBeIncome?"income":"expense"};
+        }));
+        alert("✓ Re-checked all items. Income and outgoings have been sorted by what each one is.");
+      }} style={{width:"100%",padding:"10px",borderRadius:6,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",marginBottom:12}}>↻ Re-check Income / Outgoings</button>
 
       {/* Add manually */}
       <button onClick={()=>setShowAdd(s=>!s)} style={{...goldBtn(true),width:"100%",marginBottom:showAdd?10:0}}>＋ Add Manually</button>
