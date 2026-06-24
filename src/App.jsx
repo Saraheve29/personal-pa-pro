@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Dedup-Recurring build - June 23 2026 v37
+// VERSION_CHECK: Clean-Reschedule-Cancel build - June 23 2026 v38
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1048,7 +1048,8 @@ Rules:
       const dateStr=now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
       const timeStr=now.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
       
-      const futureEvents=[...allEvents].filter(e=>e.date>=fmt(today)).sort((a,b)=>a.date.localeCompare(b.date));
+      const isSuperseded=e=>/cancelled|canceled|postponed|date changed|superseded/i.test((e.notes||"")+" "+(e.status||""));
+      const futureEvents=[...allEvents].filter(e=>e.date>=fmt(today)&&!isSuperseded(e)).sort((a,b)=>a.date.localeCompare(b.date));
       const futureCtx=futureEvents.length>0
         ?futureEvents.map((e,i)=>{
           const txt=((e.title||"")+" "+(e.notes||"")).toLowerCase();
@@ -1150,7 +1151,8 @@ Rules:
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
-        "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. Examples (use the exact title from the schedule): To delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. To add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. To move (deletes old AND adds new in one step) - [SCHEDULE_ACTION:{action:move,title:Garden Centre,fromDate:2026-06-20,toDate:2026-07-04,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. To reschedule something, ALWAYS use a move action so the old one is deleted automatically. Use the current year for any date without a year.",
+        "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel. You have this power through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. When she asks for a change, confirm it warmly in plain words, THEN add a SCHEDULE_ACTION block at the very END of your reply. RESCHEDULING MUST BE ATOMIC: if Sarah says something moved (e.g. 'the fair moved from 24 June to 13 July'), you MUST use a single move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old one behind. CANCELLATION: if Sarah says an event is cancelled or off, use a cancel/delete action to remove it entirely — do not keep it. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Summer Fair,fromDate:2026-06-24,toDate:2026-07-13,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year.",
+        "SUPERSEDED EVENTS: Before mentioning any event as upcoming, check if a later note, correction, or memory says it was cancelled, postponed, or its date changed. If so, treat the OLD date as superseded — only ever present the NEW date, and never mention the cancelled/old one as if it is still happening. If an event's notes contain 'cancelled', 'postponed', or 'date changed', do not present it as current.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
@@ -1177,7 +1179,7 @@ Rules:
               }
             });
           }
-          if(action.action==="delete"||action.action==="move"){
+          if(action.action==="delete"||action.action==="move"||action.action==="cancel"){
             actionExecuted=true;
             // Delete matching event by title similarity and date
             setEvents(ev=>ev.filter(e=>{
@@ -1218,7 +1220,7 @@ Rules:
         if(assistantCount>0&&assistantCount%10===0)saveSessionSummary(allMsgs);
         if(assistantCount>0&&assistantCount%3===0){
           const recent=allMsgs.slice(-6).map(x=>(x.role==="user"?"Sarah":"Eleanor")+": "+x.text).join("\n");
-          callAI({system:'Extract NEW facts only. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 each. Empty arrays if nothing new.',messages:[{role:"user",content:recent}]}).then(r=>{
+          callAI({system:'Extract NEW facts only from this conversation. Return ONLY raw JSON: {"facts":[],"pending_tasks":[],"preferences":[]}. Max 2 each. Empty arrays if nothing new. IMPORTANT: if Sarah corrects a date, says an event was cancelled/rescheduled, or says "I told you" / "I already said", capture the corrected information as a FACT (e.g. "The summer fair was moved to 13 July, not 24 June") so it is remembered next time.',messages:[{role:"user",content:recent}]}).then(r=>{
             try{
               const p=JSON.parse(r.replace(/```json|```/g,"").trim());
               if(p.facts?.length||p.pending_tasks?.length||p.preferences?.length){
