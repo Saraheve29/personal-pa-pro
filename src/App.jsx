@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthday-Gift-Planner build - June 25 2026 v48
+// VERSION_CHECK: Birthday-Day-Month-Only build - June 25 2026 v49
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -4712,8 +4712,17 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic",marginBottom:12}}>Add Birthday or Celebration</div>
         <input style={inp} placeholder="Name e.g. Julie, Mum, Anniversary" value={newName} onChange={e=>setNewName(e.target.value)}/>
-        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>Date (day and month):</div>
-        <input type="date" style={{...inp,marginBottom:12}} value={newDate?"2000-"+newDate:""} onChange={e=>{const d=e.target.value;if(d)setNewDate(d.slice(5));}}/>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:6}}>Date (day and month only — no year needed):</div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <select value={newDate?newDate.split("-")[1]||"":""} onChange={e=>{const day=e.target.value;const parts=(newDate||"-").split("-");const mth=parts[0]||"";setNewDate((mth||"")+"-"+day);}} style={{...inp,flex:1,marginBottom:0}}>
+            <option value="">Day</option>
+            {Array.from({length:31},(_,i)=>String(i+1).padStart(2,"0")).map(d=><option key={d} value={d}>{parseInt(d,10)}</option>)}
+          </select>
+          <select value={newDate?newDate.split("-")[0]||"":""} onChange={e=>{const mth=e.target.value;const parts=(newDate||"-").split("-");const day=parts[1]||"";setNewDate(mth+"-"+(day||""));}} style={{...inp,flex:2,marginBottom:0}}>
+            <option value="">Month</option>
+            {["January","February","March","April","May","June","July","August","September","October","November","December"].map((m,i)=><option key={m} value={String(i+1).padStart(2,"0")}>{m}</option>)}
+          </select>
+        </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
           {[["birthday","🎂 Birthday"],["anniversary","💍 Anniversary"],["celebration","🎉 Celebration"],["other","⭐ Other"]].map(([type,label])=>(
             <button key={type} onClick={()=>setNewType(type)} style={{padding:"6px 12px",borderRadius:3,border:`1.5px solid ${newType===type?C.goldBorder:C.borderSoft}`,background:newType===type?C.goldPale:C.card,color:newType===type?C.gold:C.inkFaint,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{label}</button>
@@ -4737,7 +4746,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>}
 
         <button style={goldBtn()} onClick={()=>{
-          if(!newName.trim()||!newDate)return;
+          const dParts=(newDate||"").split("-");
+          if(!newName.trim()||dParts.length!==2||!dParts[0]||!dParts[1])return;
           const bid=Date.now();
           const price=parseFloat(pPrice)||0;
           const present=(pIdea.trim()||pLink.trim()||price>0||pNotes.trim())?{idea:pIdea.trim(),link:pLink.trim(),price,notes:pNotes.trim(),bought:false}:null;
@@ -4764,7 +4774,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           }
           setNewName("");setNewDate("");setPIdea("");setPLink("");setPPrice("");setPNotes("");setWantReminder(true);
           alert(wantReminder?"✓ Added with a yearly reminder a week before"+(present?.price>0?", and the present cost is in that month's outgoings (marked planned).":"."):"✓ Added.");
-        }} disabled={!newName.trim()||!newDate}>Add Date</button>
+        }} disabled={!newName.trim()||!newDate||newDate.split("-").length!==2||!newDate.split("-")[0]||!newDate.split("-")[1]}>Add Date</button>
       </div>
     </div>);
   };
