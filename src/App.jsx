@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthdays-Hooks-Fix build - June 25 2026 v46
+// VERSION_CHECK: Birthday-Present-Reminders build - June 25 2026 v47
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -4665,9 +4665,28 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
         <button style={goldBtn()} onClick={()=>{
           if(!newName.trim()||!newDate)return;
-          setBirthdays(bs=>[...bs,{id:Date.now(),name:newName.trim(),monthDay:newDate,type:newType}]);
+          const bid=Date.now();
+          setBirthdays(bs=>[...bs,{id:bid,name:newName.trim(),monthDay:newDate,type:newType,presentReminder:true}]);
           setBirthdayActions(a=>{const n={...a};return n;});
+          // Auto-create a "buy present" reminder event 7 days before the next occurrence
+          try{
+            const next=nextOccurrence(newDate); // YYYY-MM-DD of next birthday
+            if(next){
+              const rDate=fmt(new Date(new Date(next+"T12:00:00").getTime()-7*86400000));
+              const typeWord=newType==="anniversary"?"gift":newType==="celebration"?"something":"present";
+              addEvs([{
+                title:"Buy "+typeWord+" for "+newName.trim(),
+                date:rDate,
+                time:"09:00",
+                priority:"medium",
+                notes:newType==="birthday"?"Birthday on "+next+" — a week to get a present/card":"On "+next+" — a week to prepare",
+                kind:"reminder",
+                birthdayId:bid
+              }],"birthday");
+            }
+          }catch(e){console.warn("present reminder:",e);}
           setNewName("");setNewDate("");
+          alert("✓ Added. I'll remind you a week before to get a "+(newType==="birthday"?"present":"gift")+".");
         }} disabled={!newName.trim()||!newDate}>Add Date</button>
       </div>
     </div>);
