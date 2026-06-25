@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthday-Present-Reminders build - June 25 2026 v47
+// VERSION_CHECK: Birthday-Gift-Planner build - June 25 2026 v48
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -785,6 +785,12 @@ function AppInner(){
   const [bdayNewName,setBdayNewName]=useState("");
   const [bdayNewDate,setBdayNewDate]=useState("");
   const [bdayNewType,setBdayNewType]=useState("birthday");
+  const [bdayWantReminder,setBdayWantReminder]=useState(true);
+  const [bdayPresentIdea,setBdayPresentIdea]=useState("");
+  const [bdayPresentLink,setBdayPresentLink]=useState("");
+  const [bdayPresentPrice,setBdayPresentPrice]=useState("");
+  const [bdayPresentNotes,setBdayPresentNotes]=useState("");
+  const [bdayPresentEditId,setBdayPresentEditId]=useState(null);
   const [noteEditText,setNoteEditText]=useState("");
   const [finPlanNote,setFinPlanNote]=useState("");
   const [finStepEdit,setFinStepEdit]=useState(null);
@@ -842,6 +848,33 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
+  // Regenerate birthday present reminders & planned costs each year once the old ones have passed
+  useEffect(()=>{
+    const todayStr=fmt(getToday());
+    birthdays.forEach(b=>{
+      if(!b.presentReminder)return;
+      const next=nextOccurrence(b.monthDay);
+      const rDate=fmt(new Date(new Date(next+"T12:00:00").getTime()-7*86400000));
+      // Does a reminder already exist for THIS year's occurrence?
+      const hasReminder=events.some(e=>e.birthdayId===b.id&&e.date===rDate);
+      if(!hasReminder){
+        const typeWord=b.type==="anniversary"?"gift":b.type==="celebration"?"something":"present";
+        addEvs([{
+          title:"Buy "+typeWord+" for "+b.name,
+          date:rDate,time:"09:00",priority:"medium",
+          notes:(b.type==="birthday"?"Birthday on "+next:"On "+next)+(b.present?.idea?" — idea: "+b.present.idea:""),
+          kind:"reminder",birthdayId:b.id,recurring:"yearly"
+        }],"birthday");
+        // Regenerate the planned cost for the new year (reset bought status)
+        if(b.present&&b.present.price>0){
+          const hasCost=finances.some(f=>f.birthdayId===b.id&&f.date===next);
+          if(!hasCost){
+            addFinances([{label:(typeWord==="gift"?"Gift":"Present")+" for "+b.name,amount:b.present.price,date:next,type:"expense",userSet:true,recurrence:"Yearly",notes:"Planned"+(b.present.idea?" — "+b.present.idea:""),source:"birthday",birthdayId:b.id,planned:true}]);
+          }
+        }
+      }
+    });
+  },[birthdays]);
   useEffect(()=>{
     try{ safeSave("papa_events",JSON.stringify(events)); }catch{}
   },[events]);
@@ -4577,6 +4610,11 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     const newName=bdayNewName,setNewName=setBdayNewName;
     const newDate=bdayNewDate,setNewDate=setBdayNewDate;
     const newType=bdayNewType,setNewType=setBdayNewType;
+    const wantReminder=bdayWantReminder,setWantReminder=setBdayWantReminder;
+    const pIdea=bdayPresentIdea,setPIdea=setBdayPresentIdea;
+    const pLink=bdayPresentLink,setPLink=setBdayPresentLink;
+    const pPrice=bdayPresentPrice,setPPrice=setBdayPresentPrice;
+    const pNotes=bdayPresentNotes,setPNotes=setBdayPresentNotes;
 
     const upcoming=getBirthdayAlerts();
     const typeIcons={birthday:"🎂",anniversary:"💍",celebration:"🎉",other:"⭐"};
@@ -4639,15 +4677,33 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).length>0&&<div style={{marginBottom:20}}>
         <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>All Dates</div>
         {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).map(b=>(
-          <div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6}}>
-            <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <span>{typeIcons[b.type]||"🎂"}</span>
-              <div>
-                <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{b.name}</div>
-                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}</div>
+          <div key={b.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,padding:"10px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <span>{typeIcons[b.type]||"🎂"}</span>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{b.name}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}{b.presentReminder?" · 🎁 reminder on":""}</div>
+                </div>
               </div>
+              <button onClick={()=>{setBirthdays(bs=>bs.filter(x=>x.id!==b.id));setEvents(ev=>ev.filter(e=>e.birthdayId!==b.id));setFinances(fs=>fs.filter(f=>f.birthdayId!==b.id));}} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
             </div>
-            <button onClick={()=>setBirthdays(bs=>bs.filter(x=>x.id!==b.id))} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
+            {b.present&&(b.present.idea||b.present.price>0)&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{flex:1}}>
+                  {b.present.idea&&<div style={{fontSize:12,fontFamily:FB,color:C.inkMid}}>🎁 {b.present.idea}{b.present.bought?" ✓":""}</div>}
+                  {b.present.notes&&<div style={{fontSize:11,color:C.inkLight,fontFamily:FB,marginTop:1}}>{b.present.notes}</div>}
+                  {b.present.price>0&&<div style={{fontSize:11,color:b.present.bought?C.emerald:C.gold,fontFamily:FM,marginTop:2}}>£{b.present.price.toFixed(2)} {b.present.bought?"· bought":"· planned"}</div>}
+                  {b.present.link&&<a href={b.present.link} target="_blank" rel="noreferrer" style={{fontSize:11,color:C.sapphire,fontFamily:FB,textDecoration:"underline"}}>View item →</a>}
+                </div>
+                <button onClick={()=>{
+                  const nowBought=!b.present.bought;
+                  setBirthdays(bs=>bs.map(x=>x.id===b.id?{...x,present:{...x.present,bought:nowBought}}:x));
+                  // Sync the planned outgoing: mark paid when bought
+                  setFinances(fs=>fs.map(f=>f.birthdayId===b.id?{...f,status:nowBought?"paid":"pending",planned:!nowBought}:f));
+                }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${b.present.bought?C.emerald:C.goldBorder}`,background:b.present.bought?C.emeraldBg:C.goldPale,color:b.present.bought?C.emerald:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>{b.present.bought?"✓ Bought":"Mark Bought"}</button>
+              </div>
+            </div>}
           </div>
         ))}
       </div>}
@@ -4663,30 +4719,51 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <button key={type} onClick={()=>setNewType(type)} style={{padding:"6px 12px",borderRadius:3,border:`1.5px solid ${newType===type?C.goldBorder:C.borderSoft}`,background:newType===type?C.goldPale:C.card,color:newType===type?C.gold:C.inkFaint,fontFamily:FB,fontSize:11,cursor:"pointer"}}>{label}</button>
           ))}
         </div>
+
+        {/* Reminder toggle */}
+        <div onClick={()=>setWantReminder(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:wantReminder?C.goldPale:C.card,border:`1px solid ${wantReminder?C.goldBorder:C.borderSoft}`,borderRadius:6,marginBottom:10,cursor:"pointer"}}>
+          <div style={{width:20,height:20,borderRadius:4,border:`1.5px solid ${wantReminder?C.gold:C.inkFaint}`,background:wantReminder?C.gold:"transparent",color:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{wantReminder?"✓":""}</div>
+          <div style={{fontSize:13,fontFamily:FB,color:C.inkMid}}>Remind me a week before to buy a present <span style={{fontSize:11,color:C.inkFaint}}>(every year)</span></div>
+        </div>
+
+        {/* Present planning (shows when reminder is on) */}
+        {wantReminder&&<div style={{background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>🎁 Present Plan (optional)</div>
+          <input value={pIdea} onChange={e=>setPIdea(e.target.value)} style={{...inp,marginBottom:6}} placeholder="Present idea e.g. Lego set"/>
+          <input value={pLink} onChange={e=>setPLink(e.target.value)} style={{...inp,marginBottom:6}} placeholder="Shop link (optional)"/>
+          <input value={pPrice} onChange={e=>setPPrice(e.target.value)} type="number" style={{...inp,marginBottom:6}} placeholder="Price e.g. 25.00"/>
+          <input value={pNotes} onChange={e=>setPNotes(e.target.value)} style={{...inp,marginBottom:2}} placeholder="Notes e.g. size, colour"/>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:6,fontStyle:"italic"}}>The price shows as a planned cost in that month's outgoings — tick it off once bought.</div>
+        </div>}
+
         <button style={goldBtn()} onClick={()=>{
           if(!newName.trim()||!newDate)return;
           const bid=Date.now();
-          setBirthdays(bs=>[...bs,{id:bid,name:newName.trim(),monthDay:newDate,type:newType,presentReminder:true}]);
+          const price=parseFloat(pPrice)||0;
+          const present=(pIdea.trim()||pLink.trim()||price>0||pNotes.trim())?{idea:pIdea.trim(),link:pLink.trim(),price,notes:pNotes.trim(),bought:false}:null;
+          setBirthdays(bs=>[...bs,{id:bid,name:newName.trim(),monthDay:newDate,type:newType,presentReminder:wantReminder,present}]);
           setBirthdayActions(a=>{const n={...a};return n;});
-          // Auto-create a "buy present" reminder event 7 days before the next occurrence
-          try{
-            const next=nextOccurrence(newDate); // YYYY-MM-DD of next birthday
-            if(next){
-              const rDate=fmt(new Date(new Date(next+"T12:00:00").getTime()-7*86400000));
-              const typeWord=newType==="anniversary"?"gift":newType==="celebration"?"something":"present";
-              addEvs([{
-                title:"Buy "+typeWord+" for "+newName.trim(),
-                date:rDate,
-                time:"09:00",
-                priority:"medium",
-                notes:newType==="birthday"?"Birthday on "+next+" — a week to get a present/card":"On "+next+" — a week to prepare",
-                kind:"reminder",
-                birthdayId:bid
-              }],"birthday");
-            }
-          }catch(e){console.warn("present reminder:",e);}
-          setNewName("");setNewDate("");
-          alert("✓ Added. I'll remind you a week before to get a "+(newType==="birthday"?"present":"gift")+".");
+          if(wantReminder){
+            try{
+              const next=nextOccurrence(newDate);
+              if(next){
+                const rDate=fmt(new Date(new Date(next+"T12:00:00").getTime()-7*86400000));
+                const typeWord=newType==="anniversary"?"gift":newType==="celebration"?"something":"present";
+                addEvs([{
+                  title:"Buy "+typeWord+" for "+newName.trim(),
+                  date:rDate,time:"09:00",priority:"medium",
+                  notes:(newType==="birthday"?"Birthday on "+next:"On "+next)+(present?.idea?" — idea: "+present.idea:"")+(present?.price?" (~GBP "+present.price.toFixed(2)+")":""),
+                  kind:"reminder",birthdayId:bid,recurring:"yearly"
+                }],"birthday");
+              }
+              // Add the present cost as a PLANNED outgoing in the birthday's month
+              if(present&&present.price>0){
+                addFinances([{label:(typeWord==="gift"?"Gift":"Present")+" for "+newName.trim(),amount:present.price,date:next,type:"expense",userSet:true,recurrence:"Yearly",notes:"Planned"+(present.idea?" — "+present.idea:""),source:"birthday",birthdayId:bid,planned:true}]);
+              }
+            }catch(e){console.warn("present setup:",e);}
+          }
+          setNewName("");setNewDate("");setPIdea("");setPLink("");setPPrice("");setPNotes("");setWantReminder(true);
+          alert(wantReminder?"✓ Added with a yearly reminder a week before"+(present?.price>0?", and the present cost is in that month's outgoings (marked planned).":"."):"✓ Added.");
         }} disabled={!newName.trim()||!newDate}>Add Date</button>
       </div>
     </div>);
