@@ -1,4 +1,4 @@
-// VERSION_CHECK: Universal-Income-Detection build - June 24 2026 v43
+// VERSION_CHECK: Finance-Auto-Sort-All-Views build - June 25 2026 v45
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -55,13 +55,16 @@ const isIncomeFinance=(fi)=>{
   if(t==="expense"||t==="payment"||t==="bill"||t==="debit")return false;
   // No explicit type — reason from the words.
   const text=((fi.label||"")+" "+(fi.notes||"")).toLowerCase();
-  // OUTGOING signals (money leaving) — checked first, these are unambiguous
-  if(/\b(bill|bills|rent|mortgage|utilities|gas|electric|water|council tax|broadband|phone bill|subscription|insurance|repayment|instalment|installment|klarna|paypal credit|clearpay|loan|credit card|direct debit|standing order|invoice owed|expense|expenses|cost|costs|fee|fees|ticket|tickets|shopping|groceries|fuel|petrol|purchase|paid out|spent|due to pay|owe|owed)\b/.test(text))return false;
-  // INCOMING signals (money arriving) — wages, benefits, sales, earnings of ANY kind
-  if(/\b(income|earning|earnings|wage|wages|salary|pay\b|payment received|paid to (me|you|sarah)|paid by|received|refund|rebate|cashback|deposit received|sale|sales|sold|babysit|babysitting|childmind|tutoring|cleaning job|commission|tip|tips|payout|dividend|interest earned|benefit|benefits|allowance|universal credit|\bpip\b|\bdla\b|\besa\b|\buc\b|carer|child benefit|tax credit|pension|grant|booking price|booking|client|customer|invoice paid|freelance|gig|side hustle)\b/.test(text))return true;
+  // INCOME signals checked FIRST — a "booking" with "fees" is still income to the earner.
+  if(/\b(income|earning|earnings|wage|wages|salary|payment received|paid to (me|you|sarah)|paid by|received|refund|rebate|cashback|deposit received|\bsale\b|sales|sold|babysit|babysitting|childmind|tutoring|cleaning job|commission|\btip\b|tips|payout|dividend|interest earned|benefit|benefits|allowance|universal credit|\bpip\b|\bdla\b|\besa\b|\buc\b|carer|child benefit|tax credit|pension|grant|booking price|\bbooking\b|client|customer|invoice paid|freelance|\bgig\b|side hustle)\b/.test(text))return true;
+  // OUTGOING signals (money leaving)
+  if(/\b(bill|bills|rent|mortgage|utilities|gas|electric|water|council tax|broadband|phone bill|subscription|insurance|repayment|instalment|installment|klarna|paypal credit|clearpay|loan|credit card|direct debit|standing order|invoice owed|expense|expenses|shopping|groceries|fuel|petrol|purchase|paid out|spent|due to pay|\bowe\b|owed|ticket|tickets)\b/.test(text))return false;
   // Default: if we genuinely can't tell, treat as expense (safer for budgeting — won't inflate income)
   return false;
 };
+
+// Wrapper: re-evaluate income by wording unless the user deliberately set the type.
+const finIsIncome=f=>isIncomeFinance({label:f.label,notes:f.notes,type:f.userSet?f.type:undefined});
 
 // An entry is a "reminder" or "payment" (not a physical event you attend) if its source/type says so,
 // or its wording is clearly a prompt/financial item rather than an appointment you go to.
@@ -1111,8 +1114,8 @@ Rules:
 
       const thisMonth=new Date().getMonth();
       const thisYear=new Date().getFullYear();
-      const allIncome=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
-      const allOutgoings=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
+      const allIncome=finances.filter(f=>finIsIncome(f)&&f.status!=="paid");
+      const allOutgoings=finances.filter(f=>!finIsIncome(f)&&f.status!=="paid");
       const totalIncome=allIncome.reduce((s,f)=>s+(f.amount||0),0);
       const totalOutgoings=allOutgoings.reduce((s,f)=>s+(f.amount||0),0);
       const finParts=[];
@@ -1283,8 +1286,8 @@ Rules:
     const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
 
     // Finance context for briefing - same source as chat and finances section
-    const brIncome=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
-    const brOut=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
+    const brIncome=finances.filter(f=>finIsIncome(f)&&f.status!=="paid");
+    const brOut=finances.filter(f=>!finIsIncome(f)&&f.status!=="paid");
     const brInTotal=brIncome.reduce((s,f)=>s+(f.amount||0),0);
     const brOutTotal=brOut.reduce((s,f)=>s+(f.amount||0),0);
     const brFinParts=[];
@@ -2824,7 +2827,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
         <div style={{background:C.card,padding:"13px 22px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           {(()=>{
-            const inc=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+            const inc=finances.filter(f=>finIsIncome(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
             const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
             return <div style={{display:"flex",gap:16}}>
               <div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>In</div><div style={{fontSize:13,fontFamily:FD,color:C.emerald,marginTop:2}}>£{inc.toFixed(2)}</div></div>
@@ -3056,7 +3059,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           const alreadyDone=monthlyCheckinDismissed===thisMonthKey;
           if(!isFirstOfMonth||alreadyDone)return null;
           const monthName=today.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
-          const inc=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+          const inc=finances.filter(f=>finIsIncome(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
           const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
           return(
             <div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1.5px solid ${C.goldBorder}`,borderRadius:8,padding:"16px 18px",marginBottom:14,boxShadow:`0 3px 14px ${C.shadow}`}}>
@@ -4191,8 +4194,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
     const editDraft=finEditDraft,setEditDraft=setFinEditDraft;
     const showAdd=finShowAdd,setShowAdd=setFinShowAdd;
     const showHistory=finShowHistory,setShowHistory=setFinShowHistory;
-    const income=finances.filter(f=>isIncomeFinance(f)&&f.status!=="paid");
-    const expenses=finances.filter(f=>!isIncomeFinance(f)&&f.status!=="paid");
+    const income=finances.filter(f=>finIsIncome(f)&&f.status!=="paid");
+    const expenses=finances.filter(f=>!finIsIncome(f)&&f.status!=="paid");
     const cleared=finances.filter(f=>f.status==="paid");
     const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
     const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
@@ -4232,8 +4235,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             </div>
             {/* Income / Outgoing toggle */}
             <div style={{display:"flex",gap:6,marginBottom:8}}>
-              <button onClick={()=>setEditDraft(d=>({...d,type:"income"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)==="income"?C.emerald:C.borderSoft}`,background:(editDraft.type||f.type)==="income"?C.emeraldBg:C.card,color:(editDraft.type||f.type)==="income"?C.emerald:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↓ Money In (Income)</button>
-              <button onClick={()=>setEditDraft(d=>({...d,type:"expense"}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)!=="income"?C.crimson:C.borderSoft}`,background:(editDraft.type||f.type)!=="income"?C.crimsonBg:C.card,color:(editDraft.type||f.type)!=="income"?C.crimson:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↑ Money Out</button>
+              <button onClick={()=>setEditDraft(d=>({...d,type:"income",userSet:true}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)==="income"?C.emerald:C.borderSoft}`,background:(editDraft.type||f.type)==="income"?C.emeraldBg:C.card,color:(editDraft.type||f.type)==="income"?C.emerald:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↓ Money In (Income)</button>
+              <button onClick={()=>setEditDraft(d=>({...d,type:"expense",userSet:true}))} style={{flex:1,padding:"9px",borderRadius:3,border:`1.5px solid ${(editDraft.type||f.type)!=="income"?C.crimson:C.borderSoft}`,background:(editDraft.type||f.type)!=="income"?C.crimsonBg:C.card,color:(editDraft.type||f.type)!=="income"?C.crimson:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>↑ Money Out</button>
             </div>
             <select defaultValue={f.recurrence||""} onChange={e=>setEditDraft(d=>({...d,recurrence:e.target.value}))} style={{...inp,marginBottom:8}}>
               <option value="">One-off (no repeat)</option>
@@ -4341,17 +4344,6 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>
         ))}
       </div>}
-
-      {/* Re-check categories — fixes any items wrongly filed as income/expense */}
-      <button onClick={()=>{
-        setFinances(fs=>fs.map(f=>{
-          // Re-classify ignoring stored type, using only the wording
-          const stripped={label:f.label,notes:f.notes};
-          const shouldBeIncome=isIncomeFinance(stripped);
-          return {...f,type:shouldBeIncome?"income":"expense"};
-        }));
-        alert("✓ Re-checked all items. Income and outgoings have been sorted by what each one is.");
-      }} style={{width:"100%",padding:"10px",borderRadius:6,border:`1px solid ${C.sapphire}`,background:C.sapphireBg,color:C.sapphire,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",marginBottom:12}}>↻ Re-check Income / Outgoings</button>
 
       {/* Add manually */}
       <button onClick={()=>setShowAdd(s=>!s)} style={{...goldBtn(true),width:"100%",marginBottom:showAdd?10:0}}>＋ Add Manually</button>
