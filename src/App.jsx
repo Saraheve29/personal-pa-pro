@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthday-Day-Month-Only build - June 25 2026 v49
+// VERSION_CHECK: Birthday-Search build - June 25 2026 v50
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -791,6 +791,7 @@ function AppInner(){
   const [bdayPresentPrice,setBdayPresentPrice]=useState("");
   const [bdayPresentNotes,setBdayPresentNotes]=useState("");
   const [bdayPresentEditId,setBdayPresentEditId]=useState(null);
+  const [bdaySearch,setBdaySearch]=useState("");
   const [noteEditText,setNoteEditText]=useState("");
   const [finPlanNote,setFinPlanNote]=useState("");
   const [finStepEdit,setFinStepEdit]=useState(null);
@@ -4673,17 +4674,27 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         })}
       </div>}
 
-      {/* All birthdays list */}
-      {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).length>0&&<div style={{marginBottom:20}}>
-        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>All Dates</div>
-        {birthdays.filter(b=>!getBirthdayAlerts().find(u=>u.id===b.id)).map(b=>(
+      {/* All birthdays list — searchable */}
+      {birthdays.length>0&&<div style={{marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase"}}>All Dates ({birthdays.length})</div>
+        </div>
+        <input value={bdaySearch} onChange={e=>setBdaySearch(e.target.value)} style={{...inp,marginBottom:10}} placeholder="🔍 Search by name…"/>
+        {(()=>{
+          const q=bdaySearch.trim().toLowerCase();
+          const list=birthdays
+            .filter(b=>!q||b.name.toLowerCase().includes(q)||(b.type||"").toLowerCase().includes(q))
+            .map(b=>({...b,_days:daysUntilDate(nextOccurrence(b.monthDay))}))
+            .sort((a,b)=>a._days-b._days);
+          if(list.length===0)return <div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic",padding:"8px 0"}}>No matches for "{bdaySearch}".</div>;
+          return list.map(b=>(
           <div key={b.id} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:6,padding:"10px 14px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{display:"flex",gap:10,alignItems:"center"}}>
                 <span>{typeIcons[b.type]||"🎂"}</span>
                 <div>
                   <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{b.name}</div>
-                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})}{b.presentReminder?" · 🎁 reminder on":""}</div>
+                  <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{new Date("2000-"+b.monthDay+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long"})} · in {b._days} day{b._days!==1?"s":""}{b.presentReminder?" · 🎁":""}</div>
                 </div>
               </div>
               <button onClick={()=>{setBirthdays(bs=>bs.filter(x=>x.id!==b.id));setEvents(ev=>ev.filter(e=>e.birthdayId!==b.id));setFinances(fs=>fs.filter(f=>f.birthdayId!==b.id));}} style={{background:"none",border:"none",cursor:"pointer",color:C.inkFaint,fontSize:12}}>✕</button>
@@ -4699,13 +4710,12 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 <button onClick={()=>{
                   const nowBought=!b.present.bought;
                   setBirthdays(bs=>bs.map(x=>x.id===b.id?{...x,present:{...x.present,bought:nowBought}}:x));
-                  // Sync the planned outgoing: mark paid when bought
                   setFinances(fs=>fs.map(f=>f.birthdayId===b.id?{...f,status:nowBought?"paid":"pending",planned:!nowBought}:f));
                 }} style={{padding:"5px 10px",borderRadius:3,border:`1px solid ${b.present.bought?C.emerald:C.goldBorder}`,background:b.present.bought?C.emeraldBg:C.goldPale,color:b.present.bought?C.emerald:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>{b.present.bought?"✓ Bought":"Mark Bought"}</button>
               </div>
             </div>}
           </div>
-        ))}
+        ));})()}
       </div>}
 
       {/* Add new */}
