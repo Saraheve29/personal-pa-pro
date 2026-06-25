@@ -1,4 +1,4 @@
-// VERSION_CHECK: Finance-Auto-Sort-All-Views build - June 25 2026 v45
+// VERSION_CHECK: Birthdays-Hooks-Fix build - June 25 2026 v46
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -782,6 +782,9 @@ function AppInner(){
   const [expandedPlanId,setExpandedPlanId]=useState(null);
   const [noteEditIdx,setNoteEditIdx]=useState(null);
   const [copiedMsg,setCopiedMsg]=useState(null);
+  const [bdayNewName,setBdayNewName]=useState("");
+  const [bdayNewDate,setBdayNewDate]=useState("");
+  const [bdayNewType,setBdayNewType]=useState("birthday");
   const [noteEditText,setNoteEditText]=useState("");
   const [finPlanNote,setFinPlanNote]=useState("");
   const [finStepEdit,setFinStepEdit]=useState(null);
@@ -4571,9 +4574,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
   /* ── BIRTHDAYS VIEW ── */
   const BirthdaysView=()=>{
-    const [newName,setNewName]=useState("");
-    const [newDate,setNewDate]=useState("");
-    const [newType,setNewType]=useState("birthday");
+    const newName=bdayNewName,setNewName=setBdayNewName;
+    const newDate=bdayNewDate,setNewDate=setBdayNewDate;
+    const newType=bdayNewType,setNewType=setBdayNewType;
 
     const upcoming=getBirthdayAlerts();
     const typeIcons={birthday:"🎂",anniversary:"💍",celebration:"🎉",other:"⭐"};
