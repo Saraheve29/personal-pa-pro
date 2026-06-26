@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthday-Search build - June 25 2026 v50
+// VERSION_CHECK: Briefing-Diagnostic build - June 26 2026 v53
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1169,7 +1169,7 @@ Rules:
 
       const contextContent=[
         "TODAY IS "+dateStr+" at "+timeStr+". Today's day of the week is "+now.toLocaleDateString("en-GB",{weekday:"long"})+". This is absolute fact — never say it is a different day. Do not calculate the day yourself; use exactly what is stated here.",
-        "NEXT 7 DAYS (use this to map any day Sarah mentions):\n"+Array.from({length:7},(_,i)=>{const d=new Date(now.getTime()+i*86400000);return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});}).join("\n"),
+        "NEXT 7 DAYS (use this to map any day Sarah mentions; school runs weekdays only in term time):\n"+Array.from({length:7},(_,i)=>{const d=new Date(now.getTime()+i*86400000);const dow=d.getDay();const wk=(dow===0||dow===6)?" [WEEKEND — no school]":" [weekday]";return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})+wk;}).join("\n")+"\nNEVER place a school reminder (water bottle, PE kit, school trip, packed lunch, uniform) on a Saturday or Sunday — if you notice one, flag it as a likely error.",
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
         pastCtx,
         lastSession,
@@ -1235,7 +1235,7 @@ Rules:
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
-      const raw=await callAI({system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
+      const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
       // Parse and execute any SCHEDULE_ACTION commands from Eleanor
       const actionRegex=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;
       let actionMatch;
@@ -1336,18 +1336,33 @@ Rules:
     const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
     const dayCalendar=Array.from({length:14},(_,i)=>{
       const d=new Date(today.getTime()+i*86400000);
-      return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+      const dow=d.getDay(); // 0=Sun,6=Sat
+      const isWeekend=dow===0||dow===6;
+      const tag=isWeekend?" [WEEKEND — NO SCHOOL]":" [weekday — school day in term time]";
+      return fmt(d)+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+tag;
     }).join("\n");
     const wxBriefCtx=weekWeather?.length>0
       ?"7-DAY WEATHER:\n"+weekWeather.map(w=>w.date+" ("+w.day+"): "+w.icon+" "+w.desc+", "+w.max+"°/"+w.min+"°, rain "+w.rain+"%").join("\n")
       :"";
-    try{const raw=await callAI({system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL: Use ONLY the exact date-to-day mapping — never calculate day names yourself. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather — pick the best day for outdoor activities or scheduling. If finances are provided, you may gently mention money coming in or due out in your summary or recommendations — but treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."}]});
-    const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
+    let raw;
+    try{raw=await callAI({max_tokens:3500,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK: school runs Monday-Friday in term time only. Maleeka is in Year 4. If a school-related reminder (water bottle, PE kit, school trip, uniform, packed lunch, school run) falls on a SATURDAY or SUNDAY, that is an ERROR — do NOT present it as a normal reminder. Instead either suppress it, or flag it clearly as a likely mistake ("This looks wrong — [date] is a Saturday, no school") with severity high so Sarah can check. Verify the weekday of every school reminder against the mapping before including it. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule:\n"+schedCtx+"\n\nHolidays:\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."}]});
+    if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);return;}
+    let parsed;
+    try{
+      parsed=robustJSON(raw)||JSON.parse(raw.replace(/```json|```/g,"").trim());
+    }catch(pe){
+      setBriefing({error:true,reason:"Eleanor replied but the format couldn't be read. First bit of her reply: "+raw.slice(0,120)});
+      setBriefBusy(false);return;
+    }
+    if(!parsed){setBriefing({error:true,reason:"Couldn't read Eleanor's reply. Starts with: "+raw.slice(0,120)});setBriefBusy(false);return;}
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
       setTimeout(()=>eleanorSpeak(parsed.how_are_you),600);
     }
-    }catch{setBriefing({error:true});}
+    }catch(e){
+      console.error("Briefing failed:",e,"raw was:",raw?raw.slice(0,200):"(no response)");
+      setBriefing({error:true,reason:apiError||(!raw?"No response from Eleanor's AI — the connection or API may be the issue.":"Eleanor's reply couldn't be read. Please try again.")});
+    }
     setBriefBusy(false);
   }
 
@@ -3009,7 +3024,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <button className="gold-pulse" style={goldBtn()} onClick={generateBriefing}>Generate My Briefing</button>
       </div>}
       {briefBusy&&<BriefingLoader/>}
-      {briefing?.error&&<div><div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"14px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>Unable to generate briefing. Please try again.</div><button style={goldBtn()} onClick={generateBriefing}>Retry</button></div>}
+      {briefing?.error&&<div><div style={{border:`1px solid ${C.crimson}40`,background:C.crimsonBg,padding:"14px 16px",marginBottom:16,fontSize:13,color:C.crimson,fontFamily:FB,borderRadius:4}}>{briefing.reason||"Unable to generate briefing. Please try again."}</div><button style={goldBtn()} onClick={generateBriefing}>Retry</button></div>}
       {briefing&&!briefing.error&&<div>
         <div style={{borderLeft:`4px solid ${C.goldBorder}`,paddingLeft:18,marginBottom:24}}><div style={{fontFamily:FD,fontSize:22,color:C.ink,fontStyle:"italic",lineHeight:1.45,fontWeight:300}}>{briefing.headline}</div></div>
         {briefing.today_summary&&<div onClick={()=>{sendChat("Give me more detail about today from my briefing: "+briefing.today_summary);setCriticalOnly(false);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={SL}>Today at a Glance</div><span style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to ask Eleanor →</span></div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
