@@ -1,4 +1,4 @@
-// VERSION_CHECK: Chat-Home-Button build - June 28 2026 v56
+// VERSION_CHECK: Briefing-Truncation-Fix build - June 28 2026 v57
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1048,29 +1048,36 @@ function AppInner(){
   }
   function del(id){setEvents(ev=>ev.filter(e=>e.id!==id));}
 
+  function closeAndParse(str){
+    let inStr=false;const stack=[];
+    for(let i=0;i<str.length;i++){const ch=str[i],prev=str[i-1];if(ch==='"'&&prev!=='\\'){inStr=!inStr;continue;}if(inStr)continue;if(ch==="{"||ch==="[")stack.push(ch);else if(ch==="}"||ch==="]")stack.pop();}
+    let t=str;
+    if(inStr)t+='"';
+    t=t.replace(/,\s*$/,"");
+    for(let i=stack.length-1;i>=0;i--)t+=stack[i]==="{"?"}":"]";
+    try{return JSON.parse(t);}catch{return null;}
+  }
   function robustJSON(raw){
     if(!raw)return null;
     let s=raw.replace(/```json/g,"").replace(/```/g,"").trim();
-    const start=s.indexOf("{");
+    const start=s.indexOf("{");if(start<0)return null;
+    s=s.slice(start);
     const end=s.lastIndexOf("}");
-    if(start<0)return null;
-    let sub=start>=0&&end>start?s.slice(start,end+1):s;
-    try{return JSON.parse(sub);}catch{}
-    sub=sub.replace(/,(\s*[}\]])/g,"$1");
-    sub=sub.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,'$1"$2"$3');
-    sub=sub.replace(/'/g,'"');
-    try{return JSON.parse(sub);}catch{}
-    sub=sub.replace(/,?\s*"[^"]*$/,"");
-    let opens=0,openSq=0;
-    for(const ch of sub){
-      if(ch==="{")opens++;
-      else if(ch==="}")opens--;
-      else if(ch==="[")openSq++;
-      else if(ch==="]")openSq--;
+    // Clean parse if there's a closing brace
+    if(end>0){try{return JSON.parse(s.slice(0,end+1));}catch{}}
+    // Light repair (trailing commas, unquoted keys)
+    if(end>0){
+      let r1=s.slice(0,end+1).replace(/,(\s*[}\]])/g,"$1").replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,'$1"$2"$3');
+      try{return JSON.parse(r1);}catch{}
     }
-    for(let i=0;i<openSq;i++)sub+="]";
-    for(let i=0;i<opens;i++)sub+="}";
-    try{return JSON.parse(sub);}catch{}
+    // Truncation repair: progressively trim from the end to the last complete value and close open brackets
+    for(let i=s.length;i>20;i--){
+      const ch=s[i-1];
+      if(ch==="}"||ch==="]"||ch==='"'||/[0-9]/.test(ch)){
+        const r=closeAndParse(s.slice(0,i));
+        if(r)return r;
+      }
+    }
     return null;
   }
 
@@ -1366,7 +1373,7 @@ Rules:
     const brMonthGoalsCtx=monthlyGoals?.goals?.length>0?"THIS MONTH'S GOALS:\n"+monthlyGoals.goals.map(g=>"- "+g).join("\n"):"";
     const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx].filter(Boolean).join("\n\n");
     let raw;
-    try{raw=await callAI({max_tokens:3500,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK: school runs Monday-Friday in term time only. Maleeka is in Year 4. If a school-related reminder (water bottle, PE kit, school trip, uniform, packed lunch, school run) falls on a SATURDAY or SUNDAY, that is an ERROR — do NOT present it as a normal reminder. Instead either suppress it, or flag it clearly as a likely mistake ("This looks wrong — [date] is a Saturday, no school") with severity high so Sarah can check. Verify the weekday of every school reminder against the mapping before including it. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current."}]});
+    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK: school runs Monday-Friday in term time only. Maleeka is in Year 4. If a school-related reminder (water bottle, PE kit, school trip, uniform, packed lunch, school run) falls on a SATURDAY or SUNDAY, that is an ERROR — do NOT present it as a normal reminder. Instead either suppress it, or flag it clearly as a likely mistake ("This looks wrong — [date] is a Saturday, no school") with severity high so Sarah can check. Verify the weekday of every school reminder against the mapping before including it. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current."}]});
     if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);return;}
     let parsed;
     try{
