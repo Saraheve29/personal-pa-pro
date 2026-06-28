@@ -1,4 +1,4 @@
-// VERSION_CHECK: Briefing-Full-Sync build - June 28 2026 v55
+// VERSION_CHECK: Chat-Home-Button build - June 28 2026 v56
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -3994,8 +3994,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {chips.map(q=>(<button key={q} onClick={()=>sendChat(q)} style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontSize:10,fontFamily:FM,letterSpacing:"0.08em",cursor:"pointer"}}>{q}</button>))}
         </div>);
       })()}
-      <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`}}>
-        <ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/>
+      <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`,display:"flex",gap:8,alignItems:"flex-end"}}>
+        <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{flexShrink:0,padding:"11px 13px",borderRadius:8,border:`1px solid ${C.borderSoft}`,background:C.cream,color:C.inkLight,fontFamily:FM,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}} title="Back to home">← Home</button>
+        <div style={{flex:1}}><ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/></div>
       </div>
     </div>
   );
