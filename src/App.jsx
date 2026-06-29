@@ -1,4 +1,4 @@
-// VERSION_CHECK: Time-Awareness-And-Briefing-Recognition build - June 29 2026 v61
+// VERSION_CHECK: Wishlist-Photo-Upload-Fix build - June 29 2026 v62
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -4623,16 +4623,18 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {wishlistImportMode==="image"&&<div>
           <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
             {wishlistImgFile?"✦ "+wishlistImgFile.name:"📸 Tap to upload screenshot or photo"}
-            <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const c=await compressImage(f);if(c)setWishlistImgB64(c.b64);}}} style={{display:"none"}}/>
+            <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);setWishlistImgB64(null);try{const c=await compressImage(f);if(c&&c.b64){setWishlistImgB64(c.b64);}else{const r=new FileReader();r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}catch(err){const r=new FileReader();r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}}} style={{display:"none"}}/>
           </label>
-          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("image",null,wishlistImgB64,wishlistImgFile?.type)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in Photo"}</button>}
+          {wishlistImgFile&&<button style={goldBtn()} onClick={()=>{if(!wishlistImgB64){alert("Still reading the image — please wait a moment and tap again.");return;}wishlistImport("image",null,wishlistImgB64,wishlistImgFile?.type);}} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in Photo"}</button>}
+          {wishlistImgFile&&<button onClick={()=>{setWishlistImgFile(null);setWishlistImgB64(null);setWishlistImportRes(null);}} style={{width:"100%",marginTop:6,padding:"7px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear / Choose Different</button>}
         </div>}
         {wishlistImportMode==="pdf"&&<div>
           <label style={{display:"block",border:`1.5px dashed ${C.goldBorder}`,padding:"20px",textAlign:"center",cursor:"pointer",marginBottom:10,background:C.cardWarm,color:wishlistImgFile?C.emerald:C.gold,fontSize:12,fontFamily:FB,borderRadius:4}}>
             {wishlistImgFile?"✦ "+wishlistImgFile.name:"📄 Tap to upload PDF"}
-            <input type="file" accept="application/pdf,.pdf" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);const c=await compressImage(f);if(c)setWishlistImgB64(c.b64);}}} style={{display:"none"}}/>
+            <input type="file" accept="application/pdf,.pdf" onChange={async e=>{if(e.target.files[0]){const f=e.target.files[0];setWishlistImgFile(f);setWishlistImportRes(null);setWishlistImgB64(null);const r=new FileReader();r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setWishlistImgB64(p[1]);};r.readAsDataURL(f);}}} style={{display:"none"}}/>
           </label>
-          {wishlistImgB64&&<button style={goldBtn()} onClick={()=>wishlistImport("pdf",null,wishlistImgB64)} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in PDF"}</button>}
+          {wishlistImgFile&&<button style={goldBtn()} onClick={()=>{if(!wishlistImgB64){alert("Still reading the PDF — please wait a moment and tap again.");return;}wishlistImport("pdf",null,wishlistImgB64);}} disabled={wishlistImportBusy}>{wishlistImportBusy?"Reading…":"✦ Find Events in PDF"}</button>}
+          {wishlistImgFile&&<button onClick={()=>{setWishlistImgFile(null);setWishlistImgB64(null);setWishlistImportRes(null);}} style={{width:"100%",marginTop:6,padding:"7px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Clear / Choose Different</button>}
         </div>}
         {wishlistImportBusy&&<div style={{textAlign:"center",padding:"14px",color:C.gold,fontFamily:FM,fontSize:10,letterSpacing:"0.2em",textTransform:"uppercase"}} className="shimmer">Eleanor is searching…</div>}
         {wishlistImportRes?.length===0&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,padding:"8px 0",textAlign:"center"}}>No events found. Try pasting more detail.</div>}
