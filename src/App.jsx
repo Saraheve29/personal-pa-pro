@@ -1,4 +1,4 @@
-// VERSION_CHECK: Schedule-Action-Enforcement build - June 28 2026 v58
+// VERSION_CHECK: Reminder-Not-Appointment-Fix build - June 29 2026 v60
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -736,10 +736,11 @@ function AppInner(){
   const [voiceListening,setVoiceListening]=useState(false);
   const [eleanorSpeaking,setEleanorSpeaking]=useState(false);
   const [elevenLabsKey,setElevenLabsKey]=useState(()=>localStorage.getItem("papa_11labs_key")||"");
-  const [premiumVoice,setPremiumVoice]=useState(()=>localStorage.getItem("papa_premium_voice")!=="false");
+  const VOICE_ENABLED=false; // set true to bring voice features back
+  const [premiumVoice,setPremiumVoice]=useState(false); // voice hidden for now
   const audioRef=React.useRef(null);
-  const [eleanorVoiceOn,setEleanorVoiceOn]=useState(()=>localStorage.getItem("papa_voice_on")!=="false");
-  const [briefingVoiceOn,setBriefingVoiceOn]=useState(()=>localStorage.getItem("papa_briefing_voice")!=="false");
+  const [eleanorVoiceOn,setEleanorVoiceOn]=useState(false); // voice hidden for now
+  const [briefingVoiceOn,setBriefingVoiceOn]=useState(false); // voice hidden for now
   const [autoBriefingDone,setAutoBriefingDone]=useState(()=>localStorage.getItem("papa_auto_brief_date")===new Date().toDateString());
   const [notifPermission,setNotifPermission]=useState(()=>typeof Notification!=="undefined"?Notification.permission:"default");
   const [onboarded,setOnboarded]=useState(()=>localStorage.getItem("papa_onboarded")==="true");
@@ -1136,10 +1137,16 @@ Rules:
       const futureEvents=[...allEvents].filter(e=>e.date>=fmt(today)&&!isSuperseded(e)).sort((a,b)=>a.date.localeCompare(b.date));
       const futureCtx=futureEvents.length>0
         ?futureEvents.map((e,i)=>{
-          const txt=((e.title||"")+" "+(e.notes||"")).toLowerCase();
-          const isReminder=/remind|remember|bring|pack|don't forget|dont forget|take |buy |pick up|water bottle|pe kit|homework|library book/.test(txt)||e.type==="reminder"||e.priority==="low";
-          const kind=isReminder?" [REMINDER - quick task, does not block the day]":(e.time&&e.time!=="09:00"?" [APPOINTMENT]":"");
-          return (i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+kind+(e.notes?" ["+e.notes+"]":"");
+          const isReminder=isReminderEntry(e)||e.kind==="reminder"||e.type==="reminder"||e.priority==="low";
+          const kind=isReminder?" [REMINDER - quick task/note, does NOT block the day and is NOT a real commitment]":(e.time&&e.time!=="09:00"?" [APPOINTMENT]":" [EVENT]");
+          // If a reminder is worded relative to another day (e.g. 'coming tomorrow'), note the real event it points to
+          let relNote="";
+          if(isReminder&&/coming tomorrow|tomorrow|day before/i.test(e.title||"")){
+            const nextDay=fmt(new Date(new Date(e.date+"T12:00:00").getTime()+86400000));
+            const realEv=futureEvents.find(x=>x!==e&&x.date===nextDay&&!isReminderEntry(x));
+            if(realEv)relNote=" (this is a heads-up for '"+realEv.title+"' which is actually on "+nextDay+" "+(realEv.time||"")+" — state THAT date when telling Sarah when it happens)";
+          }
+          return (i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+kind+relNote+(e.notes?" ["+e.notes+"]":"");
         }).join("\n")
         :"No upcoming events";
       const memParts=[];
@@ -1350,7 +1357,7 @@ Rules:
     const hols=upcomingHols(6);
     const freshEvs=JSON.parse(localStorage.getItem("papa_events")||"[]");
     const allEvs=freshEvs.length>=events.length?freshEvs:events;
-    const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>`${e.time} ${e.title} (${e.priority})`).join(", "));}return lines.join("\n")||"No events scheduled.";})();
+    const schedCtx=(()=>{const lines=[];for(let i=0;i<90;i++){const d=new Date(today.getTime()+i*86400000),ds=fmt(d);const de=allEvs.filter(e=>e.date===ds);if(de.length)lines.push(`${ds}: `+de.map(e=>{const rem=isReminderEntry(e);let rel="";if(rem&&/coming tomorrow|tomorrow/i.test(e.title||"")){const nd=fmt(new Date(new Date(ds+"T12:00:00").getTime()+86400000));const real=allEvs.find(x=>x!==e&&x.date===nd&&!isReminderEntry(x));if(real)rel=` (heads-up for '${real.title}' which actually happens ${nd} — use THAT date)`;}return `${e.time} ${e.title} [${rem?"REMINDER":"APPOINTMENT"}]${rel} (${e.priority})`;}).join(", "));}return lines.join("\n")||"No events scheduled.";})();
 
     // Finance context for briefing - same source as chat and finances section
     const brIncome=finances.filter(f=>finIsIncome(f)&&f.status!=="paid");
@@ -1396,7 +1403,7 @@ Rules:
     const brMonthGoalsCtx=monthlyGoals?.goals?.length>0?"THIS MONTH'S GOALS:\n"+monthlyGoals.goals.map(g=>"- "+g).join("\n"):"";
     const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx].filter(Boolean).join("\n\n");
     let raw;
-    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK: school runs Monday-Friday in term time only. Maleeka is in Year 4. If a school-related reminder (water bottle, PE kit, school trip, uniform, packed lunch, school run) falls on a SATURDAY or SUNDAY, that is an ERROR — do NOT present it as a normal reminder. Instead either suppress it, or flag it clearly as a likely mistake ("This looks wrong — [date] is a Saturday, no school") with severity high so Sarah can check. Verify the weekday of every school reminder against the mapping before including it. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current."}]});
+    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK: school runs Monday-Friday in term time only. Maleeka is in Year 4. If a school-related reminder (water bottle, PE kit, school trip, uniform, packed lunch, school run) falls on a SATURDAY or SUNDAY, that is an ERROR — do NOT present it as a normal reminder. Instead either suppress it, or flag it clearly as a likely mistake ("This looks wrong — [date] is a Saturday, no school") with severity high so Sarah can check. Verify the weekday of every school reminder against the mapping before including it. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:"EXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current."}]});
     if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);return;}
     let parsed;
     try{
@@ -3040,7 +3047,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={SL}>Executive Briefing</div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={()=>{
+          {VOICE_ENABLED&&<button onClick={()=>{
             const next=!briefingVoiceOn;
             setBriefingVoiceOn(next);
             localStorage.setItem("papa_briefing_voice",String(next));
@@ -3048,7 +3055,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             else eleanorSpeak("Briefing voice enabled.");
           }} style={{padding:"5px 12px",borderRadius:4,border:`1.5px solid ${briefingVoiceOn?C.goldBorder:C.borderSoft}`,background:briefingVoiceOn?C.goldPale:C.card,color:briefingVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>
             {briefingVoiceOn?"🔊 Voice":"🔇 Muted"}
-          </button>
+          </button>}
           {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
         </div>
       </div>
@@ -3308,7 +3315,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
       {/* visual method picker */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}} key="import-grid">
-        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"text",label:"Voice",sub:"Speak to Eleanor",tab:"voice"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
+        {[{type:"text",label:"Paste Text",sub:"Any text or message",tab:"text"},{type:"image",label:"Screenshot",sub:"Photo or image",tab:"image"},{type:"email",label:"Paste Email",sub:"Forward any email",tab:"email"},{type:"text",label:"Paste Link",sub:"Event URL",tab:"link"},{type:"text",label:"Handle This",sub:"Eleanor drafts it",tab:"handle"},{type:"image",label:"Explain Document",sub:"PDF, Word or letter",tab:"doc"},{type:"image",label:"Upload PDF",sub:"Extract from PDF",tab:"pdf"}].map(m=>(
           <div key={m.type} className="import-method" onClick={()=>setImpTab(m.tab)}
             style={{background:impTab===m.tab?C.goldPale:C.card,border:`1.5px solid ${impTab===m.tab?C.goldBorder:C.borderSoft}`,borderRadius:6,padding:"14px 14px",cursor:"pointer",transition:"all 0.18s",textAlign:"center",boxShadow:`0 1px 6px ${C.shadow}`}}>
             <div style={{width:40,height:40,borderRadius:6,background:impTab===m.tab?`linear-gradient(135deg,${C.gold},${C.goldBright})`:C.parchment,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>
@@ -3953,16 +3960,16 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <StatusBadge status={paStatus}/>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <div style={{width:54,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:C.cream,borderRadius:4,border:`1px solid ${C.borderSoft}`}}><Waveform active={showWave||eleanorSpeaking}/></div>
-            <button onClick={()=>{
+            {VOICE_ENABLED&&<div style={{width:54,height:28,display:"flex",alignItems:"center",justifyContent:"center",background:C.cream,borderRadius:4,border:`1px solid ${C.borderSoft}`}}><Waveform active={showWave||eleanorSpeaking}/></div>}
+            {VOICE_ENABLED&&<button onClick={()=>{
               const next=!eleanorVoiceOn;
               setEleanorVoiceOn(next);
               localStorage.setItem("papa_voice_on",String(next));
               if(!next)stopSpeaking();
             }} style={{padding:"5px 10px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>
               {eleanorVoiceOn?"🔊 On":"🔇 Off"}
-            </button>
-            {eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
+            </button>}
+            {VOICE_ENABLED&&eleanorSpeaking&&<button onClick={stopSpeaking} style={{padding:"5px 8px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.crimsonBg,color:C.crimson,fontFamily:FM,fontSize:9,cursor:"pointer"}}>■ Stop</button>}
           </div>
         </div>
         {/* Memory indicator */}
@@ -3976,14 +3983,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {/* Action buttons row */}
         <div style={{display:"flex",gap:6,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.borderSoft}`}}>
           <button onClick={()=>{setCriticalOnly(false);setView("finances");}} style={{flex:1,padding:"7px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>💰 Finances</button>
-          <button onClick={()=>{
+          {VOICE_ENABLED&&<button onClick={()=>{
             const next=!eleanorVoiceOn;
             setEleanorVoiceOn(next);
             localStorage.setItem("papa_voice_on",String(next));
             if(!next)stopSpeaking();
           }} style={{flex:1,padding:"7px",borderRadius:4,border:`1.5px solid ${eleanorVoiceOn?C.goldBorder:C.borderSoft}`,background:eleanorVoiceOn?C.goldPale:C.card,color:eleanorVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>
             {eleanorVoiceOn?"🔊 Voice On":"🔇 Voice Off"}
-          </button>
+          </button>}
           <button onClick={async()=>{if(window.confirm("Clear chat? Eleanor will remember a summary of this conversation.")){await saveSessionSummary(msgs);setMsgs([{role:"assistant",text:"Good day. I'm Eleanor. I've saved a note from our last conversation and I'm ready to continue.",ts:new Date()}]);}}} style={{flex:1,padding:"7px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Clear Chat</button>
         </div>
       </div>
@@ -4970,7 +4977,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       </div>
 
       {/* Eleanor Voice */}
-      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
+      {VOICE_ENABLED&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <div style={{fontFamily:FD,fontSize:16,color:C.ink,fontStyle:"italic"}}>Eleanor's Voice</div>
           <button onClick={()=>{
@@ -4994,7 +5001,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <button onClick={()=>{const n=!briefingVoiceOn;setBriefingVoiceOn(n);localStorage.setItem("papa_briefing_voice",String(n));if(!n)stopSpeaking();}} style={{flex:1,padding:"8px",borderRadius:4,border:`1.5px solid ${briefingVoiceOn?C.goldBorder:C.borderSoft}`,background:briefingVoiceOn?C.goldPale:C.card,color:briefingVoiceOn?C.gold:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>{briefingVoiceOn?"🔊 Briefing: On":"🔇 Briefing: Off"}</button>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Eleanor's Memory */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
