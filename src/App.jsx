@@ -1,4 +1,4 @@
-// VERSION_CHECK: Wishlist-Photo-Upload-Fix build - June 29 2026 v62
+// VERSION_CHECK: Duplicates-And-Confirm-Add build - June 29 2026 v67
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -419,27 +419,41 @@ function ICalImport({onAdd}){
   </div>);
 }
 
-const ChatInput=React.memo(function ChatInput({onSend,disabled}){
+const ChatInput=React.memo(function ChatInput({onSend,onSendImage,disabled}){
   const ref=React.useRef(null);
+  const [pending,setPending]=React.useState(null);
   function send(){
-    if(!ref.current||!ref.current.value.trim()||disabled)return;
-    onSend(ref.current.value.trim());
-    ref.current.value="";
+    if(disabled)return;
+    const txt=ref.current?ref.current.value.trim():"";
+    if(pending){onSendImage(txt,pending.b64,pending.mime);setPending(null);if(ref.current)ref.current.value="";return;}
+    if(!txt)return;
+    onSend(txt);
+    if(ref.current)ref.current.value="";
   }
   return(
-    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-      <input
-        ref={ref}
-        style={{flex:1,padding:"12px 16px",border:"1px solid #DDD5C0",fontSize:13,background:"#FAF6EE",color:"#1C1812",fontFamily:"'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif",letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:"inset 0 1px 3px rgba(60,40,10,0.08)"}}
-        placeholder="Message Eleanor…"
-        disabled={disabled}
-        onKeyDown={e=>{if(e.key==="Enter")send();}}
-      />
-      <button
-        onClick={send}
-        disabled={disabled}
-        style={{width:44,height:44,borderRadius:"50%",border:"none",background:disabled?"#EBE4D2":"linear-gradient(135deg,#9A7B3C,#C4993E)",color:"#FFFDF8",cursor:disabled?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}
-      >→</button>
+    <div>
+      {pending&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:"#F3ECD9",borderRadius:8,fontSize:11,fontFamily:"'Courier Prime',monospace",color:"#6B5836"}}>
+        <span>📎 {pending.name}</span>
+        <button onClick={()=>setPending(null)} style={{marginLeft:"auto",background:"none",border:"none",color:"#A0492B",cursor:"pointer",fontSize:13}}>✕</button>
+      </div>}
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <label style={{width:40,height:40,borderRadius:"50%",border:"1px solid #DDD5C0",background:"#FAF6EE",cursor:disabled?"not-allowed":"pointer",fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}} title="Send a photo to Eleanor">
+          📷
+          <input type="file" accept="image/*" disabled={disabled} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setPending({b64:p[1],mime:f.type||"image/jpeg",name:f.name});};r.readAsDataURL(f);e.target.value="";}} style={{display:"none"}}/>
+        </label>
+        <input
+          ref={ref}
+          style={{flex:1,padding:"12px 16px",border:"1px solid #DDD5C0",fontSize:13,background:"#FAF6EE",color:"#1C1812",fontFamily:"'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif",letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:"inset 0 1px 3px rgba(60,40,10,0.08)"}}
+          placeholder={pending?"Add a note about the picture (optional)…":"Message Eleanor…"}
+          disabled={disabled}
+          onKeyDown={e=>{if(e.key==="Enter")send();}}
+        />
+        <button
+          onClick={send}
+          disabled={disabled}
+          style={{width:44,height:44,borderRadius:"50%",border:"none",background:disabled?"#EBE4D2":"linear-gradient(135deg,#9A7B3C,#C4993E)",color:"#FFFDF8",cursor:disabled?"not-allowed":"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}
+        >→</button>
+      </div>
     </div>
   );
 });
@@ -1112,14 +1126,14 @@ Rules:
 - Never return an empty events array — if you find ANY dates at all, include them
 - summary should be a warm one-sentence overview of what was found`;
 
-  async function sendChat(directText){
+  async function sendChat(directText,imageB64,imageMime){
     const el=document.getElementById("chat-input");
     const inputVal=directText||chatIn;
-    if(!inputVal.trim()||paStatus!=="idle")return;
-    const u=inputVal.trim();
+    if((!inputVal.trim()&&!imageB64)||paStatus!=="idle")return;
+    const u=inputVal.trim()||(imageB64?"(sent a picture)":"");
     setChatIn("");
     if(el)el.value="";
-    setMsgs(m=>[...m,{role:"user",text:u,ts:new Date()}]);
+    setMsgs(m=>[...m,{role:"user",text:u,ts:new Date(),hasImage:!!imageB64}]);
     setPaStatus("thinking");
     let freshEvents=[];
     try{freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{}
@@ -1154,6 +1168,58 @@ Rules:
           return (i+1)+". "+e.date+" ("+new Date(e.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})+") "+(e.time||"all day")+" — "+e.title+kind+passed+relNote+(e.notes?" ["+e.notes+"]":"");
         }).join("\n")
         :"No upcoming events";
+      // MULTI-DAY BUSY PERIODS — detect date ranges (dog boarding, holidays, stays) so 'am I free' checks span them
+      const parseRange=(e)=>{
+        const txt=(e.notes||"")+" "+(e.title||"");
+        // dd/mm/yyyy - dd/mm/yyyy
+        let m=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–to]+\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if(m)return{start:`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`,end:`${m[6]}-${String(m[5]).padStart(2,"0")}-${String(m[4]).padStart(2,"0")}`};
+        // yyyy-mm-dd to yyyy-mm-dd
+        m=txt.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
+        if(m)return{start:m[1],end:m[2]};
+        return null;
+      };
+      // Pair up (Start)/(End) events with the same base title, plus any explicit ranges in notes
+      const busyPeriods=[];
+      futureEvents.forEach(e=>{
+        const r=parseRange(e);
+        if(r&&r.end>r.start){const base=e.title.replace(/\s*\((start|end)\)\s*/i,"").trim();if(!busyPeriods.find(b=>b.title===base&&b.start===r.start))busyPeriods.push({title:base,start:r.start,end:r.end});}
+      });
+      // Also pair (Start)…(End) by title when no range in notes
+      futureEvents.filter(e=>/\(start\)/i.test(e.title)).forEach(s=>{
+        const base=s.title.replace(/\s*\(start\)\s*/i,"").trim();
+        const end=futureEvents.find(x=>x.title.replace(/\s*\(end\)\s*/i,"").trim()===base&&/\(end\)/i.test(x.title)&&x.date>=s.date);
+        if(end&&!busyPeriods.find(b=>b.title===base&&b.start===s.date))busyPeriods.push({title:base,start:s.date,end:end.date});
+      });
+      // HOLIDAYS & TRIPS — group same-named trip events that span consecutive/near days into one away-period
+      const tripKw=/holiday|trip|stay|break|away|getaway|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel|coach/i;
+      const tripEvs=futureEvents.filter(e=>tripKw.test((e.title||"")+" "+(e.notes||""))&&!isReminderEntry(e));
+      const tripGroups={};
+      tripEvs.forEach(e=>{
+        const base=e.title.replace(/\s*\((start|end|day \d+)\)\s*/i,"").replace(/\s+day \d+/i,"").trim().toLowerCase();
+        if(!tripGroups[base])tripGroups[base]={title:e.title.replace(/\s*\((start|end|day \d+)\)\s*/i,"").trim(),dates:[]};
+        tripGroups[base].dates.push(e.date);
+        if(e.notes){const r=parseRange(e);if(r){tripGroups[base].dates.push(r.start,r.end);}}
+      });
+      // Holiday-type keywords (these usually span multiple days, so a single date is suspicious)
+      const stayKw=/holiday|getaway|stay|break\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
+      const unknownEndTrips=[];
+      Object.values(tripGroups).forEach(g=>{
+        const sorted=g.dates.filter(Boolean).sort();
+        const start=sorted[0],end=sorted[sorted.length-1];
+        if(start&&end&&end>start){
+          if(!busyPeriods.find(b=>b.title===g.title&&b.start===start))busyPeriods.push({title:g.title+" (away)",start,end});
+        }else if(start&&stayKw.test(g.title)){
+          // Looks like a holiday/stay but we only have one date — flag for Eleanor to confirm the end date
+          unknownEndTrips.push({title:g.title,start});
+        }
+      });
+      const busyCtx=busyPeriods.length>0
+        ?"MULTI-DAY BUSY/AWAY PERIODS (Sarah is NOT free on ANY day within these ranges — when she asks 'am I free on X', check if X falls between the start and end dates INCLUSIVE, and tell her if she is away on holiday or has a dog boarding that covers it):\n"+busyPeriods.map(b=>`- ${b.title}: ${b.start} to ${b.end} (every day in this range is busy/away)`).join("\n")
+        :"";
+      const unknownEndCtx=unknownEndTrips.length>0
+        ?"HOLIDAYS WITH NO END DATE STORED (these look like multi-day trips but only have one date saved — if Sarah asks about being free around this date, or mentions this holiday, ASK HER ONE friendly question: what date does it end? Then you can treat the whole span as away. Do NOT assume it is just one day. Once Sarah tells you the end date, add it to the event notes with a SCHEDULE_ACTION add/move so it is remembered, e.g. put '20/07/2026 - 24/07/2026' in the notes):\n"+unknownEndTrips.map(t=>`- ${t.title}: starts ${t.start}, end date unknown`).join("\n")
+        :"";
       const memParts=[];
       if((persistentMemory.facts||[]).length>0)memParts.push("ELEANOR REMEMBERS:\n"+persistentMemory.facts.map(f=>"- "+f).join("\n"));
       if((persistentMemory.pending_tasks||[]).length>0)memParts.push("PENDING TASKS ELEANOR NOTED:\n"+persistentMemory.pending_tasks.map(t=>"- "+t).join("\n"));
@@ -1193,6 +1259,15 @@ Rules:
         "YOUR OWN BRIEFING IS PART OF THIS CONVERSATION — each morning you write Sarah a briefing with a personal check-in question. If Sarah pastes or quotes text that sounds like your briefing (warm, addressed to 'Sarah', mentioning her day/energy/the week ahead), that IS your own writing — recognise it instantly as yours and simply respond to it as a continuation of the same relationship. NEVER act confused, NEVER suggest she is seeing 'duplicate messages' or that the text is from 'someone else' or 'appearing somewhere it shouldn't'. It is you, talking to her. Just answer her warmly.",
         "NEXT 7 DAYS (use this to map any day Sarah mentions; school runs weekdays only in term time):\n"+Array.from({length:7},(_,i)=>{const d=new Date(now.getTime()+i*86400000);const dow=d.getDay();const wk=(dow===0||dow===6)?" [WEEKEND — no school]":" [weekday]";return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})+wk;}).join("\n")+"\nNEVER place a school reminder (water bottle, PE kit, school trip, packed lunch, uniform) on a Saturday or Sunday — if you notice one, flag it as a likely error.",
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
+        busyCtx,
+        (()=>{const seen={};futureEvents.forEach(e=>{const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();if(!t||/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring)return;(seen[t]=seen[t]||[]).push(e.date);});const dups=Object.entries(seen).filter(([t,ds])=>ds.length>1);return dups.length>0?"POSSIBLE DUPLICATE ENTRIES (the same one-off appointment is on more than one date — this is very likely a mistake from a previous session; if Sarah says it only happens on ONE of these dates, the others are duplicates to DELETE; proactively flag this and offer to remove the wrong one(s), and NEVER move an appointment while a duplicate exists — fix the duplicate first):\n"+dups.map(([t,ds])=>"- '"+t+"' appears on: "+ds.sort().join(", ")).join("\n"):"";})(),
+        "TRUST SARAH OVER THE SCHEDULE — if Sarah states when something is (e.g. 'I'm getting my nails done tomorrow', 'nails are the 30th not the 14th'), that is the truth. If the schedule shows that activity on a DIFFERENT date as well, the other entry is almost certainly a leftover duplicate — say so and offer to delete it. Never tell Sarah she has an appointment on a date she has just told you it is NOT on.",
+        unknownEndCtx,
+        "IF YOU ARE EVER UNSURE about something in Sarah's schedule — a holiday with no end date, two entries that might be duplicates, an appointment with no clear time, or two similar entries that might be the same event — gently raise it with her in ONE short friendly question rather than guessing. It is always better to ask than to assume. There is also a 'Things to Check' screen that lists these for her, so you can say 'I've popped a couple of things on your Things to Check list' if several come up at once.",
+        "WHEN SARAH ASKS 'AM I FREE ON [DATE]' — follow ALL these checks before answering: (1) List EVERY entry on that exact date — events, appointments AND note which are reminders; do not stop after finding one, scan them all. (2) Check the MULTI-DAY BUSY PERIODS above — if the date falls anywhere between a period's start and end (inclusive), she is NOT free that day (e.g. dog boarding 6-10 July means she is busy on the 7th, 8th and 9th too). (3) Reminders/payment notes do NOT make her busy, but real appointments and events DO. Only say she is 'completely free' if there is genuinely nothing — no dated events, no multi-day period covering it.",
+        "READING EVENT TIMES — the time shown for each event IS the real time (e.g. '10:00 — Weekly Craft Group' means 10am). NEVER substitute 9am or any other time. If the notes say a time range like '10am-12noon', that range is the truth. If Sarah tells you a time for her own appointment, she is RIGHT — adopt it instantly and never argue or revert to a different time.",
+        "SAME-EVENT RECOGNITION — if several entries share a day-of-week and location/theme (e.g. 'Weekly Craft Group', 'Crafty Cafe at March Library' both Tuesday at the library), they are almost certainly the SAME recurring event with format variations, not separate commitments. Treat them as one; never offer to add a duplicate. If unsure, ask ONE short confirming question.",
+        "BEFORE MOVING AN APPOINTMENT — first check whether that appointment is ALREADY on the target date. If 'Get nails done' is already on 14 July, do NOT offer to move it to 14 July and do NOT create a second copy. Never move an event to a date it already sits on.",
         pastCtx,
         lastSession,
         sessionHistory,
@@ -1250,14 +1325,17 @@ Rules:
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
-        "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel — through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. ABSOLUTE RULE — CONFIRMATION AND ACTION ARE ONE INSEPARABLE STEP: any time you acknowledge, confirm, or even imply a schedule change (move, add, delete, cancel, reschedule, time change), you MUST append the matching SCHEDULE_ACTION block in the SAME reply. Saying you have done something WITHOUT the action block is a failure — the change will not happen and you will have lied to Sarah. If you write words like 'I've moved', 'I've updated', 'that's changed', 'done', 'sorted', 'I'll switch that', or name a new date/time for an existing event, there MUST be a SCHEDULE_ACTION block at the end of that exact reply. Never promise to do it 'now' or 'in a moment' — do it in this reply or not at all. RESCHEDULING MUST BE ATOMIC: if something moved (e.g. 'nails moved from Wednesday 1 July to Tuesday 30 June'), use ONE move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old. CANCELLATION removes the event entirely. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Nails,fromDate:2026-07-01,toDate:2026-06-30,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year.",
+        "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel — through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. ABSOLUTE RULE — CONFIRMATION AND ACTION ARE ONE INSEPARABLE STEP: any time you acknowledge, confirm, or even imply a schedule change (move, add, delete, cancel, reschedule, time change), you MUST append the matching SCHEDULE_ACTION block in the SAME reply. Saying you have done something WITHOUT the action block is a failure — the change will not happen and you will have lied to Sarah. If you write words like 'I've moved', 'I've updated', 'that's changed', 'done', 'sorted', 'I'll switch that', or name a new date/time for an existing event, there MUST be a SCHEDULE_ACTION block at the end of that exact reply. Never promise to do it 'now' or 'in a moment' — do it in this reply or not at all. RESCHEDULING MUST BE ATOMIC: if something moved (e.g. 'nails moved from Wednesday 1 July to Tuesday 30 June'), use ONE move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old. CANCELLATION removes the event entirely. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Nails,fromDate:2026-07-01,toDate:2026-06-30,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year. WHEN SARAH CONFIRMS A PLAN — if she says 'yes', 'yes I'll test it out', 'book it', 'add that', 'let's do that', or agrees to a specific date/time you suggested, that is a confirmation: ADD it to the calendar with a SCHEDULE_ACTION in THAT SAME reply. Do not just say 'perfect, you're all set' without the action block, and never wait for Sarah to ask 'have you added it?'. If you are genuinely unsure whether she wants it added, ask in that reply ('Shall I add it?') — but once she confirms, action it immediately, not in the next message.",
         "SUPERSEDED EVENTS: Before mentioning any event as upcoming, check if a later note, correction, or memory says it was cancelled, postponed, or its date changed. If so, treat the OLD date as superseded — only ever present the NEW date, and never mention the cancelled/old one as if it is still happening. If an event's notes contain 'cancelled', 'postponed', or 'date changed', do not present it as current.",
         "REMINDERS vs APPOINTMENTS: Distinguish between things Sarah physically ATTENDS (appointments, events, meetings, trips, family days) and REMINDERS/notes (e.g. 'Sox the dog coming tomorrow', 'pay rent', 'remember to call'). A reminder sharing a date or time with a real event is NOT a scheduling conflict — Sarah can attend the event and still have the reminder. Never flag a reminder against an appointment as a clash, and never imply she has to choose between them. Only two things she must be in two places for at once is a genuine conflict.",
         "RELATIVE-DATE REMINDER CHECK: Some entries are reminders worded relative to an appointment, e.g. 'Sox coming tomorrow'. A 'tomorrow' reminder is only correct if it is dated EXACTLY ONE day before the actual appointment. Before presenting such a reminder or judging whether a day is free: find the actual appointment it refers to (e.g. the real Sox booking date) and check the reminder sits exactly 1 day before it. A 'coming tomorrow' reminder on Sunday for a Monday booking is CORRECT. The same reminder on Sunday for a Tuesday booking (2 days away) is WRONG/misplaced. If you spot a misplaced reminder, proactively tell Sarah it looks wrong and OFFER to delete it using a delete SCHEDULE_ACTION — do not wait for her to ask.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
-      const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:u}]});
+      const userContent=imageB64
+        ?[{type:"image",source:{type:"base64",media_type:imageMime||"image/jpeg",data:imageB64}},{type:"text",text:u||"Here is a picture — please look at it and help me."}]
+        :u;
+      const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:userContent}]});
       // Parse and execute any SCHEDULE_ACTION commands from Eleanor
       const actionRegex=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;
       let actionMatch;
@@ -1302,12 +1380,14 @@ Rules:
       if(actionExecuted){
         setTimeout(()=>setMsgs(m=>[...m,{role:"assistant",text:"✦ I've updated your schedule. Your briefing and calendar now reflect this change.",ts:new Date(),isSystem:true}]),400);
       }else{
-        // SAFETY NET: did Eleanor SAY she changed something but forget the action block?
-        const claimsChange=/\b(i've moved|i have moved|i've updated|i have updated|i've changed|i've switched|i've rescheduled|i've added|i've deleted|i've cancelled|i've canceled|i've removed|i've set|that's (now )?(moved|changed|updated|sorted|done)|all sorted|consider it done|moved (it|that)|changed (it|that)|updated (it|that)|rescheduled (it|that)|i'll move|i'll change|i'll update|i'll switch|i'll add that|i'll reschedule)\b/i.test(raw);
+        // SAFETY NET: did Eleanor SAY she changed/booked something but forget the action block?
+        const claimsChange=/\b(i've moved|i have moved|i've updated|i have updated|i've changed|i've switched|i've rescheduled|i've added|i have added|i've booked|i've put|i've popped|i've deleted|i've cancelled|i've canceled|i've removed|i've set|that's (now )?(moved|changed|updated|sorted|done|booked|added|in)|all sorted|consider it done|you're all set|you are all set|moved (it|that)|changed (it|that)|updated (it|that)|rescheduled (it|that)|i'll move|i'll change|i'll update|i'll switch|i'll add|i'll book|i'll put|i'll pop|i'll reschedule)\b/i.test(raw)
+          // Also: confirming a plan for a specific named day/time (e.g. "perfect, Tuesday 14 July at 10am for craft group")
+          ||(/\b(perfect|lovely|great|wonderful|all set|sorted|that works|good)\b/i.test(raw)&&/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))/i.test(raw)&&/\b(\d{1,2}\s*(am|pm)|\d{1,2}[:.]\d{2}|craft|group|appointment|session|class|meeting|nails|lunch|dinner|coffee|visit)\b/i.test(raw));
         if(claimsChange){
-          // Eleanor confirmed a change in words but produced no action block — auto-retry once to force the block
+          // Eleanor confirmed a change/plan in words but produced no action block — auto-retry once to force the block
           try{
-            const retryRaw=await callAI({max_tokens:600,system:"You previously told Sarah you would change her schedule but DID NOT include the required SCHEDULE_ACTION block, so nothing actually happened. Output ONLY the correct SCHEDULE_ACTION block(s) now, nothing else, no words. Format: [SCHEDULE_ACTION:{action:move,title:...,fromDate:YYYY-MM-DD,toDate:YYYY-MM-DD,time:HH:MM}] or action add/delete/cancel as appropriate. Use the current year for undated. If you genuinely cannot tell what to change, output NOACTION.",messages:[{role:"user",content:"The schedule:\n"+futureCtx+"\n\nWhat you just told Sarah:\n"+raw.slice(0,500)+"\n\nNow output only the SCHEDULE_ACTION block(s) that make your words true."}]});
+            const retryRaw=await callAI({max_tokens:600,system:"You previously confirmed a plan or change to Sarah but DID NOT include the required SCHEDULE_ACTION block, so nothing was actually added or changed. Output ONLY the correct SCHEDULE_ACTION block(s) now, nothing else, no words. If you confirmed Sarah will do something on a specific date (e.g. a craft group on Tuesday 14 July at 10am), output an ADD action for it. Format: [SCHEDULE_ACTION:{action:add,title:...,date:YYYY-MM-DD,time:HH:MM,priority:medium}] or action move/delete/cancel as appropriate. Use the current year for undated. If you genuinely cannot tell what to add or change, output NOACTION.",messages:[{role:"user",content:"The schedule:\n"+futureCtx+"\n\nWhat Sarah said:\n"+u.slice(0,300)+"\n\nWhat you just replied:\n"+raw.slice(0,500)+"\n\nNow output only the SCHEDULE_ACTION block(s) that make your words true."}]});
             const rx=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;let rm;
             while((rm=rx.exec(retryRaw))!==null){
               try{
@@ -1785,6 +1865,47 @@ EXTRACTION RULES:
       const action=birthdayActions[b.id];
       return{...b,next,days,action};
     }).filter(b=>b.days<=30).sort((a,b)=>a.days-b.days);
+  }
+
+  // Scan the schedule for anything Eleanor should double-check with Sarah
+  function computeChecks(){
+    const out=[];
+    const todayStr=fmt(getToday());
+    const fut=events.filter(e=>e.date>=todayStr&&!/cancelled|canceled|postponed/i.test((e.notes||"")+" "+(e.status||"")));
+    const stayKw=/holiday|getaway|\bstay\b|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
+    const hasRange=e=>/\d{1,2}\/\d{1,2}\/\d{4}\s*[-–to]+\s*\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}\s*[-–to]+\s*\d{4}-\d{2}-\d{2}/.test((e.notes||"")+" "+(e.title||""));
+    // 1. Holidays/trips with no end date stored
+    fut.forEach(e=>{
+      if(stayKw.test((e.title||"")+" "+(e.notes||""))&&!hasRange(e)&&!/\((start|end)\)/i.test(e.title||"")){
+        if(!fut.find(x=>x!==e&&x.title.replace(/\s*\((start|end)\)/i,"").trim()===e.title.replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
+          out.push({id:"end-"+e.id,type:"holiday-end",icon:"🏖",title:e.title,detail:"Starts "+e.date+" but no end date saved — when does it finish?",eventId:e.id,date:e.date});
+        }
+      }
+    });
+    // 2. Likely duplicates (same title) — flag any repeat of a one-off appointment on different dates
+    const seenTitles={};
+    fut.forEach(e=>{
+      const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();
+      if(!t)return;
+      // skip things that are legitimately recurring (boarding spans, holidays, weekly groups)
+      const recurringLike=/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring;
+      if(recurringLike)return;
+      if(!seenTitles[t])seenTitles[t]=[];
+      seenTitles[t].push(e);
+    });
+    Object.values(seenTitles).forEach(list=>{
+      if(list.length>1){
+        const dates=list.map(e=>e.date).sort();
+        out.push({id:"dup-"+list[list.length-1].id,type:"duplicate",icon:"⧉",title:list[0].title,detail:"Scheduled on "+dates.length+" dates ("+dates.join(", ")+") — if it should only happen once, which date is correct? I can remove the others.",eventId:list[list.length-1].id,date:dates[dates.length-1],allDates:dates});
+      }
+    });
+    // 4. Events with no real time that sound like appointments (have 'appointment','at','pm','am' but time is 09:00 placeholder)
+    fut.forEach(e=>{
+      if(e.time==="09:00"&&/appointment|meeting|class|group|cafe|café|club|session/i.test(e.title||"")&&!stayKw.test(e.title||"")){
+        out.push({id:"time-"+e.id,type:"time",icon:"🕐",title:e.title,detail:"On "+e.date+" with no specific time set — what time is it?",eventId:e.id,date:e.date});
+      }
+    });
+    return out;
   }
 
   async function checkSchedule(){
@@ -2999,6 +3120,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <button onClick={()=>setView("add")} style={{flex:1,padding:"11px",borderRadius:4,border:`1.5px solid ${C.goldBorder}`,background:C.card,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>＋ New Event</button>
         <button onClick={()=>setView("reminders")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⏰ Reminders</button>
         <button onClick={()=>setView("birthdays")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🎂 Birthdays</button>
+        {(()=>{const n=computeChecks().length;return <button onClick={()=>setView("checks")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${n>0?C.gold:C.borderSoft}`,background:n>0?C.goldPale:C.card,color:n>0?C.gold:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`,position:"relative"}}>✓ Check{n>0?" ("+n+")":""}</button>;})()}
         <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
         <button onClick={()=>setShowSearch(s=>!s)} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:showSearch?C.goldPale:C.card,color:showSearch?C.gold:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🔍</button>
       </div>
@@ -4052,7 +4174,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       })()}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`,display:"flex",gap:8,alignItems:"flex-end"}}>
         <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{flexShrink:0,padding:"11px 13px",borderRadius:8,border:`1px solid ${C.borderSoft}`,background:C.cream,color:C.inkLight,fontFamily:FM,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}} title="Back to home">← Home</button>
-        <div style={{flex:1}}><ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}}/></div>
+        <div style={{flex:1}}><ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}} onSendImage={(text,b64,mime)=>{sendChat(text||" ",b64,mime);}}/></div>
       </div>
     </div>
   );
@@ -4702,6 +4824,35 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   );
 
   /* ── BIRTHDAYS VIEW ── */
+  const ChecksView=()=>{
+    const checks=computeChecks();
+    return(<div>
+      <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",cursor:"pointer",marginBottom:12,padding:0}}>← Home</button>
+      <div style={SL}>Things to Check</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:18}}>Anything Eleanor isn't sure about and would like you to confirm. Tap a card to sort it in chat, or fix it on the schedule.</div>
+      {checks.length===0
+        ?<div style={{textAlign:"center",padding:"40px 20px",color:C.inkFaint,fontFamily:FD,fontSize:16,fontStyle:"italic"}}>✦ All clear — nothing needs checking right now.</div>
+        :checks.map(c=>(
+          <div key={c.id} style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:10,boxShadow:`0 1px 8px ${C.shadow}`}}>
+            <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:18,flexShrink:0}}>{c.icon}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{c.title}</div>
+                <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{c.detail}</div>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <button onClick={()=>{
+                    const q=c.type==="holiday-end"?"When does my '"+c.title+"' holiday (starting "+c.date+") end? Please save the full dates.":c.type==="duplicate"?"Is '"+c.title+"' on "+c.date+" a duplicate? Should I remove one?":c.type==="time"?"What time is '"+c.title+"' on "+c.date+"?":"Can you help me check '"+c.title+"'?";
+                    setView("chat");setTimeout(()=>{setChatIn(q);sendChat(q);},200);
+                  }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Ask Eleanor</button>
+                  <button onClick={()=>{setCriticalOnly(false);setView("schedule");}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>View in Schedule</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+    </div>);
+  };
+
   const BirthdaysView=()=>{
     const newName=bdayNewName,setNewName=setBdayNewName;
     const newDate=bdayNewDate,setNewDate=setBdayNewDate;
@@ -5292,6 +5443,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="settings"  && SettingsView()}
         {view==="reminders" && RemindersView()}
         {view==="birthdays"  && BirthdaysView()}
+        {view==="checks"  && ChecksView()}
       </div>
 
       {/* Weekly Goals Modal */}
