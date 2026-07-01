@@ -1,4 +1,4 @@
-// VERSION_CHECK: Briefing-Tickboxes build - June 30 2026 v68
+// VERSION_CHECK: Remove-ThinkoGoals-Link build - July 1 2026 v71
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -73,8 +73,8 @@ const isReminderEntry=e=>{
   if(e.kind==="reminder"||e.type==="reminder"||e.source==="reminder")return true;
   if(e.kind==="payment"||e.type==="payment"||e.type==="income"||e.type==="expense"||e.source==="finance"||e.source==="finplan")return true;
   const t=(e.title||"").toLowerCase();
-  // Financial / benefit wording — these are money in/out, not events Sarah attends
-  if(/\b(payment|klarna|paypal|pip|dla|universal credit|carer'?s allowance|child benefit|tax credit|direct debit|standing order|bill|bills|invoice|rent|wages?|salary|refund|deposit|instalment|installment|repayment)\b/.test(t))return true;
+  // Financial / benefit / income wording — these are money in/out, NOT events Sarah attends or that block her day
+  if(/\b(payment|paid|klarna|paypal|clearpay|\bpip\b|\bdla\b|\besa\b|\buc\b|universal credit|carer'?s? allowance|carers|child benefit|benefit|benefits|allowance|tax credit|pension|grant|direct debit|standing order|bill|bills|invoice|rent|mortgage|wages?|salary|income|refund|rebate|cashback|deposit|instalment|installment|repayment|subscription|top.?up|giro)\b/.test(t))return true;
   // Reminder/task wording
   return /\b(coming tomorrow|coming today|going home today|reminder|remember to|don't forget|dont forget|check |pay |renew |order |buy |call |email |chase |follow up|due\b|deadline)\b/.test(t);
 };
@@ -2001,14 +2001,24 @@ EXTRACTION RULES:
         const dateStr=d.date;
         const dayBefore=fmt(new Date(new Date(dateStr+"T12:00:00").getTime()-86400000));
         const dayAfter=fmt(new Date(new Date(dateStr+"T12:00:00").getTime()+86400000));
-        const sameDay=events.filter(e=>e.date===dateStr);
-        const before=events.filter(e=>e.date===dayBefore);
-        const after=events.filter(e=>e.date===dayAfter);
+        // Only things Sarah physically attends count as 'busy'. Benefit payments, bills and reminders do NOT block a day.
+        const sameDayAll=events.filter(e=>e.date===dateStr);
+        const sameDay=sameDayAll.filter(e=>!isReminderEntry(e));
+        const sameDayReminders=sameDayAll.filter(e=>isReminderEntry(e));
+        const before=events.filter(e=>e.date===dayBefore&&!isReminderEntry(e));
+        const after=events.filter(e=>e.date===dayAfter&&!isReminderEntry(e));
+        // Also check multi-day busy periods (holidays, dog boarding) that span this date
+        let spanBusy=null;
+        events.forEach(e=>{
+          const txt=(e.notes||"")+" "+(e.title||"");
+          const m=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–to]+\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)||txt.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
+          if(m){let s,en;if(m.length===7){s=`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;en=`${m[6]}-${String(m[5]).padStart(2,"0")}-${String(m[4]).padStart(2,"0")}`;}else{s=m[1];en=m[2];}if(dateStr>=s&&dateStr<=en&&!isReminderEntry(e))spanBusy=e;}
+        });
         const timeClash=d.time?sameDay.filter(e=>e.time&&e.time===d.time):[];
-        const isFree=sameDay.length===0;
+        const isFree=sameDay.length===0&&!spanBusy;
         const hasConflict=timeClash.length>0;
-        return{date:dateStr,label:d.label,time:d.time,isFree,hasConflict,sameDay,before,after,
-          verdict:hasConflict?"clash":isFree?"free":sameDay.length<=1?"busy":"very busy"};
+        return{date:dateStr,label:d.label,time:d.time,isFree,hasConflict,sameDay,sameDayReminders,spanBusy,before,after,
+          verdict:hasConflict?"clash":isFree?"free":spanBusy?"away/booked":sameDay.length<=1?"busy":"very busy"};
       });
 
       if(extracted.dates.length===2&&datesToCheck.length>2){
@@ -2917,9 +2927,11 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               <div key={i} style={{background:C.crimsonBg,border:`1px solid ${C.crimson}20`,borderLeft:`3px solid ${C.crimson}`,borderRadius:3,padding:"10px 12px",marginBottom:6}}>
                 <div style={{display:"flex",justifyContent:"space-between"}}>
                   <div style={{fontFamily:FD,fontSize:13,color:C.ink}}>{r.date}</div>
-                  <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{r.sameDay.length} appointment{r.sameDay.length>1?"s":""}</div>
+                  <div style={{fontSize:11,color:C.crimson,fontFamily:FM}}>{r.spanBusy?"away/booked":r.sameDay.length+" appointment"+(r.sameDay.length>1?"s":"")}</div>
                 </div>
+                {r.spanBusy&&<div style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginTop:3}}>{r.spanBusy.title} (multi-day)</div>}
                 {r.sameDay.map((e,j)=><div key={j} style={{fontSize:11,color:C.inkMid,fontFamily:FB,marginTop:3}}>{e.time} — {e.title}</div>)}
+                {r.sameDayReminders?.length>0&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,marginTop:4,fontStyle:"italic"}}>Also (not blocking): {r.sameDayReminders.map(e=>e.title).join(", ")}</div>}
               </div>
             ))}
           </div>}
@@ -2959,6 +2971,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   {r.before.length>0&&<div>Day before: {r.before.map(e=>e.title).join(", ")}</div>}
                   {r.after.length>0&&<div>Day after: {r.after.map(e=>e.title).join(", ")}</div>}
                 </div>}
+                {r.sameDayReminders?.length>0&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FB,fontStyle:"italic",borderTop:`1px solid ${verdictColor}20`,paddingTop:6,marginTop:4}}>💷 Also that day (not blocking): {r.sameDayReminders.map(e=>e.title).join(", ")}</div>}
               </div>
             );
           })}
@@ -3324,8 +3337,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               {/* Goals prompt */}
               <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"12px",marginBottom:10}}>
                 <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,marginBottom:8,lineHeight:1.5}}>What would you like to focus on this month? Set a few goals and I'll keep them in view.</div>
-                <button onClick={()=>{sendChat("Help me set my goals for "+monthName+". Ask me what matters most this month.");setCriticalOnly(false);setView("chat");}} style={{width:"100%",padding:"9px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",marginBottom:6}}>✦ Set This Month's Goals with Eleanor</button>
-                <a href="https://thinko-goals.vercel.app/?screen=goals" target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",padding:"9px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer",boxSizing:"border-box"}}>🦔 Open Thinko Goals</a>
+                <button onClick={()=>{sendChat("Help me set my goals for "+monthName+". Ask me what matters most this month.");setCriticalOnly(false);setView("chat");}} style={{width:"100%",padding:"9px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer"}}>✦ Set This Month's Goals with Eleanor</button>
               </div>
 
               {/* Financial forecast prompt */}
@@ -3361,7 +3373,6 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           ))}
           <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center"}}>
             <button onClick={()=>{setCriticalOnly(false);setView("briefing");setShowGoalsModal(true);}} style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",background:"none",border:"none",cursor:"pointer",padding:"0"}}>+ Add goal</button>
-            <a href="https://thinko-goals.vercel.app/?screen=goals" target="_blank" rel="noreferrer" style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",textDecoration:"none",cursor:"pointer"}}>🦔 Thinko Goals</a>
           </div>
         </div>}
 
