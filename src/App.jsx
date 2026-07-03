@@ -1,4 +1,4 @@
-// VERSION_CHECK: Chat-Time-And-Briefing-Reply build - July 2 2026 v74
+// VERSION_CHECK: Chat-Range-Scan build - July 2 2026 v75
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1255,6 +1255,36 @@ Rules:
       const goalsCtx=weeklyGoals?.goals?.length>0?"THIS WEEK'S GOALS:\n"+weeklyGoals.goals.map((g,i)=>"- "+g+(weeklyGoals.done?.[i]?" [DONE]":"")).join("\n"):"";
 
       const pastEvs=allEvents.filter(e=>e.date<fmt(today)&&e.date>=fmt(new Date(today.getTime()-14*86400000))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+      // If Sarah's message contains a date range (e.g. a Rover booking drop-off/pickup), scan EVERY day in the span
+      const rangeScan=(()=>{
+        const text=u.toLowerCase();
+        const monthMap={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+        const found=[];
+        // Match things like "22 Dec", "22nd December", "29 dec"
+        const re=/(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/gi;
+        let m;
+        while((m=re.exec(text))!==null){
+          const day=parseInt(m[1],10);const mon=monthMap[m[2].slice(0,3).toLowerCase()];
+          if(mon!==undefined){let yr=now.getFullYear();const cand=new Date(yr,mon,day);if(cand<new Date(now.getTime()-86400000))yr++;found.push(fmt(new Date(yr,mon,day)));}
+        }
+        // Also ISO dates
+        const iso=text.match(/\d{4}-\d{2}-\d{2}/g);if(iso)found.push(...iso);
+        const uniq=[...new Set(found)].sort();
+        if(uniq.length<2)return "";
+        const start=uniq[0],end=uniq[uniq.length-1];
+        const startD=new Date(start+"T12:00:00"),endD=new Date(end+"T12:00:00");
+        const spanDays=Math.round((endD-startD)/86400000);
+        if(spanDays<1||spanDays>60)return "";
+        const lines=[];
+        let cur=new Date(startD);
+        while(cur<=endD){
+          const ds=fmt(cur);
+          const evs=events.filter(e=>e.date===ds&&!isReminderEntry(e)).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+          if(evs.length>0)lines.push("  "+ds+" ("+cur.toLocaleDateString("en-GB",{weekday:"short"})+"): "+evs.map(e=>(e.time||"all day")+" "+e.title).join("; "));
+          cur.setDate(cur.getDate()+1);
+        }
+        return "DATE-RANGE CHECK — Sarah's message mentions the period "+start+" to "+end+" ("+(spanDays+1)+" days). This looks like a booking/availability question spanning multiple days. For a multi-day commitment (like dog boarding) Sarah is responsible for EVERY day in between, not just the first and last. Here is EVERYTHING already on her calendar within this span:\n"+(lines.length>0?lines.join("\n"):"  (nothing found on any day in this range)")+"\nYou MUST tell Sarah about EVERY commitment listed above immediately and proactively — especially anything in the MIDDLE of the range (e.g. a family event or day out during a boarding week means she cannot leave a client's dog). Never say she is 'free for the whole period' if anything appears above. Consider whether each clash is workable (dog can be left briefly) or blocking (a multi-hour event she must attend).";
+      })();
       const pastCtx=pastEvs.length>0?"RECENT PAST EVENTS:\n"+pastEvs.map(e=>"- "+e.date+" "+e.title).join("\n"):"";
 
       const contextContent=[
@@ -1275,6 +1305,7 @@ Rules:
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
         (()=>{const lines=[];for(let i=0;i<4;i++){const d=new Date(now.getTime()+i*86400000);const ds=fmt(d);const label=i===0?"TODAY":i===1?"TOMORROW":d.toLocaleDateString("en-GB",{weekday:"long"});const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));const evText=evs.length>0?evs.map(e=>(e.time||"all day")+" "+e.title+(isReminderEntry(e)?" [reminder only]":"")).join("; "):"nothing scheduled";lines.push(label+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+ds+"): "+evText);}return "ABSOLUTE TRUTH — WHAT IS ON EACH DAY (computed from the real dates — you MUST NOT contradict this. Before you EVER tell Sarah something is 'today', 'this morning/afternoon/evening', or 'tomorrow', find it in THIS list and confirm the date matches. If an event is not under TODAY here, it is NOT today. Check every single event against its real date — getting this wrong wastes Sarah's limited energy and could send her out on the wrong day):\n"+lines.join("\n");})(),
         busyCtx,
+        rangeScan,
         (()=>{const seen={};futureEvents.forEach(e=>{const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();if(!t||/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring)return;(seen[t]=seen[t]||[]).push(e.date);});const dups=Object.entries(seen).filter(([t,ds])=>ds.length>1);return dups.length>0?"POSSIBLE DUPLICATE ENTRIES (the same one-off appointment is on more than one date — this is very likely a mistake from a previous session; if Sarah says it only happens on ONE of these dates, the others are duplicates to DELETE; proactively flag this and offer to remove the wrong one(s), and NEVER move an appointment while a duplicate exists — fix the duplicate first):\n"+dups.map(([t,ds])=>"- '"+t+"' appears on: "+ds.sort().join(", ")).join("\n"):"";})(),
         "TRUST SARAH OVER THE SCHEDULE — if Sarah states when something is (e.g. 'I'm getting my nails done tomorrow', 'nails are the 30th not the 14th'), that is the truth. If the schedule shows that activity on a DIFFERENT date as well, the other entry is almost certainly a leftover duplicate — say so and offer to delete it. Never tell Sarah she has an appointment on a date she has just told you it is NOT on.",
         unknownEndCtx,
@@ -1335,6 +1366,7 @@ Rules:
       const elSysPrompt=[
         "You are Eleanor - a warm, brilliant, deeply trusted Personal Executive Assistant to Sarah. You are not a generic AI. You know Sarah's life intimately and care about her wellbeing.",
         "SARAH: Single mother, indie app developer (Skyla, Thinko, GigNest), Rover dog-sitter, March, Cambridgeshire, UK. Children: Maleeka and Maliki (school age). Has ME/CFS. Benefits include Carer's Allowance. Dog: Ringo.",
+        "SARAH IS AUTISTIC — she finds meetings and appointments where she is the focus of attention (like Rover meet-and-greets, where a dog owner visits to assess her and her home) genuinely uncomfortable. This is an accessibility need, not fussiness. When she weighs up a booking, understand that a required meet-and-greet is a real reason to decline, and support her warmly in that choice without pushing her to do it anyway. Also keep questions to one at a time and avoid overwhelming her.",
         "TODAY IS: "+nowDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+nowDate.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+". This is the definitive current date and time — NEVER use any other date as today, NEVER contradict it, and NEVER work out the day of the week yourself. The MEMORY SYNC gives you the exact day-of-week and a 7-day map — always trust those, never recalculate.",
         "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+nowYear+" UNLESS that exact date has already passed this year. NEVER assume "+(nowYear+1)+" or beyond unless Sarah explicitly says so.",
         "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
