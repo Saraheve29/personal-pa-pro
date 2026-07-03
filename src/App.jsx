@@ -1,4 +1,4 @@
-// VERSION_CHECK: Chat-Range-Scan build - July 2 2026 v75
+// VERSION_CHECK: Date-Resolver-Any-Distance build - July 3 2026 v77
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1301,7 +1301,37 @@ Rules:
         "TRUST SARAH'S LIVED REALITY — when Sarah tells you something has happened (e.g. 'my delivery arrived', 'I'm back from Wisbech', 'therapy was draining'), accept it immediately as fact. NEVER contradict her, never tell her to prepare for something she just said is done, and never question whether she is really experiencing what she describes.",
         "YOUR BRIEFING'S TIME AWARENESS IS CORRECT — Sarah's briefing knows the current time and uses the right tense. If the briefing says a morning appointment 'was draining' and it is now afternoon, the briefing is RIGHT. Never contradict the briefing's tense or tell Sarah it used the wrong tense. You and the briefing are the same assistant and must agree.",
         "THE 'TAP TO REPLY' / 'TAP TO ASK' WORKFLOW — Sarah's briefing screen has buttons that, when tapped, bring the briefing's text straight into this chat so she can respond to it. So if her message contains warm text that sounds like your briefing (addressed to 'Sarah', about her day, energy, appointments, or the week), she has NOT pasted something odd — she tapped a button to reply to YOUR briefing. Recognise it instantly as your own writing and continue the conversation naturally. NEVER act confused, NEVER ask why she is showing it to you, NEVER suggest it is a 'duplicate', from 'someone else', or 'appearing somewhere it shouldn't'. It is you, and she is replying to you. Just respond warmly to what she's engaging with. If her message begins with '(Replying to your briefing check-in)', that is a certain signal she tapped the briefing to reply — the text after it is your own briefing words, so respond as if continuing that conversation, and do not repeat the prefix back to her.",
-        "NEXT 7 DAYS (use this to map any day Sarah mentions; school runs weekdays only in term time):\n"+Array.from({length:7},(_,i)=>{const d=new Date(now.getTime()+i*86400000);const dow=d.getDay();const wk=(dow===0||dow===6)?" [WEEKEND — no school]":" [weekday]";return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})+wk;}).join("\n")+"\nNEVER place a school reminder (water bottle, PE kit, school trip, packed lunch, uniform) on a Saturday or Sunday — if you notice one, flag it as a likely error.",
+        "NEXT 28 DAYS — EXACT DATE-TO-DAY MAP (you MUST use this to map any day or date Sarah mentions; NEVER calculate a weekday yourself, NEVER pair a weekday with a date without checking it here first):\n"+Array.from({length:28},(_,i)=>{const d=new Date(now.getTime()+i*86400000);const dow=d.getDay();const wk=(dow===0||dow===6)?" [weekend]":" [weekday]";return (i===0?"Today = ":i===1?"Tomorrow = ":"")+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+wk;}).join("\n"),
+        (()=>{
+          // Explicit list of the next few of EACH weekday, so Eleanor never has to work out 'which Friday'
+          const names=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+          const byDay={};
+          for(let i=0;i<56;i++){const d=new Date(now.getTime()+i*86400000);const nm=names[d.getDay()];(byDay[nm]=byDay[nm]||[]).push(d.toLocaleDateString("en-GB",{day:"numeric",month:"long"}));}
+          return "UPCOMING DATES BY WEEKDAY (use these EXACT dates — if Sarah wants a Friday, the next Fridays are listed here; do not invent or miscalculate):\n"+names.map(n=>n+"s: "+(byDay[n]||[]).slice(0,5).join(", ")).join("\n")+"\nCRITICAL: before you ever write '[Weekday] [date]' (e.g. 'Friday 11 July'), find that exact date in the maps above and confirm the weekday matches. If it does not match, you have made an error — use the correct date from this list instead. If Sarah says a date is a different day than you thought, she is RIGHT — believe her instantly, apologise briefly, and correct yourself from these lists. Never argue about what day a date is.";
+        })(),
+        "NEVER place a school reminder (water bottle, PE kit, school trip, packed lunch, uniform) on a Saturday or Sunday — if you notice one, flag it as a likely error.",
+        (()=>{
+          // Resolve EVERY specific date mentioned in Sarah's message to its exact weekday + year — however far away.
+          const names=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+          const monthMap={january:0,jan:0,february:1,feb:1,march:2,mar:2,april:3,apr:3,may:4,june:5,jun:5,july:6,jul:6,august:7,aug:7,september:8,sep:8,sept:8,october:9,oct:9,november:10,nov:10,december:11,dec:11};
+          const text=u.toLowerCase();
+          const resolved=[];
+          // "27 December", "27th Dec 2026", "5 January"
+          const re=/(\d{1,2})(?:st|nd|rd|th)?\s+(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?/gi;
+          let m;
+          while((m=re.exec(text))!==null){
+            const day=parseInt(m[1],10);const mon=monthMap[m[2].toLowerCase()];let yr=m[3]?parseInt(m[3],10):null;
+            if(mon===undefined)continue;
+            if(!yr){yr=now.getFullYear();const cand=new Date(yr,mon,day);if(cand<new Date(now.getTime()-86400000))yr++;}
+            const d=new Date(yr,mon,day);
+            resolved.push(d.toLocaleDateString("en-GB",{day:"numeric",month:"long"})+" "+yr+" is a "+names[d.getDay()]);
+          }
+          // ISO dates
+          const iso=text.match(/\d{4}-\d{2}-\d{2}/g);
+          if(iso)iso.forEach(s=>{const d=new Date(s+"T12:00:00");resolved.push(s+" is a "+names[d.getDay()]);});
+          if(resolved.length===0)return "";
+          return "DATE RESOLVER — Sarah's message mentions these specific date(s). These weekdays are computed and CORRECT — use them exactly, do not recalculate:\n"+[...new Set(resolved)].map(r=>"  • "+r).join("\n")+"\nAlways include the YEAR when discussing a date more than a couple of months away, so there is no ambiguity.";
+        })(),
         "UPCOMING EVENTS ("+futureEvents.length+", sorted soonest first):\n"+futureCtx,
         (()=>{const lines=[];for(let i=0;i<4;i++){const d=new Date(now.getTime()+i*86400000);const ds=fmt(d);const label=i===0?"TODAY":i===1?"TOMORROW":d.toLocaleDateString("en-GB",{weekday:"long"});const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));const evText=evs.length>0?evs.map(e=>(e.time||"all day")+" "+e.title+(isReminderEntry(e)?" [reminder only]":"")).join("; "):"nothing scheduled";lines.push(label+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+ds+"): "+evText);}return "ABSOLUTE TRUTH — WHAT IS ON EACH DAY (computed from the real dates — you MUST NOT contradict this. Before you EVER tell Sarah something is 'today', 'this morning/afternoon/evening', or 'tomorrow', find it in THIS list and confirm the date matches. If an event is not under TODAY here, it is NOT today. Check every single event against its real date — getting this wrong wastes Sarah's limited energy and could send her out on the wrong day):\n"+lines.join("\n");})(),
         busyCtx,
