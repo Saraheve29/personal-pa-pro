@@ -1,4 +1,4 @@
-// VERSION_CHECK: Rover-Income-And-Holiday-Fix build - July 5 2026 v80
+// VERSION_CHECK: Home-Finance-Widget-Income-Fix build - July 5 2026 v81
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -3490,10 +3490,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             const d=new Date(f.date+"T12:00:00");
             return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;
           });
-          const income=monthFinances.filter(f=>f.type==="income"&&f.status!=="paid");
-          const expenses=monthFinances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid");
-          const totalIn=income.reduce((s,f)=>s+(f.amount||0),0);
-          const totalOut=expenses.reduce((s,f)=>s+(f.amount||0),0);
+          const income=monthFinances.filter(f=>finIsIncome(f));
+          const expenses=monthFinances.filter(f=>!finIsIncome(f));
+          const totalIn=income.filter(f=>f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+          const totalOut=expenses.filter(f=>f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
           if(!income.length&&!expenses.length)return null;
           return(<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px 16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
             <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:10}}>💰 This Month's Finances</div>
@@ -3507,19 +3507,19 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 <div style={{fontFamily:FD,fontSize:20,color:C.crimson}}>£{totalOut.toFixed(2)}</div>
               </div>}
             </div>
-            {[...income,...expenses].map((f,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:f.type==="income"?C.emeraldBg:C.crimsonBg,borderLeft:`3px solid ${f.type==="income"?C.emerald:C.crimson}`,borderRadius:3,marginBottom:6}}>
+            {[...income,...expenses].map((f,i)=>{const isInc=finIsIncome(f);return(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:isInc?C.emeraldBg:C.crimsonBg,borderLeft:`3px solid ${isInc?C.emerald:C.crimson}`,borderRadius:3,marginBottom:6}}>
                 <div>
                   <div style={{fontSize:13,fontFamily:FD,color:C.ink}}>{f.label}</div>
                   {f.date&&<div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.date}</div>}
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <div style={{fontSize:14,fontFamily:FD,color:f.type==="income"?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
-                  <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:"paid"}:x))} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✓ Paid</button>
-                  <button onClick={()=>{setChatIn("Remind me to pay "+f.label+" of £"+(f.amount||0).toFixed(2)+(f.date?" on "+f.date:""));setCriticalOnly(false);setView("chat");}} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>⏰</button>
+                  <div style={{fontSize:14,fontFamily:FD,color:isInc?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
+                  <button onClick={()=>setFinances(fs=>fs.map(x=>x.id===f.id?{...x,status:x.status==="paid"?"pending":"paid"}:x))} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${f.status==="paid"?C.emerald:C.borderSoft}`,background:f.status==="paid"?C.emeraldBg:C.card,color:f.status==="paid"?C.emerald:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>{f.status==="paid"?"✓ "+(isInc?"Received":"Paid"):(isInc?"Received":"Paid")}</button>
+                  <button onClick={()=>{setChatIn(isInc?("Note: I received "+f.label+" of £"+(f.amount||0).toFixed(2)):("Remind me to pay "+f.label+" of £"+(f.amount||0).toFixed(2)+(f.date?" on "+f.date:"")));setCriticalOnly(false);setView("chat");}} style={{padding:"3px 8px",borderRadius:2,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>⏰</button>
                 </div>
               </div>
-            ))}
+            );})}
           </div>);
         })()}
 
@@ -4662,7 +4662,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       <button onClick={()=>{
         // finances already auto-saves; this confirms and re-triggers sync to localStorage
         safeSave("papa_finances",JSON.stringify(finances));
-        const inc=finances.filter(f=>f.type==="income"&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
+        const inc=finances.filter(f=>finIsIncome(f)&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
         const out=finances.filter(f=>(f.type==="expense"||f.type==="payment")&&f.status!=="paid").reduce((s,f)=>s+(f.amount||0),0);
         alert("✓ Saved & synced everywhere.\n\nMoney In: £"+inc.toFixed(2)+"\nMoney Out: £"+out.toFixed(2)+"\n\nEleanor's chat, your briefing and schedule checker now all see this.");
       }} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.emerald},${C.emerald}cc)`,color:"#fff",fontFamily:FM,fontSize:11,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",marginBottom:12,boxShadow:`0 4px 16px ${C.shadowMed}`}}>✓ Save & Sync Everywhere</button>
@@ -4778,9 +4778,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:4}}>
               <div>
                 <div style={{fontSize:12,fontFamily:FD,color:C.ink}}>{f.label}</div>
-                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{f.type==="income"?"Received":"Paid"} {f.paidDate}</div>
+                <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{finIsIncome(f)?"Received":"Paid"} {f.paidDate}</div>
               </div>
-              <div style={{fontFamily:FD,fontSize:13,color:f.type==="income"?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
+              <div style={{fontFamily:FD,fontSize:13,color:finIsIncome(f)?C.emerald:C.crimson}}>£{(f.amount||0).toFixed(2)}</div>
             </div>
           ))}
           {finHistory.length>0&&<button onClick={()=>{localStorage.removeItem("papa_finance_history");setShowHistory(false);}} style={{...goldBtn(true),marginTop:6,color:C.crimson,borderColor:C.crimson}}>Clear History</button>}
