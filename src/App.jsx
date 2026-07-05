@@ -1,4 +1,4 @@
-// VERSION_CHECK: Date-Resolver-Any-Distance build - July 3 2026 v77
+// VERSION_CHECK: Rover-Income-And-Holiday-Fix build - July 5 2026 v80
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -50,13 +50,21 @@ const PM={
 // (2) otherwise reason from general income vs outgoing wording.
 const isIncomeFinance=(fi)=>{
   if(!fi)return false;
+  const text=((fi.label||"")+" "+(fi.notes||"")).toLowerCase();
   const t=(fi.type||"").toLowerCase();
+  // If the user deliberately set the type, that always wins.
+  if(fi.userSet){
+    if(t==="income"||t==="saving"||t==="earning"||t==="received"||t==="credit")return true;
+    if(t==="expense"||t==="payment"||t==="bill"||t==="debit")return false;
+  }
+  // STRONG income signals — Rover/pet-sitting earnings are always income, even if an old entry was wrongly stored as expense.
+  const strongIncome=/\b(dog boarding|dog sitting|dog-sitting|dog walk|dog day care|doggy day care|pet sitting|pet-sitting|petsitting|house sitting|boarding for|boarding earnings|rover|booking price|earnings|paid to (me|you|sarah)|payment received|wages?|salary|universal credit|\bpip\b|\bdla\b|carer'?s? allowance|child benefit)\b/;
+  if(strongIncome.test(text))return true;
   if(t==="income"||t==="saving"||t==="earning"||t==="received"||t==="credit")return true;
   if(t==="expense"||t==="payment"||t==="bill"||t==="debit")return false;
   // No explicit type — reason from the words.
-  const text=((fi.label||"")+" "+(fi.notes||"")).toLowerCase();
-  // INCOME signals checked FIRST — a "booking" with "fees" is still income to the earner.
-  if(/\b(income|earning|earnings|wage|wages|salary|payment received|paid to (me|you|sarah)|paid by|received|refund|rebate|cashback|deposit received|\bsale\b|sales|sold|babysit|babysitting|childmind|tutoring|cleaning job|commission|\btip\b|tips|payout|dividend|interest earned|benefit|benefits|allowance|universal credit|\bpip\b|\bdla\b|\besa\b|\buc\b|carer|child benefit|tax credit|pension|grant|booking price|\bbooking\b|client|customer|invoice paid|freelance|\bgig\b|side hustle)\b/.test(text))return true;
+  // INCOME signals — a "booking" with "fees" is still income to the earner.
+  if(/\b(income|earning|earnings|wage|wages|salary|payment received|paid to (me|you|sarah)|paid by|received|refund|rebate|cashback|deposit received|\bsale\b|sales|sold|babysit|babysitting|childmind|tutoring|cleaning job|commission|\btip\b|tips|payout|dividend|interest earned|benefit|benefits|allowance|universal credit|\bpip\b|\bdla\b|\besa\b|\buc\b|carer|child benefit|tax credit|pension|grant|booking price|\bbooking\b|client|customer|invoice paid|freelance|\bgig\b|side hustle|boarding|sitting)\b/.test(text))return true;
   // OUTGOING signals (money leaving)
   if(/\b(bill|bills|rent|mortgage|utilities|gas|electric|water|council tax|broadband|phone bill|subscription|insurance|repayment|instalment|installment|klarna|paypal credit|clearpay|loan|credit card|direct debit|standing order|invoice owed|expense|expenses|shopping|groceries|fuel|petrol|purchase|paid out|spent|due to pay|\bowe\b|owed|ticket|tickets)\b/.test(text))return false;
   // Default: if we genuinely can't tell, treat as expense (safer for budgeting — won't inflate income)
@@ -64,7 +72,7 @@ const isIncomeFinance=(fi)=>{
 };
 
 // Wrapper: re-evaluate income by wording unless the user deliberately set the type.
-const finIsIncome=f=>isIncomeFinance({label:f.label,notes:f.notes,type:f.userSet?f.type:undefined});
+const finIsIncome=f=>isIncomeFinance({label:f.label,notes:f.notes,type:f.type,userSet:f.userSet});
 
 // An entry is a "reminder" or "payment" (not a physical event you attend) if its source/type says so,
 // or its wording is clearly a prompt/financial item rather than an appointment you go to.
@@ -1207,15 +1215,16 @@ Rules:
         if(e.notes){const r=parseRange(e);if(r){tripGroups[base].dates.push(r.start,r.end);}}
       });
       // Holiday-type keywords (these usually span multiple days, so a single date is suspicious)
-      const stayKw=/holiday|getaway|stay|break\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
+      const stayKw=/\bholiday\b|getaway|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
+      const notAHolidayChat=g=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet/i.test(g.title||"");
       const unknownEndTrips=[];
       Object.values(tripGroups).forEach(g=>{
         const sorted=g.dates.filter(Boolean).sort();
         const start=sorted[0],end=sorted[sorted.length-1];
         if(start&&end&&end>start){
           if(!busyPeriods.find(b=>b.title===g.title&&b.start===start))busyPeriods.push({title:g.title+" (away)",start,end});
-        }else if(start&&stayKw.test(g.title)){
-          // Looks like a holiday/stay but we only have one date — flag for Eleanor to confirm the end date
+        }else if(start&&stayKw.test(g.title)&&!notAHolidayChat(g)){
+          // Looks like a genuine holiday/stay but we only have one date — flag for Eleanor to confirm the end date
           unknownEndTrips.push({title:g.title,start});
         }
       });
@@ -1309,7 +1318,7 @@ Rules:
           for(let i=0;i<56;i++){const d=new Date(now.getTime()+i*86400000);const nm=names[d.getDay()];(byDay[nm]=byDay[nm]||[]).push(d.toLocaleDateString("en-GB",{day:"numeric",month:"long"}));}
           return "UPCOMING DATES BY WEEKDAY (use these EXACT dates — if Sarah wants a Friday, the next Fridays are listed here; do not invent or miscalculate):\n"+names.map(n=>n+"s: "+(byDay[n]||[]).slice(0,5).join(", ")).join("\n")+"\nCRITICAL: before you ever write '[Weekday] [date]' (e.g. 'Friday 11 July'), find that exact date in the maps above and confirm the weekday matches. If it does not match, you have made an error — use the correct date from this list instead. If Sarah says a date is a different day than you thought, she is RIGHT — believe her instantly, apologise briefly, and correct yourself from these lists. Never argue about what day a date is.";
         })(),
-        "NEVER place a school reminder (water bottle, PE kit, school trip, packed lunch, uniform) on a Saturday or Sunday — if you notice one, flag it as a likely error.",
+        "THE 'ASK ELEANOR' BUTTON ON THE THINGS TO CHECK SCREEN — Sarah has a 'Things to Check' screen listing items you flagged as uncertain (holidays with no end date, possible duplicates, appointments with no time). When she taps 'Ask Eleanor' on one, it sends you a system-generated question in a distinctive format, such as: \"When does my '[event]' holiday (starting [date]) end? Please save the full dates.\" or \"Is '[event]' on [date] a duplicate? Should I remove one?\" or \"What time is '[event]' on [date]?\". When you receive a question in this exact shape, RECOGNISE it instantly as coming from your own Things to Check screen — Sarah is helping you fix a flagged item, NOT asking you to work something out from scratch. Do NOT act confused, do NOT ask her clarifying questions about where it came from, and do NOT make her repeat herself. Just help resolve the flagged item: ask her the single piece of information needed (e.g. the end date), then save it with a SCHEDULE_ACTION. If the flag itself looks wrong (e.g. a dog boarding check-out is not really a holiday), say so warmly and offer to dismiss it — don't insist it needs an end date.",
         (()=>{
           // Resolve EVERY specific date mentioned in Sarah's message to its exact weekday + year — however far away.
           const names=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -1399,7 +1408,8 @@ Rules:
         "SARAH IS AUTISTIC — she finds meetings and appointments where she is the focus of attention (like Rover meet-and-greets, where a dog owner visits to assess her and her home) genuinely uncomfortable. This is an accessibility need, not fussiness. When she weighs up a booking, understand that a required meet-and-greet is a real reason to decline, and support her warmly in that choice without pushing her to do it anyway. Also keep questions to one at a time and avoid overwhelming her.",
         "TODAY IS: "+nowDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+nowDate.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+". This is the definitive current date and time — NEVER use any other date as today, NEVER contradict it, and NEVER work out the day of the week yourself. The MEMORY SYNC gives you the exact day-of-week and a 7-day map — always trust those, never recalculate.",
         "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+nowYear+" UNLESS that exact date has already passed this year. NEVER assume "+(nowYear+1)+" or beyond unless Sarah explicitly says so.",
-        "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Concise - one clear paragraph, one follow-up max. Never bullet points. Never ** or *. Use Sarah by name. Use Maleeka and Maliki when relevant.",
+        "YOUR CHARACTER: Warm and calm. Proactive - spot things before she asks. Specific - always use exact dates and times. Personal - reference her memory. Use Sarah by name. Use Maleeka and Maliki when relevant. Never use ** or * or markdown symbols.",
+        "FORMATTING — LISTS: For normal conversation, reply in warm, concise prose (a short paragraph, one follow-up question at most). BUT when Sarah asks for a 'list', or asks to see multiple things like her upcoming dog-sitting bookings, appointments, holidays, birthdays, or several dates, GIVE HER A CLEAR NUMBERED LIST — each item on its OWN line, numbered 1. 2. 3., never jumbled together in a paragraph. Put each entry on a new line with its key details (date, day, time, name) on that line. Example when she asks for upcoming dog-sitting:\n1. Sox — Mon 6 to Thu 10 July\n2. Ted — Fri 17 to Sun 19 July\n3. Henry — Sat 12 October\nKeep a short warm sentence before the list and, if useful, one after — but the list itself must be properly numbered and on separate lines so it is easy to read. Use a numbered list whenever it makes the information clearer for her.",
         "SCHEDULE INTELLIGENCE: Read ELEANOR MEMORY SYNC block before every answer. Sort ALL events by date - SOONEST first always. Never mention school events on weekends or bank holidays. UK school holidays 2026: Easter 3-17 April, Summer from 21 July. Cross-reference 7-DAY WEATHER FORECAST for outdoor questions.",
         "EVENT TYPES - VERY IMPORTANT: Events are labelled. [REMINDER] = a quick task (e.g. 'remind Maleeka to bring water bottle', 'pack PE kit') that takes seconds and does NOT make Sarah busy or block her day. [APPOINTMENT] = a real timed commitment that occupies a slot. When Sarah asks 'am I free' on a day, treat days with only reminders as FREE - she can still take an appointment. Only say she is NOT free if there's a genuine timed appointment that would clash. Mention what's on that day, but base the free/busy judgement on real commitments, never on reminders.",
         "YOU CAN FULLY EDIT THE SCHEDULE — delete, move, add, reschedule, cancel — through SCHEDULE_ACTION blocks. NEVER tell Sarah you cannot delete or edit events, and NEVER tell her to do it herself in her Calendar app — that is false. ABSOLUTE RULE — CONFIRMATION AND ACTION ARE ONE INSEPARABLE STEP: any time you acknowledge, confirm, or even imply a schedule change (move, add, delete, cancel, reschedule, time change), you MUST append the matching SCHEDULE_ACTION block in the SAME reply. Saying you have done something WITHOUT the action block is a failure — the change will not happen and you will have lied to Sarah. If you write words like 'I've moved', 'I've updated', 'that's changed', 'done', 'sorted', 'I'll switch that', or name a new date/time for an existing event, there MUST be a SCHEDULE_ACTION block at the end of that exact reply. Never promise to do it 'now' or 'in a moment' — do it in this reply or not at all. RESCHEDULING MUST BE ATOMIC: if something moved (e.g. 'nails moved from Wednesday 1 July to Tuesday 30 June'), use ONE move action that deletes the OLD entry AND adds the NEW one — never just add the new date and leave the old. CANCELLATION removes the event entirely. Examples (use the exact title from the schedule): Delete - [SCHEDULE_ACTION:{action:delete,title:Garden Centre,date:2026-06-20}]. Cancel - [SCHEDULE_ACTION:{action:cancel,title:Summer Fair,date:2026-06-24}]. Add - [SCHEDULE_ACTION:{action:add,title:Garden Centre,date:2026-07-04,time:09:00,priority:medium}]. Move/reschedule (deletes old AND adds new in ONE step) - [SCHEDULE_ACTION:{action:move,title:Nails,fromDate:2026-07-01,toDate:2026-06-30,time:09:00}]. The block is invisible to Sarah - she only sees your plain English confirmation. Use the current year for any date without a year. WHEN SARAH CONFIRMS A PLAN — if she says 'yes', 'yes I'll test it out', 'book it', 'add that', 'let's do that', or agrees to a specific date/time you suggested, that is a confirmation: ADD it to the calendar with a SCHEDULE_ACTION in THAT SAME reply. Do not just say 'perfect, you're all set' without the action block, and never wait for Sarah to ask 'have you added it?'. If you are genuinely unsure whether she wants it added, ask in that reply ('Shall I add it?') — but once she confirms, action it immediately, not in the next message.",
@@ -1964,11 +1974,13 @@ EXTRACTION RULES:
     const out=[];
     const todayStr=fmt(getToday());
     const fut=events.filter(e=>e.date>=todayStr&&!/cancelled|canceled|postponed/i.test((e.notes||"")+" "+(e.status||"")));
-    const stayKw=/holiday|getaway|\bstay\b|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
+    const stayKw=/\bholiday\b|getaway|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
     const hasRange=e=>/\d{1,2}\/\d{1,2}\/\d{4}\s*[-–to]+\s*\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}\s*[-–to]+\s*\d{4}-\d{2}-\d{2}/.test((e.notes||"")+" "+(e.title||""));
-    // 1. Holidays/trips with no end date stored
+    // Things that are appointments/bookings, NOT open-ended holidays — never flag these for a missing end date
+    const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment/i.test((e.title||"")+" "+(e.notes||""));
+    // 1. Genuine holidays/trips with no end date stored (match on TITLE only, exclude bookings/appointments)
     fut.forEach(e=>{
-      if(stayKw.test((e.title||"")+" "+(e.notes||""))&&!hasRange(e)&&!/\((start|end)\)/i.test(e.title||"")){
+      if(stayKw.test(e.title||"")&&!notAHoliday(e)&&!hasRange(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
         if(!fut.find(x=>x!==e&&x.title.replace(/\s*\((start|end)\)/i,"").trim()===e.title.replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
           out.push({id:"end-"+e.id,type:"holiday-end",icon:"🏖",title:e.title,detail:"Starts "+e.date+" but no end date saved — when does it finish?",eventId:e.id,date:e.date});
         }
@@ -4260,7 +4272,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           return(<div key={i} className="msg-bubble" style={{display:"flex",flexDirection:isPA?"row":"row-reverse",gap:9,alignItems:"flex-end"}}>
             {isPA&&<PaAvatar size={30} pulse={false}/>}
             <div style={{maxWidth:"76%"}}>
-              <div style={{padding:"12px 16px",borderRadius:isPA?"4px 16px 16px 4px":"16px 4px 4px 16px",background:isPA?C.card:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:isPA?C.ink:C.card,fontSize:14,lineHeight:1.65,fontFamily:FB,letterSpacing:"0.025em",border:isPA?`1px solid ${C.borderSoft}`:"none",boxShadow:isPA?`0 2px 10px ${C.shadow}`:`0 3px 12px rgba(154,123,60,0.28)`}}>{m.text}</div>
+              <div style={{padding:"12px 16px",borderRadius:isPA?"4px 16px 16px 4px":"16px 4px 4px 16px",background:isPA?C.card:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:isPA?C.ink:C.card,fontSize:14,lineHeight:1.65,fontFamily:FB,letterSpacing:"0.025em",whiteSpace:"pre-wrap",border:isPA?`1px solid ${C.borderSoft}`:"none",boxShadow:isPA?`0 2px 10px ${C.shadow}`:`0 3px 12px rgba(154,123,60,0.28)`}}>{m.text}</div>
               <div style={{display:"flex",gap:8,alignItems:"center",marginTop:3,justifyContent:isPA?"flex-start":"flex-end"}}>
                 <span style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.08em"}}>{fmtTime(m.ts)}</span>
                 <button onClick={()=>{navigator.clipboard?.writeText(m.text).then(()=>{setCopiedMsg(i);setTimeout(()=>setCopiedMsg(null),1500);}).catch(()=>{});}} style={{background:"none",border:"none",color:copiedMsg===i?C.emerald:C.inkFaint,cursor:"pointer",fontSize:9,fontFamily:FM,letterSpacing:"0.08em",textTransform:"uppercase",padding:0}}>{copiedMsg===i?"✓ Copied":"⧉ Copy"}</button>
