@@ -1,4 +1,4 @@
-// VERSION_CHECK: Intelligent-Checks build - July 6 2026 v83
+// VERSION_CHECK: Smart-Dupes-And-Multi-Image build - July 6 2026 v84
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -429,30 +429,41 @@ function ICalImport({onAdd}){
 
 const ChatInput=React.memo(function ChatInput({onSend,onSendImage,disabled}){
   const ref=React.useRef(null);
-  const [pending,setPending]=React.useState(null);
+  const [pending,setPending]=React.useState([]); // array of {b64,mime,name}
   function send(){
     if(disabled)return;
     const txt=ref.current?ref.current.value.trim():"";
-    if(pending){onSendImage(txt,pending.b64,pending.mime);setPending(null);if(ref.current)ref.current.value="";return;}
+    if(pending.length>0){onSendImage(txt,pending);setPending([]);if(ref.current)ref.current.value="";return;}
     if(!txt)return;
     onSend(txt);
     if(ref.current)ref.current.value="";
   }
+  function addFiles(fileList){
+    const files=Array.from(fileList||[]);
+    files.forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setPending(prev=>[...prev,{b64:p[1],mime:f.type||"image/jpeg",name:f.name}]);};
+      r.readAsDataURL(f);
+    });
+  }
   return(
     <div>
-      {pending&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,padding:"6px 10px",background:"#F3ECD9",borderRadius:8,fontSize:11,fontFamily:"'Courier Prime',monospace",color:"#6B5836"}}>
-        <span>📎 {pending.name}</span>
-        <button onClick={()=>setPending(null)} style={{marginLeft:"auto",background:"none",border:"none",color:"#A0492B",cursor:"pointer",fontSize:13}}>✕</button>
+      {pending.length>0&&<div style={{marginBottom:6}}>
+        {pending.map((p,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,padding:"6px 10px",background:"#F3ECD9",borderRadius:8,fontSize:11,fontFamily:"'Courier Prime',monospace",color:"#6B5836"}}>
+          <span>📎 {p.name}</span>
+          <button onClick={()=>setPending(prev=>prev.filter((_,j)=>j!==i))} style={{marginLeft:"auto",background:"none",border:"none",color:"#A0492B",cursor:"pointer",fontSize:13}}>✕</button>
+        </div>)}
+        {pending.length>1&&<div style={{fontSize:10,color:"#6B5836",fontFamily:"'Courier Prime',monospace",paddingLeft:4}}>{pending.length} pictures ready to send together</div>}
       </div>}
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <label style={{width:40,height:40,borderRadius:"50%",border:"1px solid #DDD5C0",background:"#FAF6EE",cursor:disabled?"not-allowed":"pointer",fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}} title="Send a photo to Eleanor">
+        <label style={{width:40,height:40,borderRadius:"50%",border:"1px solid #DDD5C0",background:"#FAF6EE",cursor:disabled?"not-allowed":"pointer",fontSize:17,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}} title="Send photos to Eleanor (you can pick several)">
           📷
-          <input type="file" accept="image/*" disabled={disabled} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const p=(ev.target.result||"").split(",");if(p[1])setPending({b64:p[1],mime:f.type||"image/jpeg",name:f.name});};r.readAsDataURL(f);e.target.value="";}} style={{display:"none"}}/>
+          <input type="file" accept="image/*" multiple disabled={disabled} onChange={e=>{addFiles(e.target.files);e.target.value="";}} style={{display:"none"}}/>
         </label>
         <input
           ref={ref}
           style={{flex:1,padding:"12px 16px",border:"1px solid #DDD5C0",fontSize:13,background:"#FAF6EE",color:"#1C1812",fontFamily:"'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif",letterSpacing:"0.03em",outline:"none",borderRadius:24,boxShadow:"inset 0 1px 3px rgba(60,40,10,0.08)"}}
-          placeholder={pending?"Add a note about the picture (optional)…":"Message Eleanor…"}
+          placeholder={pending.length>0?"Add a note about the pictures (optional)…":"Message Eleanor…"}
           disabled={disabled}
           onKeyDown={e=>{if(e.key==="Enter")send();}}
         />
@@ -1140,14 +1151,18 @@ Rules:
 - Never return an empty events array — if you find ANY dates at all, include them
 - summary should be a warm one-sentence overview of what was found`;
 
-  async function sendChat(directText,imageB64,imageMime){
+  async function sendChat(directText,images,imageMimeLegacy){
     const el=document.getElementById("chat-input");
     const inputVal=directText||chatIn;
-    if((!inputVal.trim()&&!imageB64)||paStatus!=="idle")return;
-    const u=inputVal.trim()||(imageB64?"(sent a picture)":"");
+    let imgs=[];
+    if(Array.isArray(images))imgs=images;
+    else if(typeof images==="string"&&images)imgs=[{b64:images,mime:imageMimeLegacy||"image/jpeg"}];
+    const hasImages=imgs.length>0;
+    if((!inputVal.trim()&&!hasImages)||paStatus!=="idle")return;
+    const u=inputVal.trim()||(hasImages?(imgs.length>1?"(sent "+imgs.length+" pictures)":"(sent a picture)"):"");
     setChatIn("");
     if(el)el.value="";
-    setMsgs(m=>[...m,{role:"user",text:u,ts:new Date(),hasImage:!!imageB64}]);
+    setMsgs(m=>[...m,{role:"user",text:u,ts:new Date(),hasImage:hasImages}]);
     setPaStatus("thinking");
     let freshEvents=[];
     try{freshEvents=JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{}
@@ -1420,8 +1435,8 @@ Rules:
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
-      const userContent=imageB64
-        ?[{type:"image",source:{type:"base64",media_type:imageMime||"image/jpeg",data:imageB64}},{type:"text",text:u||"Here is a picture — please look at it and help me."}]
+      const userContent=hasImages
+        ?[...imgs.map(im=>({type:"image",source:{type:"base64",media_type:im.mime||"image/jpeg",data:im.b64}})),{type:"text",text:u||(imgs.length>1?"Here are some pictures — please look at them and help me.":"Here is a picture — please look at it and help me.")}]
         :u;
       const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:userContent}]});
       // Parse and execute any SCHEDULE_ACTION commands from Eleanor
@@ -1999,26 +2014,51 @@ EXTRACTION RULES:
         }
       }
     });
-    // 2. Likely duplicates (same title) — flag any repeat of a one-off appointment on different dates
+    // 2. DUPLICATE DETECTION — intelligent. Only flag GENUINE accidental doubles, never legitimate recurring events.
     const seenTitles={};
     fut.forEach(e=>{
-      const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();
+      const t=(e.title||"").toLowerCase().replace(/\s*\((start|end|check.?in|check.?out|day \d+)\)\s*/i,"").replace(/\s+day \d+/i,"").trim();
       if(!t)return;
-      // skip things that are legitimately recurring (boarding spans, holidays, weekly groups)
-      const recurringLike=/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring;
-      if(recurringLike)return;
+      const full=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+      // Things that legitimately recur or come in linked sets — NEVER duplicates:
+      const legitRecurring=
+        e.recurring
+        ||/weekly|every |fortnight|monthly|annual|yearly|each (week|month|term)/i.test(full)
+        // school-calendar patterns (training days, term markers, returns, half terms — happen multiple times a year)
+        ||/training day|inset day|term (ends|starts|begins)|end of term|last day|first day|children return|return after|back to school|half term|non.?pupil|school report|breaks up|parents evening/i.test(full)
+        // multi-day booking markers (start/end/check-in/check-out/day care/boarding bookends)
+        ||/\((start|end|check.?in|check.?out|day \d+)\)/i.test(e.title||"")
+        ||/boarding|day care|doggy day care/i.test(full)
+        // reminder sequences tied to different events (taxi for coach trip, X coming tomorrow)
+        ||/coming (tomorrow|today)|book taxi|taxi for|reminder|free day|relaxation|rest day/i.test(full)
+        // holidays/trips
+        ||stayKw.test(e.title||"")
+        // payments/reviews across tax years
+        ||/payment|contribution|review|isa|\bpay\b|instalment|installment|direct debit/i.test(full);
+      if(legitRecurring)return;
       if(!seenTitles[t])seenTitles[t]=[];
       seenTitles[t].push(e);
     });
     Object.values(seenTitles).forEach(list=>{
       if(list.length>1){
         const dates=list.map(e=>e.date).sort();
-        out.push({id:"dup-"+list[list.length-1].id,type:"duplicate",icon:"⧉",title:list[0].title,detail:"Scheduled on "+dates.length+" dates ("+dates.join(", ")+") — if it should only happen once, which date is correct? I can remove the others.",eventId:list[list.length-1].id,date:dates[dates.length-1],allDates:dates});
+        // Only flag as a likely accidental duplicate if two entries are within 2 days of each other
+        // (genuine recurring things are spread weeks/months apart; an accidental double is same-day-ish).
+        let closePair=false;
+        for(let i=0;i<dates.length-1;i++){
+          if(Math.abs(new Date(dates[i+1])-new Date(dates[i]))<=2*86400000){closePair=true;break;}
+        }
+        if(closePair){
+          out.push({id:"dup-"+list[list.length-1].id,type:"duplicate",icon:"⧉",title:list[0].title,detail:"Appears more than once close together ("+dates.join(", ")+") — is one an accidental duplicate to remove?",eventId:list[list.length-1].id,date:dates[dates.length-1],allDates:dates});
+        }
       }
     });
-    // 4. Events with no real time that sound like appointments (have 'appointment','at','pm','am' but time is 09:00 placeholder)
+    // 4. Events with no real time that genuinely sound like a timed appointment (exclude school markers, all-day notes)
     fut.forEach(e=>{
-      if(e.time==="09:00"&&/appointment|meeting|class|group|cafe|café|club|session/i.test(e.title||"")&&!stayKw.test(e.title||"")){
+      const full=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+      const soundsTimed=/appointment|meeting|\bclass\b|session|café|cafe|\bclub\b/i.test(e.title||"");
+      const isMarkerOrAllDay=/training day|inset|term|last day|first day|return|half term|holiday|break|school report|starts|begins|ends|all day/i.test(full)||e.allDay;
+      if(e.time==="09:00"&&soundsTimed&&!isMarkerOrAllDay&&!stayKw.test(e.title||"")){
         out.push({id:"time-"+e.id,type:"time",icon:"🕐",title:e.title,detail:"On "+e.date+" with no specific time set — what time is it?",eventId:e.id,date:e.date});
       }
     });
@@ -4318,7 +4358,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       })()}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.card,boxShadow:`0 -2px 10px ${C.shadow}`,display:"flex",gap:8,alignItems:"flex-end"}}>
         <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{flexShrink:0,padding:"11px 13px",borderRadius:8,border:`1px solid ${C.borderSoft}`,background:C.cream,color:C.inkLight,fontFamily:FM,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}} title="Back to home">← Home</button>
-        <div style={{flex:1}}><ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}} onSendImage={(text,b64,mime)=>{sendChat(text||" ",b64,mime);}}/></div>
+        <div style={{flex:1}}><ChatInput disabled={paStatus!=="idle"} onSend={text=>{setChatIn(text);sendChat(text);}} onSendImage={(text,images)=>{sendChat(text||" ",images);}}/></div>
       </div>
     </div>
   );
