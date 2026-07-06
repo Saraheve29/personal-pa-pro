@@ -1,4 +1,4 @@
-// VERSION_CHECK: Checks-Dismiss-And-Filter build - July 6 2026 v82
+// VERSION_CHECK: Intelligent-Checks build - July 6 2026 v83
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1977,12 +1977,23 @@ EXTRACTION RULES:
     const fut=events.filter(e=>e.date>=todayStr&&!/cancelled|canceled|postponed/i.test((e.notes||"")+" "+(e.status||"")));
     const stayKw=/\bholiday\b|getaway|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
     const hasRange=e=>/\d{1,2}\/\d{1,2}\/\d{4}\s*[-–to]+\s*\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}\s*[-–to]+\s*\d{4}-\d{2}-\d{2}/.test((e.notes||"")+" "+(e.title||""));
-    // Things that are appointments/bookings, NOT open-ended holidays — never flag these for a missing end date
-    const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment|payment|\bpay\b|\bsave\b|saving|savings|£|deposit|instalment|installment|booking fee|ticket|owe|due|bill/i.test((e.title||"")+" "+(e.notes||""));
+    // School-calendar markers and single-day notes — these mention 'holiday' or 'break' but are ONE-DAY school dates, never trips.
+    const schoolMarker=e=>/last day|first day|term (ends|starts|begins)|end of term|start of term|training day|inset day|school report|breaks? up|holiday starts|holiday begins|holiday ends|term time|half term (starts|ends|begins)|back to school|returns?\b|non.?pupil|parents evening|assembly|breaks up|\bstarts\b|\bbegins\b|\bends\b/i.test((e.title||""));
+    // Things that are appointments/bookings/payments, NOT open-ended holidays
+    const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|departure|arrival|flight|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment|payment|\bpay\b|\bsave\b|saving|savings|£|deposit|instalment|installment|booking fee|ticket|owe|due|bill/i.test((e.title||"")+" "+(e.notes||""));
     const isReminderish=e=>isReminderEntry(e)||e.kind==="reminder"||e.type==="reminder"||e.type==="payment"||e.source==="finance";
-    // 1. Genuine holidays/trips with no end date stored (match on TITLE only, exclude bookings/appointments)
+    // A genuine "away" trip that needs an end date must be an actual multi-day stay AND not already covered by nearby related entries.
+    const alreadyCovered=e=>{
+      // Is there another entry within 10 days sharing a key trip word (same trip, already detailed with flights/hotel/return)?
+      const words=(e.title||"").toLowerCase().match(/clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|centre parcs|hoseasons|pontins/);
+      if(!words)return false;
+      const key=words[0];
+      return fut.some(x=>x!==e&&(x.title||"").toLowerCase().includes(key)&&Math.abs(new Date(x.date)-new Date(e.date))<=12*86400000);
+    };
+    // 1. Genuine multi-day holidays with no end date stored — intelligent filter
     fut.forEach(e=>{
-      if(stayKw.test(e.title||"")&&!notAHoliday(e)&&!isReminderish(e)&&!hasRange(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
+      const isRealTrip=stayKw.test(e.title||"")&&!schoolMarker(e)&&!notAHoliday(e)&&!isReminderish(e);
+      if(isRealTrip&&!hasRange(e)&&!alreadyCovered(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
         if(!fut.find(x=>x!==e&&x.title.replace(/\s*\((start|end)\)/i,"").trim()===e.title.replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
           out.push({id:"end-"+e.id,type:"holiday-end",icon:"🏖",title:e.title,detail:"Starts "+e.date+" but no end date saved — when does it finish?",eventId:e.id,date:e.date});
         }
