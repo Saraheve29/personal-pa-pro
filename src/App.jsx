@@ -1,4 +1,4 @@
-// VERSION_CHECK: Smart-Dupes-And-Multi-Image build - July 6 2026 v84
+// VERSION_CHECK: My-Rules build - July 6 2026 v85
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -734,6 +734,12 @@ function AppInner(){
   const [importContext,setImportContext]=useState("");
   const [userContext,setUserContext]=useState(()=>localStorage.getItem("papa_user_context")||"Single mother. Children: Maleeka and Maliki. Lives in March, Cambridgeshire. Rover dog-sitter. App developer. Benefits include Carer's Allowance.");
   const [persistentMemory,setPersistentMemory]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");} catch{return {};}});
+  const [myRules,setMyRules]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_my_rules")||"[]");}catch{return [];}});
+  const [newRuleText,setNewRuleText]=useState("");
+  const [briefReplyOpen,setBriefReplyOpen]=useState(false);
+  const [briefReplyText,setBriefReplyText]=useState("");
+  const [briefReplyThread,setBriefReplyThread]=useState([]); // {role,text}
+  const [briefReplyBusy,setBriefReplyBusy]=useState(false);
   const [resolvedBriefItems,setResolvedBriefItems]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_resolved_brief")||"[]");}catch{return [];}});
   const [dismissedChecks,setDismissedChecks]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_checks")||"[]");}catch{return [];}});
   const [sessionSummary,setSessionSummary]=useState(()=>localStorage.getItem("papa_last_session")||"");
@@ -1361,6 +1367,7 @@ Rules:
         (()=>{const lines=[];for(let i=0;i<4;i++){const d=new Date(now.getTime()+i*86400000);const ds=fmt(d);const label=i===0?"TODAY":i===1?"TOMORROW":d.toLocaleDateString("en-GB",{weekday:"long"});const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));const evText=evs.length>0?evs.map(e=>(e.time||"all day")+" "+e.title+(isReminderEntry(e)?" [reminder only]":"")).join("; "):"nothing scheduled";lines.push(label+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+ds+"): "+evText);}return "ABSOLUTE TRUTH — WHAT IS ON EACH DAY (computed from the real dates — you MUST NOT contradict this. Before you EVER tell Sarah something is 'today', 'this morning/afternoon/evening', or 'tomorrow', find it in THIS list and confirm the date matches. If an event is not under TODAY here, it is NOT today. Check every single event against its real date — getting this wrong wastes Sarah's limited energy and could send her out on the wrong day):\n"+lines.join("\n");})(),
         busyCtx,
         rangeScan,
+        (myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES — she has taught you these preferences and you MUST follow them automatically in every suggestion, booking check, and schedule change. Check EVERY rule before you suggest or add anything. If a request would break a rule, warn her clearly and say which rule. She can override a rule in the moment (e.g. 'ignore that this once') — respect that just for that one instance:\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):""),
         (()=>{const seen={};futureEvents.forEach(e=>{const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();if(!t||/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring)return;(seen[t]=seen[t]||[]).push(e.date);});const dups=Object.entries(seen).filter(([t,ds])=>ds.length>1);return dups.length>0?"POSSIBLE DUPLICATE ENTRIES (the same one-off appointment is on more than one date — this is very likely a mistake from a previous session; if Sarah says it only happens on ONE of these dates, the others are duplicates to DELETE; proactively flag this and offer to remove the wrong one(s), and NEVER move an appointment while a duplicate exists — fix the duplicate first):\n"+dups.map(([t,ds])=>"- '"+t+"' appears on: "+ds.sort().join(", ")).join("\n"):"";})(),
         "TRUST SARAH OVER THE SCHEDULE — if Sarah states when something is (e.g. 'I'm getting my nails done tomorrow', 'nails are the 30th not the 14th'), that is the truth. If the schedule shows that activity on a DIFFERENT date as well, the other entry is almost certainly a leftover duplicate — say so and offer to delete it. Never tell Sarah she has an appointment on a date she has just told you it is NOT on.",
         unknownEndCtx,
@@ -1618,7 +1625,8 @@ Rules:
     const brResolvedCtx=resolvedBriefItems.length>0
       ?"ALREADY DONE / RESOLVED (Sarah has ticked these off — do NOT mention them again as pending or upcoming, do NOT re-raise them, treat as completed):\n"+resolvedBriefItems.map(r=>"- "+r).join("\n")
       :"";
-    const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx,brResolvedCtx].filter(Boolean).join("\n\n");
+    const brRulesCtx=myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES (follow these when flagging conflicts or making suggestions in the briefing):\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):"";
+    const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx,brResolvedCtx,brRulesCtx].filter(Boolean).join("\n\n");
     let raw;
     try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK — apply ONLY to entries that explicitly mention school. An entry is school-related ONLY if its title or notes contain one of these words: school, Westwood, PE kit, uniform, packed lunch, homework, assembly, parents evening, or a clearly named school trip. Maleeka is in Year 4 and school runs Monday-Friday in term time. If such a genuinely school-labelled entry falls on a SATURDAY or SUNDAY, flag it as a likely error with high severity. DO NOT flag personal outings, family plans, shopping trips, garden centre visits, days out, or anything with a persons name (e.g. Garden centre see Pete) as a school error just because it falls on a weekend — those are Sarahs normal weekend plans and completely fine. When in doubt, it is NOT a school event. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. (7) DO NOT re-raise things Sarah has already done or decided: if the memory facts or the ALREADY DONE list show a task is complete (e.g. a pickup collected) or a decision is made (e.g. craft group starts 14 July not sooner), treat it as settled — never present it again as pending, upcoming, or an open option. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:exactDayMap+"\n\n"+timeAwareCtx+"\n\nEXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current. If anything in your memory or an old note mentions an appointment that is NOT in this live schedule, it has been cancelled or removed — do NOT mention it. Only reference appointments that appear in the live schedule above."}]});
     if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);return;}
@@ -3291,6 +3299,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <button onClick={()=>setView("reminders")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⏰ Reminders</button>
         <button onClick={()=>setView("birthdays")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.16em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🎂 Birthdays</button>
         {(()=>{const n=computeChecks().length;return <button onClick={()=>setView("checks")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${n>0?C.gold:C.borderSoft}`,background:n>0?C.goldPale:C.card,color:n>0?C.gold:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`,position:"relative"}}>✓ Check{n>0?" ("+n+")":""}</button>;})()}
+        <button onClick={()=>setView("rules")} style={{flex:1,padding:"11px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>📋 My Rules{myRules.filter(r=>r.active!==false).length>0?" ("+myRules.filter(r=>r.active!==false).length+")":""}</button>
         <button onClick={()=>setView("settings")} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>⚙</button>
         <button onClick={()=>setShowSearch(s=>!s)} style={{padding:"11px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:showSearch?C.goldPale:C.card,color:showSearch?C.gold:C.inkLight,fontFamily:FM,fontSize:12,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}}>🔍</button>
       </div>
@@ -5008,6 +5017,41 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   );
 
   /* ── BIRTHDAYS VIEW ── */
+  const RulesView=()=>{
+    const suggestions=["Block the day after any coach trip as a recovery day","Keep the afternoon clear if I have therapy in the morning","Rover bookings needing a meet-and-greet need 3 days notice","Tuesdays are craft cabin days unless I say otherwise","Don't suggest bookings the day after a holiday"];
+    return(<div>
+      <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",cursor:"pointer",marginBottom:12,padding:0}}>← Home</button>
+      <div style={SL}>My Rules</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:16}}>Teach Eleanor your patterns once, in your own words. She'll follow them automatically whenever she suggests, checks, or changes anything in your schedule.</div>
+
+      <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"14px",marginBottom:16,boxShadow:`0 1px 8px ${C.shadow}`}}>
+        <textarea value={newRuleText} onChange={e=>setNewRuleText(e.target.value)} placeholder="Write a rule in plain English, e.g. 'Block the day after a coach trip as rest'" style={{width:"100%",boxSizing:"border-box",minHeight:60,padding:"10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.parchment,fontFamily:FB,fontSize:13,color:C.ink,resize:"vertical",outline:"none"}}/>
+        <button onClick={()=>{if(!newRuleText.trim())return;const nr=[...myRules,{id:Date.now(),text:newRuleText.trim(),active:true}];setMyRules(nr);localStorage.setItem("papa_my_rules",JSON.stringify(nr));setNewRuleText("");}} disabled={!newRuleText.trim()} style={{...goldBtn(),width:"100%",marginTop:8,opacity:newRuleText.trim()?1:0.5}}>+ Add Rule</button>
+      </div>
+
+      {myRules.length>0&&<div style={{marginBottom:16}}>
+        {myRules.map(r=>(
+          <div key={r.id} style={{background:C.card,border:`1px solid ${r.active!==false?C.goldBorder:C.borderSoft}`,borderLeft:`4px solid ${r.active!==false?C.gold:C.inkFaint}`,borderRadius:6,padding:"12px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start"}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontFamily:FB,color:r.active!==false?C.ink:C.inkFaint,lineHeight:1.5,textDecoration:r.active!==false?"none":"line-through"}}>{r.text}</div>
+              <div style={{display:"flex",gap:12,marginTop:8}}>
+                <button onClick={()=>{const nr=myRules.map(x=>x.id===r.id?{...x,active:x.active===false}:x);setMyRules(nr);localStorage.setItem("papa_my_rules",JSON.stringify(nr));}} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",padding:0}}>{r.active!==false?"Pause":"Resume"}</button>
+                <button onClick={()=>{const nr=myRules.filter(x=>x.id!==r.id);setMyRules(nr);localStorage.setItem("papa_my_rules",JSON.stringify(nr));}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",padding:0}}>Delete</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>}
+
+      {myRules.length===0&&<div style={{marginBottom:8}}>
+        <div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Ideas to start with — tap to add</div>
+        {suggestions.map((s,i)=>(
+          <button key={i} onClick={()=>{const nr=[...myRules,{id:Date.now(),text:s,active:true}];setMyRules(nr);localStorage.setItem("papa_my_rules",JSON.stringify(nr));}} style={{display:"block",width:"100%",textAlign:"left",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"10px 12px",marginBottom:6,fontFamily:FB,fontSize:12,color:C.inkMid,cursor:"pointer"}}>+ {s}</button>
+        ))}
+      </div>}
+    </div>);
+  };
+
   const ChecksView=()=>{
     const checks=computeChecks();
     const dismiss=(c)=>{const nd=[...dismissedChecks,c.id];setDismissedChecks(nd);localStorage.setItem("papa_dismissed_checks",JSON.stringify(nd));};
@@ -5633,6 +5677,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="reminders" && RemindersView()}
         {view==="birthdays"  && BirthdaysView()}
         {view==="checks"  && ChecksView()}
+        {view==="rules"  && RulesView()}
       </div>
 
       {/* Weekly Goals Modal */}
