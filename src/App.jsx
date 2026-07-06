@@ -1,4 +1,4 @@
-// VERSION_CHECK: My-Rules build - July 6 2026 v85
+// VERSION_CHECK: Briefing-Inline-Reply build - July 6 2026 v86
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1548,6 +1548,48 @@ Rules:
         }
       },500);
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
+  }
+
+  async function sendBriefReply(text){
+    if(!text.trim()||briefReplyBusy)return;
+    const userMsg=text.trim();
+    setBriefReplyThread(t=>[...t,{role:"user",text:userMsg}]);
+    setBriefReplyText("");
+    setBriefReplyBusy(true);
+    try{
+      const now=getToday();
+      const dateStr=now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+      const timeStr=now.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+      const fresh=(()=>{try{return JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{return events;}})();
+      const futEvs=fresh.filter(e=>e.date>=fmt(now)).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||""))).slice(0,40);
+      const schedList=futEvs.map(e=>e.date+" "+(e.time||"")+" "+e.title+(isReminderEntry(e)?" [reminder]":"")).join("\n");
+      const rulesList=myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n");
+      const sys=[
+        "You are Eleanor, Sarah's warm, calm Personal Assistant. Sarah is replying to her morning briefing directly from the briefing screen. Continue the conversation naturally and warmly, in short prose (no bullet points, no markdown symbols).",
+        "TODAY IS "+dateStr+" at "+timeStr+". Never say a different day.",
+        "You CAN change her schedule: to add/move/delete/cancel an event, append a SCHEDULE_ACTION block at the very end of your reply, invisible to Sarah. Formats: [SCHEDULE_ACTION:{action:add,title:...,date:YYYY-MM-DD,time:HH:MM,priority:medium}] or {action:move,title:...,fromDate:...,toDate:...,time:...} or {action:delete,title:...,date:...} or {action:cancel,title:...,date:...}. If Sarah confirms she wants something scheduled, add it in the SAME reply. Use the current year for undated.",
+        rulesList?"SARAH'S RULES (follow them, warn if something breaks one):\n"+rulesList:"",
+        "Her upcoming schedule:\n"+(schedList||"nothing scheduled"),
+        "Keep it brief and kind. One follow-up question at most."
+      ].filter(Boolean).join("\n\n");
+      const threadForAI=[...briefReplyThread,{role:"user",text:userMsg}].map(m=>({role:m.role,content:m.text}));
+      const raw=await callAI({max_tokens:1200,system:sys,messages:threadForAI});
+      let didAction=false;
+      const rx=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;let m2;
+      while((m2=rx.exec(raw))!==null){
+        let a;try{a=JSON.parse(m2[1]);}catch{const inner=m2[1].replace(/^\{|\}$/g,"");a={};inner.split(",").forEach(p=>{const ci=p.indexOf(":");if(ci>0)a[p.slice(0,ci).trim().replace(/["']/g,"")]=p.slice(ci+1).trim().replace(/["']/g,"");});}
+        if(a.action==="delete"||a.action==="cancel"||a.action==="move"){
+          setEvents(ev=>ev.filter(e=>{const tm=e.title.toLowerCase().includes((a.title||"").toLowerCase().slice(0,10))||(a.title||"").toLowerCase().includes(e.title.toLowerCase().slice(0,10));const dm=!a.date||e.date===a.date||e.date===a.fromDate;return !(tm&&dm);}));didAction=true;
+        }
+        if(a.action==="add"||a.action==="move"){const nd=a.toDate||a.date;if(nd){setTimeout(()=>setEvents(ev=>[...ev,{id:Date.now()+Math.random()*1000,title:a.title,date:nd,time:a.time||"09:00",priority:a.priority||"medium",notes:a.notes||"",source:"eleanor"}]),150);didAction=true;}}
+      }
+      const clean=raw.replace(/\[SCHEDULE_ACTION:\{.*?\}\]/g,"").trim();
+      setBriefReplyThread(t=>[...t,{role:"assistant",text:clean||"Done.",didAction}]);
+      if(didAction)setBriefingStale(true);
+    }catch(e){
+      setBriefReplyThread(t=>[...t,{role:"assistant",text:"I'm sorry, something went wrong just then. You could try again, or open full chat."}]);
+    }
+    setBriefReplyBusy(false);
   }
 
   async function generateBriefing(){
@@ -3442,9 +3484,28 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>}
 
         {/* Eleanor's personal greeting */}
-        {briefing.how_are_you&&<div onClick={()=>{sendChat("(Replying to your briefing check-in) "+briefing.how_are_you);setCriticalOnly(false);setView("chat");}} style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.gold}`,cursor:"pointer",position:"relative"}}>
-          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>✦ Eleanor says — tap to reply</div>
+        {briefing.how_are_you&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderRadius:6,padding:"14px 16px",marginBottom:14,borderLeft:`4px solid ${C.gold}`}}>
+          <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>✦ Eleanor says</div>
           <div style={{fontSize:14,color:C.inkMid,fontFamily:FB,lineHeight:1.7,fontStyle:"italic"}}>"{briefing.how_are_you}"</div>
+          {/* Inline conversation thread */}
+          {briefReplyThread.length>0&&<div style={{marginTop:12,borderTop:`1px solid ${C.borderSoft}`,paddingTop:10}}>
+            {briefReplyThread.map((m,i)=><div key={i} style={{marginBottom:8,display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+              <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 4px 12px 12px":"4px 12px 12px 12px",background:m.role==="user"?`linear-gradient(135deg,${C.gold},${C.goldBright})`:C.parchment,color:m.role==="user"?C.card:C.inkMid,fontSize:13,fontFamily:FB,lineHeight:1.55,whiteSpace:"pre-wrap"}}>{m.text}{m.didAction&&<div style={{fontSize:10,marginTop:4,color:m.role==="user"?C.card:C.emerald,opacity:0.85}}>✦ schedule updated</div>}</div>
+            </div>)}
+          </div>}
+          {briefReplyBusy&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic",marginTop:8}}>Eleanor is replying…</div>}
+          {/* Inline reply box */}
+          {briefReplyOpen?(
+            <div style={{marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
+              <input value={briefReplyText} onChange={e=>setBriefReplyText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendBriefReply(briefReplyText);}} placeholder="Reply to Eleanor…" autoFocus style={{flex:1,padding:"10px 14px",border:`1px solid ${C.borderSoft}`,fontSize:13,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",borderRadius:20}}/>
+              <button onClick={()=>sendBriefReply(briefReplyText)} disabled={briefReplyBusy||!briefReplyText.trim()} style={{width:40,height:40,borderRadius:"50%",border:"none",background:briefReplyBusy||!briefReplyText.trim()?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:"pointer",fontSize:15,flexShrink:0}}>→</button>
+            </div>
+          ):(
+            <div style={{display:"flex",gap:8,marginTop:10}}>
+              <button onClick={()=>setBriefReplyOpen(true)} style={{padding:"8px 14px",borderRadius:20,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✎ Reply here</button>
+              <button onClick={()=>{sendChat("(Replying to your briefing check-in) "+briefing.how_are_you);setCriticalOnly(false);setView("chat");}} style={{padding:"8px 14px",borderRadius:20,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Open full chat</button>
+            </div>
+          )}
         </div>}
 
         {/* Best day this week */}
