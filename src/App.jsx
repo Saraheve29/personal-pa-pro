@@ -1,4 +1,4 @@
-// VERSION_CHECK: Home-Finance-Widget-Income-Fix build - July 5 2026 v81
+// VERSION_CHECK: Checks-Dismiss-And-Filter build - July 6 2026 v82
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -724,6 +724,7 @@ function AppInner(){
   const [userContext,setUserContext]=useState(()=>localStorage.getItem("papa_user_context")||"Single mother. Children: Maleeka and Maliki. Lives in March, Cambridgeshire. Rover dog-sitter. App developer. Benefits include Carer's Allowance.");
   const [persistentMemory,setPersistentMemory]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");} catch{return {};}});
   const [resolvedBriefItems,setResolvedBriefItems]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_resolved_brief")||"[]");}catch{return [];}});
+  const [dismissedChecks,setDismissedChecks]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_checks")||"[]");}catch{return [];}});
   const [sessionSummary,setSessionSummary]=useState(()=>localStorage.getItem("papa_last_session")||"");
   const [criticalOnly,setCriticalOnly]=useState(false);
   const [criticalDismissed,setCriticalDismissed]=useState(false);
@@ -1977,10 +1978,11 @@ EXTRACTION RULES:
     const stayKw=/\bholiday\b|getaway|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
     const hasRange=e=>/\d{1,2}\/\d{1,2}\/\d{4}\s*[-–to]+\s*\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}\s*[-–to]+\s*\d{4}-\d{2}-\d{2}/.test((e.notes||"")+" "+(e.title||""));
     // Things that are appointments/bookings, NOT open-ended holidays — never flag these for a missing end date
-    const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment/i.test((e.title||"")+" "+(e.notes||""));
+    const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment|payment|\bpay\b|\bsave\b|saving|savings|£|deposit|instalment|installment|booking fee|ticket|owe|due|bill/i.test((e.title||"")+" "+(e.notes||""));
+    const isReminderish=e=>isReminderEntry(e)||e.kind==="reminder"||e.type==="reminder"||e.type==="payment"||e.source==="finance";
     // 1. Genuine holidays/trips with no end date stored (match on TITLE only, exclude bookings/appointments)
     fut.forEach(e=>{
-      if(stayKw.test(e.title||"")&&!notAHoliday(e)&&!hasRange(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
+      if(stayKw.test(e.title||"")&&!notAHoliday(e)&&!isReminderish(e)&&!hasRange(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
         if(!fut.find(x=>x!==e&&x.title.replace(/\s*\((start|end)\)/i,"").trim()===e.title.replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
           out.push({id:"end-"+e.id,type:"holiday-end",icon:"🏖",title:e.title,detail:"Starts "+e.date+" but no end date saved — when does it finish?",eventId:e.id,date:e.date});
         }
@@ -2009,7 +2011,7 @@ EXTRACTION RULES:
         out.push({id:"time-"+e.id,type:"time",icon:"🕐",title:e.title,detail:"On "+e.date+" with no specific time set — what time is it?",eventId:e.id,date:e.date});
       }
     });
-    return out;
+    return out.filter(c=>!dismissedChecks.includes(c.id)&&!dismissedChecks.includes((c.title||"").toLowerCase().trim()));
   }
 
   async function checkSchedule(){
@@ -4957,10 +4959,14 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   /* ── BIRTHDAYS VIEW ── */
   const ChecksView=()=>{
     const checks=computeChecks();
+    const dismiss=(c)=>{const nd=[...dismissedChecks,c.id];setDismissedChecks(nd);localStorage.setItem("papa_dismissed_checks",JSON.stringify(nd));};
     return(<div>
       <button onClick={()=>{setCriticalOnly(false);setView("home");}} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",cursor:"pointer",marginBottom:12,padding:0}}>← Home</button>
-      <div style={SL}>Things to Check</div>
-      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:18}}>Anything Eleanor isn't sure about and would like you to confirm. Tap a card to sort it in chat, or fix it on the schedule.</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={SL}>Things to Check</div>
+        {checks.length>0&&<button onClick={()=>{if(window.confirm("Clear all items from Things to Check? This dismisses them all.")){const nd=[...dismissedChecks,...checks.map(c=>c.id)];setDismissedChecks(nd);localStorage.setItem("papa_dismissed_checks",JSON.stringify(nd));}}} style={{padding:"6px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>Clear All</button>}
+      </div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:18}}>Anything Eleanor isn't sure about and would like you to confirm. Tap Ask Eleanor to sort it in chat, or dismiss anything that isn't relevant.</div>
       {checks.length===0
         ?<div style={{textAlign:"center",padding:"40px 20px",color:C.inkFaint,fontFamily:FD,fontSize:16,fontStyle:"italic"}}>✦ All clear — nothing needs checking right now.</div>
         :checks.map(c=>(
@@ -4970,12 +4976,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               <div style={{flex:1}}>
                 <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{c.title}</div>
                 <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{c.detail}</div>
-                <div style={{display:"flex",gap:8,marginTop:10}}>
+                <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
                   <button onClick={()=>{
                     const q=c.type==="holiday-end"?"When does my '"+c.title+"' holiday (starting "+c.date+") end? Please save the full dates.":c.type==="duplicate"?"Is '"+c.title+"' on "+c.date+" a duplicate? Should I remove one?":c.type==="time"?"What time is '"+c.title+"' on "+c.date+"?":"Can you help me check '"+c.title+"'?";
                     setView("chat");setTimeout(()=>{setChatIn(q);sendChat(q);},200);
                   }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Ask Eleanor</button>
                   <button onClick={()=>{setCriticalOnly(false);setView("schedule");}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>View in Schedule</button>
+                  <button onClick={()=>dismiss(c)} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Not relevant</button>
                 </div>
               </div>
             </div>
