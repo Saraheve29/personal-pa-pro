@@ -1,4 +1,4 @@
-// VERSION_CHECK: Boarding-Availability-Rule build - July 7 2026 v88
+// VERSION_CHECK: Instant-Add-To-Calendar build - July 7 2026 v89
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
