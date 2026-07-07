@@ -1,4 +1,4 @@
-// VERSION_CHECK: Briefing-Inline-Reply build - July 6 2026 v86
+// VERSION_CHECK: Boarding-Availability-Rule build - July 7 2026 v88
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -85,6 +85,18 @@ const isReminderEntry=e=>{
   if(/\b(payment|paid|klarna|paypal|clearpay|\bpip\b|\bdla\b|\besa\b|\buc\b|universal credit|carer'?s? allowance|carers|child benefit|benefit|benefits|allowance|tax credit|pension|grant|direct debit|standing order|bill|bills|invoice|rent|mortgage|wages?|salary|income|refund|rebate|cashback|deposit|instalment|installment|repayment|subscription|top.?up|giro)\b/.test(t))return true;
   // Reminder/task wording
   return /\b(coming tomorrow|coming today|going home today|reminder|remember to|don't forget|dont forget|check |pay |renew |order |buy |call |email |chase |follow up|due\b|deadline)\b/.test(t);
+};
+
+// Does this event actually prevent Sarah taking a dog boarding? Only things that take her AWAY from home
+// without the dog block it. Home tasks, payments, craft cabin, garden jobs, deliveries do NOT block boarding.
+const blocksBoarding=e=>{
+  if(!e)return false;
+  const full=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+  if(isReminderEntry(e))return false; // payments/finance/reminders never block
+  if(/craft cabin|craft group|crafty cafe|crafty café|garden|deadhead|prune|pruning|weeding|watering|planting|home task|housework|cleaning|laundry|baking|sewing|delivery|shopping delivery|financial review|admin|paperwork|rest day|recovery/i.test(full))return false; // home-based, does not block
+  if(/boarding|day care|dog sitting|walk .*dog/i.test(full))return true; // overlapping dog work
+  if(/holiday|getaway|\btrip\b|\baway\b|clacton|haven|butlins|fuerteventura|caravan|coach|day out|museum|castle|\bzoo\b|circus|cinema|theatre|appointment|therapy|hospital|clinic|dentist|doctor|meeting|school run|meet.?and.?greet/i.test(full))return true; // leaving home / away
+  return false;
 };
 
 const getConflicts=evs=>{
@@ -1306,15 +1318,23 @@ Rules:
         const startD=new Date(start+"T12:00:00"),endD=new Date(end+"T12:00:00");
         const spanDays=Math.round((endD-startD)/86400000);
         if(spanDays<1||spanDays>60)return "";
-        const lines=[];
+        const blockLines=[],freeLines=[];
         let cur=new Date(startD);
         while(cur<=endD){
-          const ds=fmt(cur);
-          const evs=events.filter(e=>e.date===ds&&!isReminderEntry(e)).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
-          if(evs.length>0)lines.push("  "+ds+" ("+cur.toLocaleDateString("en-GB",{weekday:"short"})+"): "+evs.map(e=>(e.time||"all day")+" "+e.title).join("; "));
+          const ds=fmt(cur);const wd=cur.toLocaleDateString("en-GB",{weekday:"short"});
+          const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+          evs.forEach(e=>{
+            const line="  "+ds+" ("+wd+"): "+(e.time||"all day")+" "+e.title;
+            if(blocksBoarding(e))blockLines.push(line);
+            else if(!isReminderEntry(e))freeLines.push(line);
+          });
           cur.setDate(cur.getDate()+1);
         }
-        return "DATE-RANGE CHECK — Sarah's message mentions the period "+start+" to "+end+" ("+(spanDays+1)+" days). This looks like a booking/availability question spanning multiple days. For a multi-day commitment (like dog boarding) Sarah is responsible for EVERY day in between, not just the first and last. Here is EVERYTHING already on her calendar within this span:\n"+(lines.length>0?lines.join("\n"):"  (nothing found on any day in this range)")+"\nYou MUST tell Sarah about EVERY commitment listed above immediately and proactively — especially anything in the MIDDLE of the range (e.g. a family event or day out during a boarding week means she cannot leave a client's dog). Never say she is 'free for the whole period' if anything appears above. Consider whether each clash is workable (dog can be left briefly) or blocking (a multi-hour event she must attend).";
+        return "DATE-RANGE CHECK — Sarah's message mentions the period "+start+" to "+end+" ("+(spanDays+1)+" days). This looks like a booking/availability question (likely dog boarding).\n"
+          +"IMPORTANT RULE FOR DOG BOARDING AVAILABILITY: only things that take Sarah AWAY from home without the dog block a boarding. These BLOCK it: overlapping dog bookings, holidays/trips away, and appointments where she must leave the house (therapy, dentist, day out, meet-and-greet). These do NOT block it and must NEVER be cited as a reason she can't board: payment/finance reminders, Craft Cabin sessions, garden jobs, home tasks, deliveries, financial reviews — she does these at home with the dog there.\n"
+          +(blockLines.length>0?"⛔ THINGS THAT GENUINELY BLOCK BOARDING in this range (tell Sarah about these):\n"+blockLines.join("\n")+"\n":"⛔ Nothing in this range blocks a dog boarding — she is genuinely FREE to take it.\n")
+          +(freeLines.length>0?"✅ Also on the calendar but does NOT block boarding (home-based — mention only if relevant, do NOT treat as a clash):\n"+freeLines.join("\n"):"")
+          +"\nGive Sarah a clear answer: if nothing blocks it, tell her she is free to take the booking. Only raise the blocking items as reasons to hesitate.";
       })();
       const pastCtx=pastEvs.length>0?"RECENT PAST EVENTS:\n"+pastEvs.map(e=>"- "+e.date+" "+e.title).join("\n"):"";
 
@@ -2026,6 +2046,38 @@ EXTRACTION RULES:
   function daysUntilDate(dateStr){
     return Math.ceil((new Date(dateStr+"T12:00:00")-new Date())/86400000);
   }
+  // Try to pull a clear date (and optional time) out of briefing text. Returns {date,time} or null if ambiguous.
+  function extractDateTime(text){
+    if(!text)return null;
+    const t=text.toLowerCase();
+    const now=getToday();
+    const monthMap={january:0,jan:0,february:1,feb:1,march:2,mar:2,april:3,apr:3,may:4,june:5,jun:5,july:6,jul:6,august:7,aug:7,september:8,sep:8,sept:8,october:9,oct:9,november:10,nov:10,december:11,dec:11};
+    let date=null;
+    // ISO date
+    let m=t.match(/(\d{4}-\d{2}-\d{2})/);
+    if(m)date=m[1];
+    // "14 July" / "14th July 2026"
+    if(!date){m=t.match(/(\d{1,2})(?:st|nd|rd|th)?\s+(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?/);
+      if(m){const day=parseInt(m[1],10);const mon=monthMap[m[2]];let yr=m[3]?parseInt(m[3],10):null;if(mon!==undefined){if(!yr){yr=now.getFullYear();const cand=new Date(yr,mon,day);if(cand<new Date(now.getTime()-86400000))yr++;}date=fmt(new Date(yr,mon,day));}}}
+    // dd/mm/yyyy
+    if(!date){m=t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);if(m)date=`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;}
+    // "tomorrow" / "today" / weekday names
+    if(!date){
+      if(/\btomorrow\b/.test(t))date=fmt(new Date(now.getTime()+86400000));
+      else if(/\btoday\b|this (morning|afternoon|evening)/.test(t))date=fmt(now);
+      else{const days=["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];for(let i=0;i<7;i++){if(new RegExp("\\b"+days[i]+"\\b").test(t)){for(let k=0;k<14;k++){const d=new Date(now.getTime()+k*86400000);if(d.getDay()===i&&k>0){date=fmt(d);break;}}break;}}}
+    }
+    if(!date)return null;
+    // Time: "10am", "10:30", "2pm", "14:00"
+    let time=null;
+    let tm=t.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/)||t.match(/(\d{1,2})\s*(am|pm)/);
+    if(tm){
+      let h=parseInt(tm[1],10);const min=tm[2]&&/^\d+$/.test(tm[2])?parseInt(tm[2],10):0;const ap=(tm[3]||tm[2]||"").toLowerCase();
+      if(ap==="pm"&&h<12)h+=12;if(ap==="am"&&h===12)h=0;
+      if(h>=0&&h<=23)time=String(h).padStart(2,"0")+":"+String(min).padStart(2,"0");
+    }
+    return {date,time:time||"09:00",hadTime:!!time};
+  }
   function getBirthdayAlerts(){
     return birthdays.map(b=>{
       const next=nextOccurrence(b.monthDay);
@@ -2206,21 +2258,22 @@ EXTRACTION RULES:
         const dayAfter=fmt(new Date(new Date(dateStr+"T12:00:00").getTime()+86400000));
         // Only things Sarah physically attends count as 'busy'. Benefit payments, bills and reminders do NOT block a day.
         const sameDayAll=events.filter(e=>e.date===dateStr);
-        const sameDay=sameDayAll.filter(e=>!isReminderEntry(e));
+        const sameDay=sameDayAll.filter(e=>blocksBoarding(e)); // genuinely blocking: leaves home / overlapping booking
+        const sameDayHome=sameDayAll.filter(e=>!blocksBoarding(e)&&!isReminderEntry(e)); // home tasks — not blocking
         const sameDayReminders=sameDayAll.filter(e=>isReminderEntry(e));
-        const before=events.filter(e=>e.date===dayBefore&&!isReminderEntry(e));
-        const after=events.filter(e=>e.date===dayAfter&&!isReminderEntry(e));
+        const before=events.filter(e=>e.date===dayBefore&&blocksBoarding(e));
+        const after=events.filter(e=>e.date===dayAfter&&blocksBoarding(e));
         // Also check multi-day busy periods (holidays, dog boarding) that span this date
         let spanBusy=null;
         events.forEach(e=>{
           const txt=(e.notes||"")+" "+(e.title||"");
           const m=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–to]+\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)||txt.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
-          if(m){let s,en;if(m.length===7){s=`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;en=`${m[6]}-${String(m[5]).padStart(2,"0")}-${String(m[4]).padStart(2,"0")}`;}else{s=m[1];en=m[2];}if(dateStr>=s&&dateStr<=en&&!isReminderEntry(e))spanBusy=e;}
+          if(m){let s,en;if(m.length===7){s=`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;en=`${m[6]}-${String(m[5]).padStart(2,"0")}-${String(m[4]).padStart(2,"0")}`;}else{s=m[1];en=m[2];}if(dateStr>=s&&dateStr<=en&&blocksBoarding(e))spanBusy=e;}
         });
         const timeClash=d.time?sameDay.filter(e=>e.time&&e.time===d.time):[];
         const isFree=sameDay.length===0&&!spanBusy;
         const hasConflict=timeClash.length>0;
-        return{date:dateStr,label:d.label,time:d.time,isFree,hasConflict,sameDay,sameDayReminders,spanBusy,before,after,
+        return{date:dateStr,label:d.label,time:d.time,isFree,hasConflict,sameDay,sameDayHome,sameDayReminders,spanBusy,before,after,
           verdict:hasConflict?"clash":isFree?"free":spanBusy?"away/booked":sameDay.length<=1?"busy":"very busy"};
       });
 
@@ -3675,15 +3728,34 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             // Record as done in Eleanor's memory so future briefings know
             setPersistentMemory(pm=>{const ex={...pm};const note="Done/resolved: "+a.title+" (marked complete "+fmt(getToday())+")";ex.facts=[...(ex.facts||[]),note].slice(-25);ex.pending_tasks=(ex.pending_tasks||[]).filter(t=>!t.toLowerCase().includes((a.title||"").toLowerCase().slice(0,12)));localStorage.setItem("papa_persistent_memory",JSON.stringify(ex));return ex;});
           }} style={{flexShrink:0,width:26,height:26,borderRadius:6,border:`2px solid ${sevColor(a.severity)}`,background:"transparent",color:sevColor(a.severity),cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",marginTop:2}} title="Mark as done / resolved">☐</button>
-          <div style={{flex:1,cursor:"pointer"}} onClick={()=>{setChatIn("Tell me more about: "+a.title);setView("chat");}}>
-            <div style={{fontSize:14,fontFamily:FD,color:sevColor(a.severity),marginBottom:4,fontWeight:500}}>{a.title}</div>
-            <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{a.detail}</div>
-            <div style={{fontSize:10,color:sevColor(a.severity),fontFamily:FM,opacity:0.6,marginTop:4}}>tick when done · tap text to ask →</div>
+          <div style={{flex:1}}>
+            <div style={{cursor:"pointer"}} onClick={()=>{setChatIn("Tell me more about: "+a.title);setView("chat");}}>
+              <div style={{fontSize:14,fontFamily:FD,color:sevColor(a.severity),marginBottom:4,fontWeight:500}}>{a.title}</div>
+              <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{a.detail}</div>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+              <button onClick={(e)=>{e.stopPropagation();
+                // Add a reminder tomorrow morning about this
+                const rd=fmt(new Date(getToday().getTime()+86400000));
+                addEvs([{title:a.title.slice(0,60),date:rd,time:"09:00",priority:"medium",notes:"Reminder from briefing: "+(a.detail||"").slice(0,120),kind:"reminder"}],"briefing");
+                alert("✓ Reminder added for tomorrow morning.");
+              }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>⏰ Remind me</button>
+              <button onClick={(e)=>{e.stopPropagation();
+                const dt=extractDateTime((a.title||"")+" "+(a.detail||""));
+                if(dt){
+                  addEvs([{title:a.title.slice(0,70),date:dt.date,time:dt.time,priority:a.severity==="high"?"high":"medium",notes:(a.detail||"").slice(0,140),source:"briefing"}],"briefing");
+                  alert("✓ Added to your calendar: "+a.title.slice(0,50)+" on "+dt.date+(dt.hadTime?" at "+dt.time:""));
+                }else{
+                  setChatIn("From my briefing, please add this to my calendar and set the date/time: "+a.title+" — "+(a.detail||""));setCriticalOnly(false);setView("chat");
+                }
+              }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>＋ Add to calendar</button>
+              <button onClick={(e)=>{e.stopPropagation();setChatIn("Tell me more about: "+a.title);setCriticalOnly(false);setView("chat");}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Ask Eleanor</button>
+            </div>
           </div>
         </div>)}</div>}
         {resolvedBriefItems.length>0&&briefing.alerts?.some(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim()))&&<div style={{marginBottom:18}}><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Done</div>{briefing.alerts.filter(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim())).map((a,i)=><div key={i} style={{padding:"8px 16px",marginBottom:4,display:"flex",gap:12,alignItems:"center",opacity:0.55}}><span style={{color:C.emerald,fontSize:14}}>☑</span><div style={{fontSize:13,fontFamily:FB,color:C.inkFaint,textDecoration:"line-through"}}>{a.title}</div><button onClick={()=>{const key=(a.title||"").toLowerCase().trim();const nr=resolvedBriefItems.filter(x=>x!==key);setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));}} style={{marginLeft:"auto",background:"none",border:"none",color:C.inkFaint,fontSize:10,fontFamily:FM,cursor:"pointer"}}>undo</button></div>)}</div>}
         {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}</div>}
-        {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities — tap any to ask Eleanor</div>{briefing.opportunities.map((o,i)=><div key={i} onClick={()=>{setChatIn("Help me with this opportunity: "+o.title);setView("chat");}} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",position:"relative"}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.emerald,fontFamily:FM,opacity:0.6}}>tap to ask →</div></div>)}</div>}
+        {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities</div>{briefing.opportunities.map((o,i)=><div key={i} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}><button onClick={()=>{const dt=extractDateTime((o.title||"")+" "+(o.detail||""));if(dt){addEvs([{title:(o.title||"").slice(0,70),date:dt.date,time:dt.time,priority:"medium",notes:(o.detail||"").slice(0,140),source:"briefing"}],"briefing");alert("✓ Added to your calendar: "+(o.title||"").slice(0,50)+" on "+dt.date+(dt.hadTime?" at "+dt.time:""));}else{setChatIn("From my briefing, please add this to my calendar with the right date and time: "+o.title+" — "+(o.detail||""));setCriticalOnly(false);setView("chat");}}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.emerald}`,background:C.card,color:C.emerald,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>＋ Add to calendar</button><button onClick={()=>{setChatIn("Help me with this opportunity: "+o.title);setCriticalOnly(false);setView("chat");}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Ask Eleanor</button></div></div>)}</div>}
         {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations — tap any to ask Eleanor</div>{briefing.recommendations.map((r,i)=><div key={i} onClick={()=>{setChatIn("Help me with: "+r.title);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`,cursor:"pointer",position:"relative"}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.inkFaint,fontFamily:FM}}>tap →</div></div>)}</div>}
         <button style={goldBtn(true)} onClick={()=>{setBriefing(null);generateBriefing();}}>↺ Refresh Briefing</button>
       </div>}
