@@ -1,4 +1,4 @@
-// VERSION_CHECK: Instant-Add-To-Calendar build - July 7 2026 v89
+// VERSION_CHECK: Finance-Dedup-Bookings build - July 8 2026 v90
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -905,6 +905,13 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
+  // One-time cleanup: remove any duplicate finance entries already saved (same booking/amount/date, differently worded)
+  useEffect(()=>{
+    setFinances(prev=>{
+      const cleaned=dedupeFinances(prev);
+      return cleaned.length<prev.length?cleaned:prev;
+    });
+  },[]);
   // Regenerate birthday present reminders & planned costs each year once the old ones have passed
   useEffect(()=>{
     const todayStr=fmt(getToday());
@@ -1058,12 +1065,33 @@ function AppInner(){
     const shorter=wa.length<=wb.length?wa:wb, longer=wa.length<=wb.length?wb:wa;
     return shorter.every(w=>longer.includes(w));
   }
+  // Extract a booking's key subject (e.g. the dog's name) for matching entries worded differently.
+  function financeKey(f){
+    const t=((f.label||"")+" "+(f.notes||"")).toLowerCase();
+    if(f.bookingId)return "booking:"+f.bookingId;
+    const dog=t.match(/\b(sox|ted|henry|bella|max|luna|milo|charlie|ringo|buddy|rosie|poppy|daisy)\b/);
+    const isBoarding=/boarding|day care|sitting|rover|walk/.test(t);
+    if(dog&&isBoarding)return "dog:"+dog[1];
+    return null;
+  }
   function isDuplicateFinance(item,list){
-    return list.some(f=>
-      Math.abs((f.amount||0)-(item.amount||0))<0.01 &&
-      (f.date||"")===(item.date||"") &&
-      labelsMatch(f.label,item.label)
-    );
+    return list.some(f=>{
+      const sameMoney=Math.abs((f.amount||0)-(item.amount||0))<0.01;
+      const sameDate=(f.date||"")===(item.date||"");
+      if(!sameMoney||!sameDate)return false;
+      // Same booking subject (same dog boarding on the same day for the same amount) = duplicate even if worded differently
+      const ka=financeKey(f),kb=financeKey(item);
+      if(ka&&kb&&ka===kb)return true;
+      return labelsMatch(f.label,item.label);
+    });
+  }
+  // Remove existing duplicates already in the list (keeps the first of each set).
+  function dedupeFinances(list){
+    const kept=[];
+    for(const f of list){
+      if(!kept.some(k=>isDuplicateFinance(f,[k])))kept.push(f);
+    }
+    return kept;
   }
   function addFinances(items){
     setFinances(prev=>{
