@@ -1,4 +1,4 @@
-// VERSION_CHECK: Dog-Status-In-Briefing build - July 13 2026 v94
+// VERSION_CHECK: Checks-Recognise-Activities build - July 13 2026 v95
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -2203,7 +2203,7 @@ EXTRACTION RULES:
     const stayKw=/\bholiday\b|getaway|\bbreak\b|clacton|valley farm|haven|seashore|butlins|skegness|parkdean|fuerteventura|caravan|resort|hotel/i;
     const hasRange=e=>/\d{1,2}\/\d{1,2}\/\d{4}\s*[-–to]+\s*\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}\s*[-–to]+\s*\d{4}-\d{2}-\d{2}/.test((e.notes||"")+" "+(e.title||""));
     // School-calendar markers and single-day notes — these mention 'holiday' or 'break' but are ONE-DAY school dates, never trips.
-    const schoolMarker=e=>/last day|first day|term (ends|starts|begins)|end of term|start of term|training day|inset day|school report|breaks? up|holiday starts|holiday begins|holiday ends|term time|half term (starts|ends|begins)|back to school|returns?\b|non.?pupil|parents evening|assembly|breaks up|\bstarts\b|\bbegins\b|\bends\b/i.test((e.title||""));
+    const schoolMarker=e=>/last day|first day|term (ends|starts|begins)|end of term|start of term|training day|inset day|school report|breaks? up|holiday starts|holiday begins|holiday ends|term time|half term (starts|ends|begins)|back to school|returns?\b|non.?pupil|parents evening|assembly|breaks up|\bstarts\b|\bbegins\b|\bends\b|summer holiday|christmas holiday|easter holiday|spring holiday|autumn holiday|school holiday|craft club|craft cabin|craft group|crafty caf|club\b|fayre|fair\b|festival|fest\b|entertainer|activity|session|workshop/i.test((e.title||""));
     // Things that are appointments/bookings/payments, NOT open-ended holidays
     const notAHoliday=e=>/boarding|day care|drop.?off|pick.?up|check.?in|check.?out|\(start\)|\(end\)|departure|arrival|flight|\bsox\b|\bted\b|\bhenry\b|rover|walk|grooming|vet|appointment|payment|\bpay\b|\bsave\b|saving|savings|£|deposit|instalment|installment|booking fee|ticket|owe|due|bill/i.test((e.title||"")+" "+(e.notes||""));
     const isReminderish=e=>isReminderEntry(e)||e.kind==="reminder"||e.type==="reminder"||e.type==="payment"||e.source==="finance";
