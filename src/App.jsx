@@ -1,4 +1,4 @@
-// VERSION_CHECK: Checks-Recognise-Activities build - July 13 2026 v95
+// VERSION_CHECK: Next-7-Days-Section build - July 23 2026 v99
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1493,6 +1493,7 @@ Rules:
         (()=>{const lines=[];for(let i=0;i<4;i++){const d=new Date(now.getTime()+i*86400000);const ds=fmt(d);const label=i===0?"TODAY":i===1?"TOMORROW":d.toLocaleDateString("en-GB",{weekday:"long"});const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));const evText=evs.length>0?evs.map(e=>(e.time||"all day")+" "+e.title+(isReminderEntry(e)?" [reminder only]":"")).join("; "):"nothing scheduled";lines.push(label+" = "+d.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" ("+ds+"): "+evText);}return "ABSOLUTE TRUTH — WHAT IS ON EACH DAY (computed from the real dates — you MUST NOT contradict this. Before you EVER tell Sarah something is 'today', 'this morning/afternoon/evening', or 'tomorrow', find it in THIS list and confirm the date matches. If an event is not under TODAY here, it is NOT today. Check every single event against its real date — getting this wrong wastes Sarah's limited energy and could send her out on the wrong day):\n"+lines.join("\n");})(),
         busyCtx,
         rangeScan,
+        "TRAVEL MODE — whenever Sarah books or mentions a new holiday, coach trip, day out, or any appointment that involves getting somewhere, ASK HER how she is getting there and back (train, coach, car, taxi, lift, walking) if you do not already know. Ask it as a single simple question, never alongside other questions. Save her answer in the event notes so it is remembered. This matters because Sarah has ME/CFS: travel is genuinely draining and takes most of a day. The FIRST and LAST day of any trip are TRAVEL DAYS — never call them free, clear, or rest days; on the last day she is travelling home and will be tired. Factor travel energy into any suggestion, and suggest recovery time AFTER a journey rather than activities on the same day.",
         (myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES — she has taught you these preferences and you MUST follow them automatically in every suggestion, booking check, and schedule change. Check EVERY rule before you suggest or add anything. If a request would break a rule, warn her clearly and say which rule. She can override a rule in the moment (e.g. 'ignore that this once') — respect that just for that one instance:\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):""),
         (()=>{const seen={};futureEvents.forEach(e=>{const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();if(!t||/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring)return;(seen[t]=seen[t]||[]).push(e.date);});const dups=Object.entries(seen).filter(([t,ds])=>ds.length>1);return dups.length>0?"POSSIBLE DUPLICATE ENTRIES (the same one-off appointment is on more than one date — this is very likely a mistake from a previous session; if Sarah says it only happens on ONE of these dates, the others are duplicates to DELETE; proactively flag this and offer to remove the wrong one(s), and NEVER move an appointment while a duplicate exists — fix the duplicate first):\n"+dups.map(([t,ds])=>"- '"+t+"' appears on: "+ds.sort().join(", ")).join("\n"):"";})(),
         "TRUST SARAH OVER THE SCHEDULE — if Sarah states when something is (e.g. 'I'm getting my nails done tomorrow', 'nails are the 30th not the 14th'), that is the truth. If the schedule shows that activity on a DIFFERENT date as well, the other entry is almost certainly a leftover duplicate — say so and offer to delete it. Never tell Sarah she has an appointment on a date she has just told you it is NOT on.",
@@ -1555,7 +1556,7 @@ Rules:
       const nowYear=nowDate.getFullYear();
       const elSysPrompt=[
         "You are Eleanor - a warm, brilliant, deeply trusted Personal Executive Assistant to Sarah. You are not a generic AI. You know Sarah's life intimately and care about her wellbeing.",
-        "SARAH: Single mother, indie app developer (Skyla, Thinko, GigNest), Rover dog-sitter, March, Cambridgeshire, UK. Children: Maleeka and Maliki (school age). Has ME/CFS. Benefits include Carer's Allowance. Dog: Ringo.",
+        "SARAH: Single mother, indie app developer (Skyla, Thinko, GigNest), Rover dog-sitter, March, Cambridgeshire, UK. Children: Maleeka (school age, Year 4) and Maliki (19 years old, an ADULT - never refer to Maliki as a young child or school child). Has ME/CFS. Benefits include Carer's Allowance. Dog: Ringo.",
         "SARAH IS AUTISTIC — she finds meetings and appointments where she is the focus of attention (like Rover meet-and-greets, where a dog owner visits to assess her and her home) genuinely uncomfortable. This is an accessibility need, not fussiness. When she weighs up a booking, understand that a required meet-and-greet is a real reason to decline, and support her warmly in that choice without pushing her to do it anyway. Also keep questions to one at a time and avoid overwhelming her.",
         "TODAY IS: "+nowDate.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+" at "+nowDate.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})+". This is the definitive current date and time — NEVER use any other date as today, NEVER contradict it, and NEVER work out the day of the week yourself. The MEMORY SYNC gives you the exact day-of-week and a 7-day map — always trust those, never recalculate.",
         "DATE YEAR RULES: When Sarah mentions a date with NO year e.g. '4th July' - ALWAYS assume "+nowYear+" UNLESS that exact date has already passed this year. NEVER assume "+(nowYear+1)+" or beyond unless Sarah explicitly says so.",
@@ -1733,7 +1734,7 @@ Rules:
     const passedToday=todayEvsForBrief.filter(e=>{if(!e.time)return false;const[h,m]=e.time.split(":").map(Number);return (h*60+(m||0))<briefNowHM;});
     const toComeToday=todayEvsForBrief.filter(e=>{if(!e.time)return true;const[h,m]=e.time.split(":").map(Number);return (h*60+(m||0))>=briefNowHM;});
     const timeAwareCtx="BRIEFING IS BEING READ NOW AT "+briefTimeStr+" ("+briefPartOfDay+"). "
-      +(passedToday.length>0?"ALREADY HAPPENED TODAY (refer to in PAST tense, never say prepare for or this afternoon about these): "+passedToday.map(e=>e.time+" "+e.title).join(", ")+". ":"")
+      +(passedToday.length>0?"ALREADY HAPPENED TODAY (refer to in PAST tense, never say prepare for or this afternoon about these): "+passedToday.map(e=>e.time+" "+e.title).join(", ")+". ":"NOTHING HAS HAPPENED YET TODAY — Sarah has not been to or done anything scheduled so far today. Do NOT say she has been anywhere, attended anything, or had any activity today. ")
       +(toComeToday.length>0?"STILL TO COME TODAY: "+toComeToday.map(e=>e.time+" "+e.title).join(", ")+". ":"Nothing further scheduled today. ")
       +"Write the briefing for THIS moment ("+briefTimeStr+"), not as if it is early morning. Use past tense for what is done, future tense only for what is genuinely still ahead.";
     // ABSOLUTE, code-computed statement of exactly what is on each of the next 3 days — leaves NO room for the AI to misdate anything
@@ -1769,6 +1770,29 @@ Rules:
     const myTripsCtx=tripEvents.length>0
       ? "SARAH'S BOOKED HOLIDAYS & TRIPS (her own — surface ALL of these, do not cap the number):\n"+tripEvents.map(e=>`- ${e.title} on ${e.date}${e.time&&e.time!=="09:00"?" at "+e.time:""} (${daysUntil(e.date)} days away)`).join("\n")
       : "";
+    // TRAVEL DAYS — the first and last day of any multi-day trip involve a journey. For someone with ME/CFS these are
+    // NOT free days; they cost significant energy. Computed from any date range found on a trip entry.
+    const travelDaysCtx=(()=>{
+      const spans=[];
+      allEvs.forEach(e=>{
+        const t=(e.title||"").toLowerCase();
+        if(!tripKeywords.some(k=>t.includes(k)))return;
+        const txt=(e.notes||"")+" "+(e.title||"");
+        let s=null,en=null;
+        const m1=txt.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|-|–|until)\s*(\d{4}-\d{2}-\d{2})/i);
+        const m2=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(?:to|-|–|until)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if(m1){s=m1[1];en=m1[2];}
+        else if(m2){s=`${m2[3]}-${String(m2[2]).padStart(2,"0")}-${String(m2[1]).padStart(2,"0")}`;en=`${m2[6]}-${String(m2[5]).padStart(2,"0")}-${String(m2[4]).padStart(2,"0")}`;}
+        if(s&&en&&en>s)spans.push({title:e.title,start:s,end:en,mode:(txt.match(/\b(train|coach|bus|car|flight|fly|plane|taxi|drive|driving)\b/i)||[])[1]||null});
+      });
+      if(!spans.length)return "";
+      const lines=spans.map(sp=>{
+        const mode=sp.mode?" by "+sp.mode:"";
+        return "- "+sp.title+": OUTWARD TRAVEL DAY "+sp.start+" and RETURN TRAVEL DAY "+sp.end+mode+" (both are travel days, NOT free days)";
+      });
+      return "🚆 TRAVEL DAYS (Sarah has ME/CFS — travelling is genuinely draining and takes most of a day. The FIRST and LAST day of every trip involve a journey):\n"+lines.join("\n")
+        +"\nCRITICAL: NEVER describe the first or last day of a trip as 'completely clear', 'free', 'a rest day', or 'nothing on'. On the last day Sarah is travelling HOME — say so, and treat it as an occupied, tiring day. Suggest recovery time AFTER a travel day rather than activities ON it.";
+    })();
     const hour=new Date().getHours();
     const timeOfDay=hour<12?"morning":hour<17?"afternoon":"evening";
     const dayCalendar=Array.from({length:14},(_,i)=>{
@@ -1798,7 +1822,7 @@ Rules:
     const brRulesCtx=myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES (follow these when flagging conflicts or making suggestions in the briefing):\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):"";
     const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx,brResolvedCtx,brRulesCtx].filter(Boolean).join("\n\n");
     let raw;
-    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, children Maleeka and Maliki, Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK — apply ONLY to entries that explicitly mention school. An entry is school-related ONLY if its title or notes contain one of these words: school, Westwood, PE kit, uniform, packed lunch, homework, assembly, parents evening, or a clearly named school trip. Maleeka is in Year 4 and school runs Monday-Friday in term time. If such a genuinely school-labelled entry falls on a SATURDAY or SUNDAY, flag it as a likely error with high severity. DO NOT flag personal outings, family plans, shopping trips, garden centre visits, days out, or anything with a persons name (e.g. Garden centre see Pete) as a school error just because it falls on a weekend — those are Sarahs normal weekend plans and completely fine. When in doubt, it is NOT a school event. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. (7) DO NOT re-raise things Sarah has already done or decided: if the memory facts or the ALREADY DONE list show a task is complete (e.g. a pickup collected) or a decision is made (e.g. craft group starts 14 July not sooner), treat it as settled — never present it again as pending, upcoming, or an open option. (8) SCHOOL EVENTS DURING SCHOOL HOURS — if an entry is a school activity that happens during the school day (e.g. a swimming session, assembly, class trip, sports day, with notes like child selected to attend or bring kit), Maleeka attends it AT school. Sarah does NOT need to take her or be there. Never present these as an appointment Sarah must attend, and never treat them as a clash with Sarahs own plans. (9) NOT A CLASH — a payment/finance reminder and a home activity (like Craft Cabin) sharing a time is NOT a scheduling clash: the payment is just a reminder, and Craft Cabin is done at home. Only two things Sarah must physically attend, at the same time, in different places, is a real clash. Do not invent clashes from reminders, school events, or home tasks. If you see two identical entries (e.g. two Craft Cabin Day entries at the same time), that is a duplicate to gently mention, not a clash. (10) DOGS — NEVER mention a dog by name without first checking the DOG BOARDING STATUS block. If it says NO DOGS ARE STAYING, Sarah has no dog in the house: do NOT write anything like Sox should be settling in, how is Sox settling, or hope the dog is comfortable. If a dog has already left, refer to it ONLY in the past tense (Sox went home on Friday). If a dog has not arrived yet, use the future tense. Getting this wrong contradicts Sarahs lived reality and is a serious failure. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:dogStatusText(allEvs,fmt(today))+"\n\n"+exactDayMap+"\n\n"+timeAwareCtx+"\n\nEXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current. If anything in your memory or an old note mentions an appointment that is NOT in this live schedule, it has been cancelled or removed — do NOT mention it. Only reference appointments that appear in the live schedule above."}]});
+    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, two children: Maleeka (school age) and Maliki (19, an adult), Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK — apply ONLY to entries that explicitly mention school. An entry is school-related ONLY if its title or notes contain one of these words: school, Westwood, PE kit, uniform, packed lunch, homework, assembly, parents evening, or a clearly named school trip. Maleeka is in Year 4 and school runs Monday-Friday in term time. If such a genuinely school-labelled entry falls on a SATURDAY or SUNDAY, flag it as a likely error with high severity. DO NOT flag personal outings, family plans, shopping trips, garden centre visits, days out, or anything with a persons name (e.g. Garden centre see Pete) as a school error just because it falls on a weekend — those are Sarahs normal weekend plans and completely fine. When in doubt, it is NOT a school event. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. (7) DO NOT re-raise things Sarah has already done or decided: if the memory facts or the ALREADY DONE list show a task is complete (e.g. a pickup collected) or a decision is made (e.g. craft group starts 14 July not sooner), treat it as settled — never present it again as pending, upcoming, or an open option. (8) SCHOOL EVENTS DURING SCHOOL HOURS — if an entry is a school activity that happens during the school day (e.g. a swimming session, assembly, class trip, sports day, with notes like child selected to attend or bring kit), Maleeka attends it AT school. Sarah does NOT need to take her or be there. Never present these as an appointment Sarah must attend, and never treat them as a clash with Sarahs own plans. (9) NOT A CLASH — a payment/finance reminder and a home activity (like Craft Cabin) sharing a time is NOT a scheduling clash: the payment is just a reminder, and Craft Cabin is done at home. Only two things Sarah must physically attend, at the same time, in different places, is a real clash. Do not invent clashes from reminders, school events, or home tasks. If you see two identical entries (e.g. two Craft Cabin Day entries at the same time), that is a duplicate to gently mention, not a clash. (10) DOGS — NEVER mention a dog by name without first checking the DOG BOARDING STATUS block. If it says NO DOGS ARE STAYING, Sarah has no dog in the house: do NOT write anything like Sox should be settling in, how is Sox settling, or hope the dog is comfortable. If a dog has already left, refer to it ONLY in the past tense (Sox went home on Friday). If a dog has not arrived yet, use the future tense. Getting this wrong contradicts Sarahs lived reality and is a serious failure. (11) NEVER INVENT EVENTS — do NOT tell Sarah she did, attended, or went to something unless that exact entry appears in the live schedule above on that exact date. Never write things like you have had craft club this morning, after your appointment, or following your trip out unless it is genuinely listed for TODAY and its time has already passed. If nothing has happened yet today, say so plainly. Inventing an event Sarah did not attend is a serious failure that destroys her trust. (12) FAMILY FACTS — Sarah has TWO children: Maleeka, who is school age (Year 4), and Maliki, who is 19 and an ADULT. Never describe Maliki as a school child, never lump them together as the children in a way that implies both are young, and never assume both attend school events. When referring to a school matter it concerns Maleeka only. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:dogStatusText(allEvs,fmt(today))+"\n\n"+exactDayMap+"\n\n"+timeAwareCtx+"\n\nEXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+(travelDaysCtx?travelDaysCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current. If anything in your memory or an old note mentions an appointment that is NOT in this live schedule, it has been cancelled or removed — do NOT mention it. Only reference appointments that appear in the live schedule above."}]});
     if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);return;}
     let parsed;
     try{
@@ -2155,6 +2179,22 @@ EXTRACTION RULES:
     return Math.ceil((new Date(dateStr+"T12:00:00")-new Date())/86400000);
   }
   // Try to pull a clear date (and optional time) out of briefing text. Returns {date,time} or null if ambiguous.
+  // Find the real calendar event a briefing card is talking about, so cards can act on it directly.
+  function findMatchingEvent(title,detail){
+    const text=((title||"")+" "+(detail||"")).toLowerCase();
+    const dt=extractDateTime(text);
+    const stop=new Set(["the","and","for","with","your","you","this","that","from","have","has","are","was","will","need","about","there","their","its","a","an","of","on","at","in","to","is","it","be","day","time"]);
+    const words=(title||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>3&&!stop.has(w));
+    let best=null,bestScore=0;
+    events.forEach(e=>{
+      const et=(e.title||"").toLowerCase();
+      let score=0;
+      words.forEach(w=>{if(et.includes(w))score+=2;});
+      if(dt&&e.date===dt.date)score+=3;
+      if(score>bestScore){bestScore=score;best=e;}
+    });
+    return bestScore>=4?best:null;
+  }
   function extractDateTime(text){
     if(!text)return null;
     const t=text.toLowerCase();
@@ -3680,6 +3720,52 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>
         </div>}
 
+        {/* Next 7 days — computed directly from the calendar so the dates are always correct */}
+        {(()=>{
+          const days=Array.from({length:7},(_,i)=>{
+            const d=new Date(today.getTime()+i*86400000);
+            const ds=fmt(d);
+            const evs=events.filter(e=>e.date===ds).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+            return{
+              ds,
+              label:i===0?"Today":i===1?"Tomorrow":d.toLocaleDateString("en-GB",{weekday:"long"}),
+              nice:d.toLocaleDateString("en-GB",{day:"numeric",month:"long"}),
+              isWeekend:d.getDay()===0||d.getDay()===6,
+              evs
+            };
+          });
+          return(<div style={{marginBottom:18}}>
+            <div style={SL}>Next 7 Days</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
+              {days.map((d,i)=>{
+                const real=d.evs.filter(e=>!isReminderEntry(e));
+                const rems=d.evs.filter(e=>isReminderEntry(e));
+                return(
+                  <div key={d.ds} style={{padding:"11px 14px",borderTop:i===0?"none":`1px solid ${C.borderSoft}`,background:i===0?C.goldPale:d.isWeekend?C.parchment:"transparent"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:real.length||rems.length?5:0}}>
+                      <div style={{fontFamily:FD,fontSize:14,color:i===0?C.gold:C.ink,fontWeight:i===0?600:400}}>{d.label}</div>
+                      <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{d.nice}</div>
+                    </div>
+                    {real.length===0&&rems.length===0&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic"}}>Nothing planned — free day</div>}
+                    {real.map((e,j)=>(
+                      <div key={j} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2}}>
+                        <span style={{fontSize:11,fontFamily:FM,color:C.gold,minWidth:38}}>{e.time&&e.time!=="09:00"?e.time:"—"}</span>
+                        <span style={{fontSize:12.5,fontFamily:FB,color:C.inkMid,lineHeight:1.45,flex:1}}>{e.title}</span>
+                      </div>
+                    ))}
+                    {rems.map((e,j)=>(
+                      <div key={"r"+j} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2,opacity:0.7}}>
+                        <span style={{fontSize:11,fontFamily:FM,color:C.inkFaint,minWidth:38}}>💷</span>
+                        <span style={{fontSize:11.5,fontFamily:FB,color:C.inkFaint,lineHeight:1.45,flex:1}}>{e.title} <span style={{fontSize:9,fontFamily:FM}}>(reminder)</span></span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>);
+        })()}
+
         {/* Week busyness indicator */}
         {(()=>{
           const weekEvs=Array.from({length:7},(_,i)=>{
@@ -3857,6 +3943,20 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   setChatIn("From my briefing, please add this to my calendar and set the date/time: "+a.title+" — "+(a.detail||""));setCriticalOnly(false);setView("chat");
                 }
               }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>＋ Add to calendar</button>
+              <button onClick={(e)=>{e.stopPropagation();
+                const match=findMatchingEvent(a.title,a.detail);
+                if(match){
+                  if(window.confirm("Cancel \""+match.title+"\" on "+match.date+"?\n\nThis removes it from your calendar.")){
+                    setEvents(ev=>ev.filter(x=>x.id!==match.id));
+                    const key=(a.title||"").toLowerCase().trim();
+                    const nr=[...resolvedBriefItems,key];
+                    setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));
+                    alert("✓ Cancelled: "+match.title+" — your calendar is updated.");
+                  }
+                }else{
+                  setChatIn("From my briefing, please cancel this: "+a.title+" — "+(a.detail||""));setCriticalOnly(false);setView("chat");
+                }
+              }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.crimson}40`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>✕ Cancel this</button>
               <button onClick={(e)=>{e.stopPropagation();setChatIn("Tell me more about: "+a.title);setCriticalOnly(false);setView("chat");}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Ask Eleanor</button>
             </div>
           </div>
