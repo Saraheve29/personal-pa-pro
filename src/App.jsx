@@ -1,4 +1,4 @@
-// VERSION_CHECK: Agent-Step5-Morning-Handover build - July 25 2026 v105
+// VERSION_CHECK: Build-Fix-Duplicate-Color build - July 26 2026 v106
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -6130,7 +6130,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:16}}>How did you get on?</div>
             {(weeklyGoals.goals||[]).map((g,i)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:C.parchment,border:`1px solid ${C.borderSoft}`,borderRadius:4,marginBottom:8}}>
-                <div style={{fontSize:13,fontFamily:FB,color:C.ink,flex:1,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",color:weeklyGoals.done?.[i]?C.inkFaint:C.ink}}>{g}</div>
+                <div style={{fontSize:13,fontFamily:FB,flex:1,textDecoration:weeklyGoals.done?.[i]?"line-through":"none",color:weeklyGoals.done?.[i]?C.inkFaint:C.ink}}>{g}</div>
                 <div style={{display:"flex",gap:6}}>
                   <button onClick={()=>setWeeklyGoals(wg=>({...wg,done:{...wg.done,[i]:true}}))} style={{padding:"4px 10px",borderRadius:3,border:"none",background:weeklyGoals.done?.[i]?C.emerald:C.borderSoft,color:weeklyGoals.done?.[i]?"white":C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",letterSpacing:"0.1em",textTransform:"uppercase"}}>✓ Done</button>
                 </div>
