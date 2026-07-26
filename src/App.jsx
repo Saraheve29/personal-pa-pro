@@ -1,4 +1,4 @@
-// VERSION_CHECK: Build-Fix-Duplicate-Color build - July 26 2026 v106
+// VERSION_CHECK: Confidence-Proactive-SelfCritique build - July 26 2026 v112
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -790,9 +790,13 @@ function AppInner(){
   const [importContext,setImportContext]=useState("");
   const [userContext,setUserContext]=useState(()=>localStorage.getItem("papa_user_context")||"Single mother. Children: Maleeka and Maliki. Lives in March, Cambridgeshire. Rover dog-sitter. App developer. Benefits include Carer's Allowance.");
   const [persistentMemory,setPersistentMemory]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_persistent_memory")||"{}");} catch{return {};}});
+  const [learnedPatterns,setLearnedPatterns]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_learned_patterns")||"[]");}catch{return [];}});
+  const [lifeInsights,setLifeInsights]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_life_insights")||"[]");}catch{return [];}});
+  const [proactiveNudge,setProactiveNudge]=useState(null);
   const [myRules,setMyRules]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_my_rules")||"[]");}catch{return [];}});
   const [newRuleText,setNewRuleText]=useState("");
   const [briefReplyOpen,setBriefReplyOpen]=useState(false);
+  const [activeReplySection,setActiveReplySection]=useState(null);
   const [briefReplyText,setBriefReplyText]=useState("");
   const [briefReplyThread,setBriefReplyThread]=useState([]); // {role,text}
   const [briefReplyBusy,setBriefReplyBusy]=useState(false);
@@ -973,6 +977,38 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
+  // PROACTIVE — on opening the app, quietly look ahead (no AI, no cost) and surface ONE gentle nudge if
+  // something soon needs attention that Sarah hasn't set up. Genuinely looking out for her between briefings.
+  useEffect(()=>{
+    try{
+      const evs=(()=>{try{return JSON.parse(localStorage.getItem("papa_events")||"[]");}catch{return [];}})();
+      const today=getToday();const todayS=fmt(today);
+      const dismissed=localStorage.getItem("papa_nudge_dismissed")||"";
+      // don't nag more than once a day
+      if(dismissed===todayS)return;
+      const inDays=n=>fmt(new Date(today.getTime()+n*86400000));
+      const soon=evs.filter(e=>e.date>todayS&&e.date<=inDays(2)&&!isReminderEntry(e));
+      // A trip or dog arrival within 2 days
+      const bigThing=soon.find(e=>/holiday|trip|coach|boarding|day care|flight|away|clacton|haven|butlins|fuerteventura/i.test((e.title||"")+" "+(e.notes||"")));
+      if(bigThing){
+        const dayName=new Date(bigThing.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"});
+        const when=bigThing.date===inDays(1)?"tomorrow":dayName;
+        setProactiveNudge({text:"Heads up — "+bigThing.title+" is "+when+". Would you like me to help you get ready for it?",prompt:"Help me get ready for "+bigThing.title+" which is "+when+" ("+bigThing.date+")."});
+        return;
+      }
+      // A day with 3+ real commitments coming up and no rest planned after
+      for(let i=1;i<=3;i++){
+        const d=inDays(i);
+        const onDay=evs.filter(e=>e.date===d&&!isReminderEntry(e)&&blocksBoarding(e));
+        const nextDay=evs.filter(e=>e.date===inDays(i+1)&&!isReminderEntry(e));
+        if(onDay.length>=3&&nextDay.length===0){
+          const dn=new Date(d+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long"});
+          setProactiveNudge({text:dn+" looks full ("+onDay.length+" things on). Shall I keep the day after clear for recovery?",prompt:"Keep the day after "+dn+" ("+inDays(i+1)+") clear as a recovery day please."});
+          return;
+        }
+      }
+    }catch(e){}
+  },[]);
   // One-time cleanup: remove any duplicate finance entries already saved (same booking/amount/date, differently worded)
   useEffect(()=>{
     setFinances(prev=>{
@@ -1513,6 +1549,8 @@ Rules:
         busyCtx,
         rangeScan,
         "TRAVEL MODE — whenever Sarah books or mentions a new holiday, coach trip, day out, or any appointment that involves getting somewhere, ASK HER how she is getting there and back (train, coach, car, taxi, lift, walking) if you do not already know. Ask it as a single simple question, never alongside other questions. Save her answer in the event notes so it is remembered. This matters because Sarah has ME/CFS: travel is genuinely draining and takes most of a day. The FIRST and LAST day of any trip are TRAVEL DAYS — never call them free, clear, or rest days; on the last day she is travelling home and will be tired. Factor travel energy into any suggestion, and suggest recovery time AFTER a journey rather than activities on the same day.",
+        (lifeInsights.length>0?"WHAT YOU'VE COME TO UNDERSTAND ABOUT SARAH OVER TIME (deeper knowledge built from knowing her — let it warm and inform how you support her, hold it gently, never recite it back):\n"+lifeInsights.map(x=>"- "+x).join("\n"):""),
+        (learnedPatterns.length>0?"WHAT YOU'VE LEARNED ABOUT SARAH (patterns from how she uses the app — let these gently inform your suggestions, but never recite them back as if analysing her, and always defer to what she says right now):\n"+learnedPatterns.map(p=>"- "+p).join("\n"):""),
         (myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES — she has taught you these preferences and you MUST follow them automatically in every suggestion, booking check, and schedule change. Check EVERY rule before you suggest or add anything. If a request would break a rule, warn her clearly and say which rule. She can override a rule in the moment (e.g. 'ignore that this once') — respect that just for that one instance:\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):""),
         (()=>{const seen={};futureEvents.forEach(e=>{const t=(e.title||"").toLowerCase().replace(/\s*\((start|end)\)\s*/i,"").trim();if(!t||/weekly|every |boarding|holiday|payment|reminder/i.test((e.title||"")+" "+(e.notes||""))||e.recurring)return;(seen[t]=seen[t]||[]).push(e.date);});const dups=Object.entries(seen).filter(([t,ds])=>ds.length>1);return dups.length>0?"POSSIBLE DUPLICATE ENTRIES (the same one-off appointment is on more than one date — this is very likely a mistake from a previous session; if Sarah says it only happens on ONE of these dates, the others are duplicates to DELETE; proactively flag this and offer to remove the wrong one(s), and NEVER move an appointment while a duplicate exists — fix the duplicate first):\n"+dups.map(([t,ds])=>"- '"+t+"' appears on: "+ds.sort().join(", ")).join("\n"):"";})(),
         "TRUST SARAH OVER THE SCHEDULE — if Sarah states when something is (e.g. 'I'm getting my nails done tomorrow', 'nails are the 30th not the 14th'), that is the truth. If the schedule shows that activity on a DIFFERENT date as well, the other entry is almost certainly a leftover duplicate — say so and offer to delete it. Never tell Sarah she has an appointment on a date she has just told you it is NOT on.",
@@ -1587,13 +1625,30 @@ Rules:
         "SUPERSEDED EVENTS: Before mentioning any event as upcoming, check if a later note, correction, or memory says it was cancelled, postponed, or its date changed. If so, treat the OLD date as superseded — only ever present the NEW date, and never mention the cancelled/old one as if it is still happening. If an event's notes contain 'cancelled', 'postponed', or 'date changed', do not present it as current.",
         "REMINDERS vs APPOINTMENTS: Distinguish between things Sarah physically ATTENDS (appointments, events, meetings, trips, family days) and REMINDERS/notes (e.g. 'Sox the dog coming tomorrow', 'pay rent', 'remember to call'). A reminder sharing a date or time with a real event is NOT a scheduling conflict — Sarah can attend the event and still have the reminder. Never flag a reminder against an appointment as a clash, and never imply she has to choose between them. Only two things she must be in two places for at once is a genuine conflict.",
         "RELATIVE-DATE REMINDER CHECK: Some entries are reminders worded relative to an appointment, e.g. 'Sox coming tomorrow'. A 'tomorrow' reminder is only correct if it is dated EXACTLY ONE day before the actual appointment. Before presenting such a reminder or judging whether a day is free: find the actual appointment it refers to (e.g. the real Sox booking date) and check the reminder sits exactly 1 day before it. A 'coming tomorrow' reminder on Sunday for a Monday booking is CORRECT. The same reminder on Sunday for a Tuesday booking (2 days away) is WRONG/misplaced. If you spot a misplaced reminder, proactively tell Sarah it looks wrong and OFFER to delete it using a delete SCHEDULE_ACTION — do not wait for her to ask.",
+        "KNOW WHAT YOU DON'T KNOW (intellectual honesty) — do NOT state everything with equal certainty. When the information you have is incomplete, conflicting, or ambiguous, SAY SO plainly and ask Sarah to confirm, rather than guessing confidently. Examples: if two schedule entries disagree on a date, say 'I think the trip is Tuesday but two entries disagree — can you confirm?'. If you are inferring rather than certain, use 'I think', 'it looks like', 'I'm not sure but'. If Sarah asks something you genuinely cannot know from her data (how she'll feel, what someone else will do), be honest that you can't know for sure. Sarah trusts you MORE when you are honest about uncertainty than when you sound confident and turn out wrong. A confident wrong answer costs her energy; an honest 'let me check with you' protects it. Never invent a detail to fill a gap — flag the gap instead.",
         "PROACTIVE TRIGGERS: Date mentioned -> check if free. Trip -> offer packing list and weather. Stressed -> suggest rest. Deadline approaching -> flag it. Scheduling clash -> warn immediately.",
         "CRITICAL: Always read ELEANOR MEMORY SYNC fully. Sort events soonest first."
       ].join("\n\n");
       const userContent=hasImages
         ?[...imgs.map(im=>({type:"image",source:{type:"base64",media_type:im.mime||"image/jpeg",data:im.b64}})),{type:"text",text:u||(imgs.length>1?"Here are some pictures — please look at them and help me.":"Here is a picture — please look at it and help me.")}]
         :u;
-      const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:userContent}]});
+      // DEEP REASONING — for genuinely complex questions (weighing options, several dates, touching rules,
+      // planning trade-offs), Eleanor thinks it through privately FIRST, then answers with that thinking behind her.
+      let deepThought="";
+      const looksComplex=!hasImages&&u.length>40&&/\b(should i|shall i|worth it|better to|instead|either|or should|too much|manage|cope|fit in|squeeze|clash|conflict|between|prioriti|worth|plan|work out|figure out|decide|trade|balance|enough time|back to back)\b/i.test(u)&&(u.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(st|nd|rd|th)?|holiday|booking|trip|appointment)\b/gi)||[]).length>=2;
+      if(looksComplex){
+        try{
+          deepThought=await callAI({max_tokens:800,system:"You are Eleanor, thinking PRIVATELY before answering Sarah's question. Sarah has ME/CFS (limited energy, needs recovery after tiring things) and autism. Do NOT answer her yet. Think in two stages. STAGE ONE — work the question through: what is she really asking; what do her schedule, rules, energy patterns and any dates actually say; what are the real trade-offs; what would you advise. STAGE TWO — now CRITIQUE your own draft advice before giving it: is this genuinely the kindest option for her energy, or just the obvious one? Have I assumed anything I'm not sure of? Am I pushing her toward doing more when rest would serve her better? Would someone who truly cares about her wellbeing suggest something different? Revise if your critique found a better answer. Also note if you are UNSURE of any fact (conflicting dates, missing info) so you can flag it rather than guess. Output your final considered reasoning in 4-8 short sentences, for your own use only.",messages:[{role:"user",content:contextMsg.content+"\n\nSarah asked: "+u}]});
+        }catch(e){deepThought="";}
+      }
+      const finalUserContent=deepThought&&!hasImages
+        ?u+"\n\n[Your private reasoning to draw on — do not quote it, just let it make your answer wiser and more considered:\n"+deepThought+"]"
+        :userContent;
+      const raw=await callAI({max_tokens:4000,system:elSysPrompt,messages:[contextMsg,...trimmedMsgs.map(m=>({role:m.role,content:m.text})),{role:"user",content:finalUserContent}]});
+      // Quietly note genuinely significant things Sarah shares, so they compound into deeper understanding (no extra AI call).
+      if(!hasImages&&u.length>25&&/\b(exhausted|flare|drained|struggling|overwhelmed|anxious|worried|excited|happy|proud|lonely|sad|can'?t cope|too much|love|hate|scared|nervous|relieved|grateful|difficult|hard day|good day|felt|feeling)\b/i.test(u)){
+        recordMoment("Sarah shared: "+u.slice(0,110));
+      }
       // Parse and execute any SCHEDULE_ACTION commands from Eleanor
       const actionRegex=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;
       let actionMatch;
@@ -1698,7 +1753,7 @@ Rules:
     }catch{setMsgs(m=>[...m,{role:"assistant",text:"I do apologise — something went wrong. Please try once more.",ts:new Date()}]);setPaStatus("idle");setShowWave(false);}
   }
 
-  async function sendBriefReply(text){
+  async function sendBriefReply(text,sectionContext){
     if(!text.trim()||briefReplyBusy)return;
     const userMsg=text.trim();
     setBriefReplyThread(t=>[...t,{role:"user",text:userMsg}]);
@@ -1714,6 +1769,7 @@ Rules:
       const rulesList=myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n");
       const sys=[
         "You are Eleanor, Sarah's warm, calm Personal Assistant. Sarah is replying to her morning briefing directly from the briefing screen. Continue the conversation naturally and warmly, in short prose (no bullet points, no markdown symbols).",
+        sectionContext?"Sarah is replying specifically about this part of her briefing: "+sectionContext+" — respond in that context.":"",
         "TODAY IS "+dateStr+" at "+timeStr+". Never say a different day.",
         "You CAN change her schedule: to add/move/delete/cancel an event, append a SCHEDULE_ACTION block at the very end of your reply, invisible to Sarah. Formats: [SCHEDULE_ACTION:{action:add,title:...,date:YYYY-MM-DD,time:HH:MM,priority:medium}] or {action:move,title:...,fromDate:...,toDate:...,time:...} or {action:delete,title:...,date:...} or {action:cancel,title:...,date:...}. If Sarah confirms she wants something scheduled, add it in the SAME reply. Use the current year for undated.",
         rulesList?"SARAH'S RULES (follow them, warn if something breaks one):\n"+rulesList:"",
@@ -1740,7 +1796,84 @@ Rules:
     setBriefReplyBusy(false);
   }
 
+  // Reusable inline reply for ANY briefing card — tap to open a reply box right there, with Eleanor's full calendar power.
+  function SectionReply({sectionId,context}){
+    const isOpen=activeReplySection===sectionId;
+    return(
+      <div style={{marginTop:isOpen?10:6}}>
+        {!isOpen
+          ?<button onClick={()=>{setActiveReplySection(sectionId);setBriefReplyThread([]);}} style={{background:"none",border:"none",color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",padding:0}}>✎ Reply here</button>
+          :<div>
+            {briefReplyThread.length>0&&<div style={{marginBottom:8}}>
+              {briefReplyThread.map((m,i)=>(
+                <div key={i} style={{fontSize:12,fontFamily:FB,lineHeight:1.5,marginBottom:6,padding:"8px 11px",borderRadius:8,background:m.role==="user"?C.goldPale:C.parchment,color:m.role==="user"?C.ink:C.inkMid,whiteSpace:"pre-wrap"}}>{m.text}</div>
+              ))}
+            </div>}
+            {briefReplyBusy&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:6}} className="shimmer">Eleanor is replying…</div>}
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input value={briefReplyText} onChange={e=>setBriefReplyText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendBriefReply(briefReplyText,context);}} placeholder="Reply to Eleanor…" autoFocus style={{flex:1,padding:"12px 15px",border:`1px solid ${C.goldBorder}`,fontSize:16,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",borderRadius:20,lineHeight:1.3}}/>
+              <button onClick={()=>sendBriefReply(briefReplyText,context)} disabled={briefReplyBusy||!briefReplyText.trim()} style={{width:42,height:42,borderRadius:"50%",border:"none",background:briefReplyBusy||!briefReplyText.trim()?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:"pointer",fontSize:16,flexShrink:0}}>→</button>
+              <button onClick={()=>{setActiveReplySection(null);setBriefReplyText("");}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>✕</button>
+            </div>
+          </div>}
+      </div>
+    );
+  }
+
+  // Record a significant moment to Sarah's life history — this is what compounds into deeper understanding over time.
+  function recordMoment(note){
+    try{
+      const h=JSON.parse(localStorage.getItem("papa_life_history")||"[]");
+      h.push({date:fmt(getToday()),note:(note||"").slice(0,120)});
+      localStorage.setItem("papa_life_history",JSON.stringify(h.slice(-80)));
+    }catch(e){}
+  }
+  // PATTERN LEARNING — quietly record what Sarah does, then distil it into patterns Eleanor can use.
+  function observeSignal(type,detail){
+    try{
+      const log=JSON.parse(localStorage.getItem("papa_signal_log")||"[]");
+      const d=getToday();
+      log.push({type,detail:(detail||"").slice(0,80),date:fmt(d),weekday:d.toLocaleDateString("en-GB",{weekday:"long"}),ts:Date.now()});
+      const trimmed=log.slice(-60);
+      localStorage.setItem("papa_signal_log",JSON.stringify(trimmed));
+      const lastLearn=localStorage.getItem("papa_last_learn")||"";
+      if(trimmed.length>=8&&lastLearn!==fmt(d))learnPatterns(trimmed);
+    }catch(e){}
+  }
+  async function learnPatterns(log){
+    try{
+      localStorage.setItem("papa_last_learn",fmt(getToday()));
+      const summary=log.map(s=>s.weekday+" — "+s.type+(s.detail?": "+s.detail:"")).join("\n");
+      const out=await callAI({max_tokens:600,system:"You are quietly learning Sarah's habits from a log of her recent actions in her assistant app (what she cancels, dismisses, reschedules, adds). Identify up to 5 GENUINE recurring patterns that would help her assistant tailor its suggestions — e.g. often cancels plans the day after therapy, tends to keep Mondays light, usually reschedules rather than cancels dog walks. Only real patterns you can see repeating in the log — never guess or invent. Each pattern: one short plain sentence. If there are no clear patterns yet, return an empty list. Return ONLY a JSON array of strings. No other text.",messages:[{role:"user",content:"Sarah's recent actions:\n"+summary}]});
+      if(out){
+        const arr=robustJSON(out);
+        if(Array.isArray(arr)){
+          const cleaned=arr.filter(x=>typeof x==="string"&&x.length>8).slice(0,5);
+          setLearnedPatterns(cleaned);
+          localStorage.setItem("papa_learned_patterns",JSON.stringify(cleaned));
+        }
+      }
+    }catch(e){}
+  }
+
   async function generateBriefing(){
+    // COMPOUNDING MEMORY — once every few days, Eleanor reflects on the accumulated history of significant
+    // moments and distils lasting insights about Sarah's life, so she genuinely knows her better over time.
+    (async()=>{
+      try{
+        const lastReflect=localStorage.getItem("papa_last_reflect")||"";
+        const todayS=fmt(getToday());
+        const daysSince=lastReflect?Math.round((new Date(todayS)-new Date(lastReflect))/86400000):99;
+        const history=(()=>{try{return JSON.parse(localStorage.getItem("papa_life_history")||"[]");}catch{return [];}})();
+        if(daysSince>=3&&history.length>=5){
+          localStorage.setItem("papa_last_reflect",todayS);
+          const hist=history.slice(-40).map(h=>h.date+": "+h.note).join("\n");
+          const existing=lifeInsights.length?"\n\nInsights you already hold (refine, merge, keep what still holds true, drop what is stale):\n"+lifeInsights.map(x=>"- "+x).join("\n"):"";
+          const out=await callAI({max_tokens:800,system:"You are Eleanor, reflecting on what you have come to understand about Sarah over time, from a history of significant moments in her life and how they went. Distil up to 7 LASTING insights that would help you support her better — things like what tends to drain or restore her, how she likes to handle bookings, what matters to her, recurring worries, what she has found works. Base these ONLY on the history given — never invent. Write each as one warm, plain sentence. These should read like the understanding of someone who knows her well, not a clinical profile. Never mention health diagnoses as labels. Return ONLY a JSON array of strings.",messages:[{role:"user",content:"Sarah's recent history of significant moments:\n"+hist+existing}]});
+          if(out){const arr=robustJSON(out);if(Array.isArray(arr)){const cleaned=arr.filter(x=>typeof x==="string"&&x.length>10).slice(0,7);setLifeInsights(cleaned);localStorage.setItem("papa_life_insights",JSON.stringify(cleaned));}}
+        }
+      }catch(e){}
+    })();
     setBriefBusy(true);setBriefing(null);setBriefingStale(false);
     const hols=upcomingHols(6);
     const freshEvs=JSON.parse(localStorage.getItem("papa_events")||"[]");
@@ -1841,7 +1974,9 @@ Rules:
       ?"ALREADY DONE / RESOLVED (Sarah has ticked these off — do NOT mention them again as pending or upcoming, do NOT re-raise them, treat as completed):\n"+resolvedBriefItems.map(r=>"- "+r).join("\n")
       :"";
     const brRulesCtx=myRules.filter(r=>r.active!==false).length>0?"SARAH'S RULES (follow these when flagging conflicts or making suggestions in the briefing):\n"+myRules.filter(r=>r.active!==false).map((r,i)=>(i+1)+". "+r.text).join("\n"):"";
-    const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx,brResolvedCtx,brRulesCtx].filter(Boolean).join("\n\n");
+    const brPatternsCtx=learnedPatterns.length>0?"WHAT YOU'VE LEARNED ABOUT SARAH (patterns noticed from how she uses the app — let these gently shape your suggestions, but never state them back to her as if analysing her, and always defer to what she actually says today):\n"+learnedPatterns.map((p,i)=>"- "+p).join("\n"):"";
+    const brInsightsCtx=lifeInsights.length>0?"WHAT YOU'VE COME TO UNDERSTAND ABOUT SARAH OVER TIME (your deeper knowledge of her, built up from months of knowing her — let this warmth and understanding shape how you support her, but hold it gently and never recite it back at her):\n"+lifeInsights.map(x=>"- "+x).join("\n"):"";
+    const brExtraCtx=[brMemCtx,brRemCtx,brBdayCtx,brGoalsCtx,brMonthGoalsCtx,brResolvedCtx,brRulesCtx,brPatternsCtx,brInsightsCtx].filter(Boolean).join("\n\n");
 
     // STEP 2 — WHOLE-LIFE MORNING SCAN (agent reasoning pass).
     // Before writing the briefing, Eleanor first THINKS about how the day and week fit together —
@@ -1855,7 +1990,7 @@ Rules:
     setBriefPhase&&setBriefPhase("Writing your briefing…");
 
     let raw;
-    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, two children: Maleeka (school age) and Maliki (19, an adult), Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}],"spotted_problems":[{"problem":string,"suggestion":string,"fix_action":"block_rest_day|add_reminder|none","fix_date":"YYYY-MM-DD"}],"prepared_actions":[{"label":string,"kind":"reminder|message|note","draft":string,"date":"YYYY-MM-DD","time":"HH:MM"}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK — apply ONLY to entries that explicitly mention school. An entry is school-related ONLY if its title or notes contain one of these words: school, Westwood, PE kit, uniform, packed lunch, homework, assembly, parents evening, or a clearly named school trip. Maleeka is in Year 4 and school runs Monday-Friday in term time. If such a genuinely school-labelled entry falls on a SATURDAY or SUNDAY, flag it as a likely error with high severity. DO NOT flag personal outings, family plans, shopping trips, garden centre visits, days out, or anything with a persons name (e.g. Garden centre see Pete) as a school error just because it falls on a weekend — those are Sarahs normal weekend plans and completely fine. When in doubt, it is NOT a school event. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. (7) DO NOT re-raise things Sarah has already done or decided: if the memory facts or the ALREADY DONE list show a task is complete (e.g. a pickup collected) or a decision is made (e.g. craft group starts 14 July not sooner), treat it as settled — never present it again as pending, upcoming, or an open option. (8) SCHOOL EVENTS DURING SCHOOL HOURS — if an entry is a school activity that happens during the school day (e.g. a swimming session, assembly, class trip, sports day, with notes like child selected to attend or bring kit), Maleeka attends it AT school. Sarah does NOT need to take her or be there. Never present these as an appointment Sarah must attend, and never treat them as a clash with Sarahs own plans. (9) NOT A CLASH — a payment/finance reminder and a home activity (like Craft Cabin) sharing a time is NOT a scheduling clash: the payment is just a reminder, and Craft Cabin is done at home. Only two things Sarah must physically attend, at the same time, in different places, is a real clash. Do not invent clashes from reminders, school events, or home tasks. If you see two identical entries (e.g. two Craft Cabin Day entries at the same time), that is a duplicate to gently mention, not a clash. (10) DOGS — NEVER mention a dog by name without first checking the DOG BOARDING STATUS block. If it says NO DOGS ARE STAYING, Sarah has no dog in the house: do NOT write anything like Sox should be settling in, how is Sox settling, or hope the dog is comfortable. If a dog has already left, refer to it ONLY in the past tense (Sox went home on Friday). If a dog has not arrived yet, use the future tense. Getting this wrong contradicts Sarahs lived reality and is a serious failure. (11) NEVER INVENT EVENTS — do NOT tell Sarah she did, attended, or went to something unless that exact entry appears in the live schedule above on that exact date. Never write things like you have had craft club this morning, after your appointment, or following your trip out unless it is genuinely listed for TODAY and its time has already passed. If nothing has happened yet today, say so plainly. Inventing an event Sarah did not attend is a serious failure that destroys her trust. (12) FAMILY FACTS — Sarah has TWO children: Maleeka, who is school age (Year 4), and Maliki, who is 19 and an ADULT. Never describe Maliki as a school child, never lump them together as the children in a way that implies both are young, and never assume both attend school events. When referring to a school matter it concerns Maleeka only. (13) EVENT DATE ACCURACY — before stating what day any event or trip is on, cross-reference ALL entries with that name. If several entries agree on a date (e.g. four entries say the museum trip is 28 July), that is the date — state it exactly. A preparation reminder on a different day (e.g. book taxi on 27 July) is NOT the event day; the trip is still on its own date. Never let a prep/taxi/packing reminder make you say the trip is on the reminders own day. Always verify the day-of-week against the date map — never guess it. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:dogStatusText(allEvs,fmt(today))+"\n\n"+exactDayMap+"\n\n"+timeAwareCtx+"\n\nEXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+(travelDaysCtx?travelDaysCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current. If anything in your memory or an old note mentions an appointment that is NOT in this live schedule, it has been cancelled or removed — do NOT mention it. Only reference appointments that appear in the live schedule above."+(dayReasoning?"\n\nYOUR OWN PRIVATE REASONING about the days ahead (you thought this through first — let it shape the tone and the today_summary and weekly_balance so the briefing feels genuinely considered; reflect the heavy days and recovery days you identified, but do NOT quote this text verbatim. ALSO: from this reasoning, fill spotted_problems with up to 3 things Sarah would want flagged BEFORE they happen — a heavy day with no recovery after, a tight turnaround, a draining travel day, two demanding things close together. For each: problem = the concern in one short sentence with the exact date and weekday; suggestion = what you propose; fix_action = block_rest_day if you suggest keeping a day clear for rest, add_reminder if a prep reminder would help, else none; fix_date = the date the fix applies to. Only genuine concerns — if the days ahead are calm, leave spotted_problems empty. ALSO fill prepared_actions with up to 3 helpful things you have DRAFTED ready for Sarah to approve with one tap — things she is likely to need but has not set up yet. Examples: a prep reminder before a trip (kind reminder, draft = the reminder text, date = day before the trip), a packing note before a holiday (kind note), or a short message she may want to send (kind message, draft = the full message text she can copy). For each: label = short button-friendly name; kind = reminder, message, or note; draft = the actual prepared text; date and time only for reminders. Only prepare things that are genuinely useful and specific to her real schedule — never generic filler. If nothing is worth preparing, leave prepared_actions empty):\n"+dayReasoning:"")}]});
+    try{raw=await callAI({max_tokens:8000,system:'You are Eleanor, Personal Executive Assistant to Sarah (single mother, March Cambridgeshire, two children: Maleeka (school age) and Maliki (19, an adult), Rover dog-sitter, app developer). Produce a briefing. Return ONLY valid JSON, no markdown: {"headline":string,"today_summary":string,"how_are_you":string,"best_day_this_week":{"date":"YYYY-MM-DD","day_name":string,"reason":string},"alerts":[{"title":string,"detail":string,"severity":"high|medium|low"}],"holiday_advice":[{"holiday":string,"date_range":string,"days_until":number,"advice":string}],"opportunities":[{"title":string,"detail":string}],"weekly_balance":{"score":number,"comment":string},"recommendations":[{"title":string,"detail":string}],"spotted_problems":[{"problem":string,"suggestion":string,"fix_action":"block_rest_day|add_reminder|none","fix_date":"YYYY-MM-DD"}],"prepared_actions":[{"label":string,"kind":"reminder|message|note","draft":string,"date":"YYYY-MM-DD","time":"HH:MM"}]}. CRITICAL DATE & REMINDER RULES (Sarah has ME/CFS — date confusion wastes her limited energy and breaks her trust, so accuracy is essential): (1) Use ONLY the exact date-to-day mapping provided — NEVER calculate day names yourself. (2) EVERY alert/reminder that refers to a day MUST state the full date and day of week in the detail, e.g. "Monday 29 June" — NEVER say "tomorrow" or "today" without also giving the actual date and weekday, cross-referenced to the mapping. (3) For any day-specific reminder, include that day\'s weather from the 7-DAY WEATHER list (e.g. "partly cloudy, 24C"). (4) SCHOOL-DAY CHECK — apply ONLY to entries that explicitly mention school. An entry is school-related ONLY if its title or notes contain one of these words: school, Westwood, PE kit, uniform, packed lunch, homework, assembly, parents evening, or a clearly named school trip. Maleeka is in Year 4 and school runs Monday-Friday in term time. If such a genuinely school-labelled entry falls on a SATURDAY or SUNDAY, flag it as a likely error with high severity. DO NOT flag personal outings, family plans, shopping trips, garden centre visits, days out, or anything with a persons name (e.g. Garden centre see Pete) as a school error just because it falls on a weekend — those are Sarahs normal weekend plans and completely fine. When in doubt, it is NOT a school event. (5) Always state the correct weekday for the school trip itself: confirm the trip date is a weekday. (6) REMINDERS vs APPOINTMENTS: entries tagged [REMINDER] are quick notes/heads-ups, NOT real commitments — they never block a day and never count as a scheduling conflict, even if they share a time with a real event. A reminder worded X coming tomorrow is just a heads-up: when telling Sarah when X actually happens, state the REAL appointment date (the day AFTER the reminder), never the reminder own date. Never tell Sarah something arrives or happens on the reminder date. (7) DO NOT re-raise things Sarah has already done or decided: if the memory facts or the ALREADY DONE list show a task is complete (e.g. a pickup collected) or a decision is made (e.g. craft group starts 14 July not sooner), treat it as settled — never present it again as pending, upcoming, or an open option. (8) SCHOOL EVENTS DURING SCHOOL HOURS — if an entry is a school activity that happens during the school day (e.g. a swimming session, assembly, class trip, sports day, with notes like child selected to attend or bring kit), Maleeka attends it AT school. Sarah does NOT need to take her or be there. Never present these as an appointment Sarah must attend, and never treat them as a clash with Sarahs own plans. (9) NOT A CLASH — a payment/finance reminder and a home activity (like Craft Cabin) sharing a time is NOT a scheduling clash: the payment is just a reminder, and Craft Cabin is done at home. Only two things Sarah must physically attend, at the same time, in different places, is a real clash. Do not invent clashes from reminders, school events, or home tasks. If you see two identical entries (e.g. two Craft Cabin Day entries at the same time), that is a duplicate to gently mention, not a clash. (10) DOGS — NEVER mention a dog by name without first checking the DOG BOARDING STATUS block. If it says NO DOGS ARE STAYING, Sarah has no dog in the house: do NOT write anything like Sox should be settling in, how is Sox settling, or hope the dog is comfortable. If a dog has already left, refer to it ONLY in the past tense (Sox went home on Friday). If a dog has not arrived yet, use the future tense. Getting this wrong contradicts Sarahs lived reality and is a serious failure. (11) NEVER INVENT EVENTS — do NOT tell Sarah she did, attended, or went to something unless that exact entry appears in the live schedule above on that exact date. Never write things like you have had craft club this morning, after your appointment, or following your trip out unless it is genuinely listed for TODAY and its time has already passed. If nothing has happened yet today, say so plainly. Inventing an event Sarah did not attend is a serious failure that destroys her trust. (12) FAMILY FACTS — Sarah has TWO children: Maleeka, who is school age (Year 4), and Maliki, who is 19 and an ADULT. Never describe Maliki as a school child, never lump them together as the children in a way that implies both are young, and never assume both attend school events. When referring to a school matter it concerns Maleeka only. (13) EVENT DATE ACCURACY — before stating what day any event or trip is on, cross-reference ALL entries with that name. If several entries agree on a date (e.g. four entries say the museum trip is 28 July), that is the date — state it exactly. A preparation reminder on a different day (e.g. book taxi on 27 July) is NOT the event day; the trip is still on its own date. Never let a prep/taxi/packing reminder make you say the trip is on the reminders own day. Always verify the day-of-week against the date map — never guess it. Include weather in opportunities and recommendations. best_day_this_week: consider both schedule AND weather. If finances are provided, treat income as money IN and outgoings as money OUT, never swap them.',messages:[{role:"user",content:dogStatusText(allEvs,fmt(today))+"\n\n"+exactDayMap+"\n\n"+timeAwareCtx+"\n\nEXACT DATE-TO-DAY MAPPING:\n"+dayCalendar+"\n\n"+wxBriefCtx+"\n\nSchedule (next 90 days — this is the COMPLETE live list, use ALL of it):\n"+schedCtx+"\n\n"+(myTripsCtx?myTripsCtx+"\n\n":"")+(travelDaysCtx?travelDaysCtx+"\n\n":"")+"UK school holidays (for school-day checks only, NOT Sarah's personal holidays):\n"+holCtx+(brFinCtx?"\n\n"+brFinCtx:"")+(today.getDate()===1?"\n\nNOTE: Today is the 1st of the month — warmly acknowledge the new month in how_are_you and gently suggest Sarah set her goals for the month and review her financial forecast.":"")+"\n\nConflicts:"+cfls.length+"."+(brExtraCtx?"\n\n"+brExtraCtx:"")+" IMPORTANT: In holiday_advice, for each trip include a note about what weather to expect and what to pack for it based on the destination and time of year (e.g. a Scotland trip in October — pack warm layers and waterproofs, it will likely be cold and wet; a February trip to Fuerteventura — mild and sunny, pack light). If you are not certain of exact conditions, give sensible seasonal guidance for that place. Surface ALL of Sarah's booked holidays and trips in holiday_advice and alerts — never cap or summarise to just a couple. If she has 4 holidays and 7 coach trips, mention them all. You have the SAME information here that you have in chat — reminders, things you remember, birthdays, goals, finances — weave in whatever is most relevant and timely. The schedule list above is complete and live — everything in it is current. If anything in your memory or an old note mentions an appointment that is NOT in this live schedule, it has been cancelled or removed — do NOT mention it. Only reference appointments that appear in the live schedule above."+(dayReasoning?"\n\nYOUR OWN PRIVATE REASONING about the days ahead (you thought this through first — let it shape the tone and the today_summary and weekly_balance so the briefing feels genuinely considered; reflect the heavy days and recovery days you identified, but do NOT quote this text verbatim. ALSO: from this reasoning, fill spotted_problems with up to 3 things Sarah would want flagged BEFORE they happen — a heavy day with no recovery after, a tight turnaround, a draining travel day, two demanding things close together. For each: problem = the concern in one short sentence with the exact date and weekday; suggestion = what you propose; fix_action = block_rest_day if you suggest keeping a day clear for rest, add_reminder if a prep reminder would help, else none; fix_date = the date the fix applies to. Only genuine concerns — if the days ahead are calm, leave spotted_problems empty. ALSO fill prepared_actions with up to 3 helpful things you have DRAFTED ready for Sarah to approve with one tap — things she is likely to need but has not set up yet. Examples: a prep reminder before a trip (kind reminder, draft = the reminder text, date = day before the trip), a packing note before a holiday (kind note), or a short message she may want to send (kind message, draft = the full message text she can copy). For each: label = short button-friendly name; kind = reminder, message, or note; draft = the actual prepared text; date and time only for reminders. Only prepare things that are genuinely useful and specific to her real schedule — never generic filler. If nothing is worth preparing, leave prepared_actions empty):\n"+dayReasoning:"")}]});
     if(!raw){setBriefing({error:true,reason:"Eleanor's AI returned nothing. This usually means the AI service (Google Cloud) is unavailable — possibly the billing notice you received. Check console.cloud.google.com."});setBriefBusy(false);setBriefPhase("");return;}
     let parsed;
     try{
@@ -1865,6 +2000,24 @@ Rules:
       setBriefBusy(false);setBriefPhase("");return;
     }
     if(!parsed){setBriefing({error:true,reason:"Couldn't read Eleanor's reply. Starts with: "+raw.slice(0,120)});setBriefBusy(false);setBriefPhase("");return;}
+
+    // SELF-CORRECTION PASS (deeper thinking) — Eleanor re-reads the text she just wrote and checks every
+    // date, weekday, and dog mention against the HARD COMPUTED FACTS. If she finds an error, she fixes it
+    // before Sarah ever sees it. This catches the mistakes that used to slip through (wrong day, "settling in", etc).
+    try{
+      setBriefPhase("Double-checking the facts…");
+      const textToCheck=JSON.stringify({headline:parsed.headline,today_summary:parsed.today_summary,how_are_you:parsed.how_are_you,alerts:parsed.alerts,holiday_advice:parsed.holiday_advice,spotted_problems:parsed.spotted_problems,best_day_this_week:parsed.best_day_this_week});
+      const factCheck=await callAI({max_tokens:6000,system:"You are a careful fact-checker reviewing a briefing that was just written for Sarah. You are given the HARD FACTS (computed from real data — these are always correct) and the briefing JSON. Your job: find any statement in the briefing that CONTRADICTS the hard facts, and return a corrected version. Check especially: (1) every weekday matches the date map (e.g. if it says 'Monday 28 July' but the map says 28 July is Tuesday, fix to Tuesday); (2) no event is described as being on the wrong day; (3) no dog is said to be 'staying' or 'settling in' if the dog status says none are staying; (4) nothing is described as having happened today if nothing has; (5) Maliki is never called a school child. Return ONLY the corrected briefing as valid JSON with the SAME keys as the input (headline, today_summary, how_are_you, alerts, holiday_advice, spotted_problems, best_day_this_week). If everything is already correct, return the input JSON unchanged. Never add new events or facts — only correct wording that contradicts the hard facts. Return ONLY JSON, no markdown, no commentary.",messages:[{role:"user",content:"HARD FACTS (always correct):\n"+dogStatusText(allEvs,fmt(today))+"\n\n"+exactDayMap+"\n\n"+timeAwareCtx+"\n\nDATE-TO-DAY MAP:\n"+dayCalendar+"\n\nBRIEFING TO CHECK:\n"+textToCheck}]});
+      if(factCheck){
+        const corrected=robustJSON(factCheck);
+        if(corrected&&(corrected.headline||corrected.today_summary)){
+          // Merge corrected text fields back, keeping the fields the checker did not handle (opportunities, recommendations, weekly_balance, prepared_actions)
+          parsed={...parsed,...corrected};
+        }
+      }
+    }catch(e){/* if the check fails, show the original briefing — better than nothing */}
+    setBriefPhase("");
+
     setBriefing(parsed);
     if(parsed.how_are_you&&briefingVoiceOn){
       setTimeout(()=>eleanorSpeak(parsed.how_are_you),600);
@@ -2321,6 +2474,36 @@ EXTRACTION RULES:
       if(legitRecurring)return;
       if(!seenTitles[t])seenTitles[t]=[];
       seenTitles[t].push(e);
+    });
+    // FUZZY same-day near-duplicates: entries on the SAME date whose core words heavily overlap
+    // (e.g. "Black Country Museum Trip" vs "Trip to Black Country Living Museum" on 28 July).
+    const fillerWords=new Set(["the","a","an","to","for","of","at","on","in","and","with","my","trip","day","out","visit","see","go","going","event","appointment"]);
+    const coreWords=e=>{
+      const t=(e.title||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2&&!fillerWords.has(w));
+      return new Set(t);
+    };
+    const byDate={};
+    fut.forEach(e=>{
+      const full=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+      if(/weekly|every |fortnight|boarding|day care|holiday|payment|reminder|coming (tomorrow|today)|book taxi|\((start|end|check.?in|check.?out)\)/i.test(full)||e.recurring||stayKw.test(e.title||""))return;
+      (byDate[e.date]=byDate[e.date]||[]).push(e);
+    });
+    const flaggedFuzzy=new Set();
+    Object.values(byDate).forEach(list=>{
+      for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){
+        const a=coreWords(list[i]),b=coreWords(list[j]);
+        if(a.size===0||b.size===0)continue;
+        const shared=[...a].filter(w=>b.has(w)).length;
+        const smaller=Math.min(a.size,b.size);
+        // If most of the smaller title's core words appear in the other, and they share at least 2 words → same thing.
+        if(shared>=2&&shared/smaller>=0.6){
+          const kid="fuzzy-"+list[j].id;
+          if(!flaggedFuzzy.has(kid)){
+            flaggedFuzzy.add(kid);
+            out.push({id:kid,type:"duplicate",icon:"⧉",title:list[i].title,detail:"Looks like the same thing entered twice on "+list[i].date+", worded differently: \""+list[i].title+"\" and \""+list[j].title+"\". Remove one?",eventId:list[j].id,date:list[j].date});
+          }
+        }
+      }
     });
     Object.values(seenTitles).forEach(list=>{
       if(list.length>1){
@@ -3256,6 +3439,18 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
       )}
 
+      {proactiveNudge&&view==="home"&&<div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:8,padding:"13px 15px",marginBottom:12,boxShadow:`0 2px 12px ${C.shadow}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{fontSize:14}}>✦</span>
+          <span style={{fontSize:9,fontFamily:FM,letterSpacing:"0.18em",textTransform:"uppercase",color:C.gold}}>A quiet word from Eleanor</span>
+        </div>
+        <div style={{fontSize:13.5,fontFamily:FB,color:C.inkMid,lineHeight:1.55,marginBottom:10}}>{proactiveNudge.text}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{setChatIn(proactiveNudge.prompt);setCriticalOnly(false);setView("chat");setProactiveNudge(null);localStorage.setItem("papa_nudge_dismissed",fmt(getToday()));}} style={{padding:"7px 14px",borderRadius:4,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Yes please</button>
+          <button onClick={()=>{setProactiveNudge(null);localStorage.setItem("papa_nudge_dismissed",fmt(getToday()));}} style={{padding:"7px 14px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Not now</button>
+        </div>
+      </div>}
+
       {/* Offline banner */}
       {!isOnline&&<div style={{background:C.crimsonBg,border:`1px solid ${C.crimson}`,borderRadius:4,padding:"10px 14px",marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
         <span style={{fontSize:16}}>📵</span>
@@ -3725,9 +3920,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   const nr=[...resolvedBriefItems,("prob:"+p.problem).toLowerCase().trim()];setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));
                   alert("✓ Reminder added.");
                 }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer"}}>⏰ Add reminder</button>}
-                <button onClick={()=>{setChatIn("From my briefing — you noticed: "+p.problem+". "+(p.suggestion||"")+" Can we sort this?");setCriticalOnly(false);setView("chat");}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer"}}>💬 Talk it through</button>
+                <button onClick={()=>{setActiveReplySection("prob"+i);setBriefReplyThread([]);}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer"}}>💬 Reply</button>
                 <button onClick={()=>{const nr=[...resolvedBriefItems,("prob:"+p.problem).toLowerCase().trim()];setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));}} style={{padding:"6px 12px",borderRadius:4,border:"none",background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer"}}>✕ Dismiss</button>
               </div>
+              {activeReplySection==="prob"+i&&<SectionReply sectionId={"prob"+i} context={"Sarah is replying about this concern you flagged: '"+p.problem+"'"+(p.suggestion?" (you suggested: "+p.suggestion+")":"")}/>}
             </div>
           ))}
         </div>}
@@ -3753,7 +3949,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             );
           })}
         </div>}
-        {briefing.today_summary&&<div onClick={()=>{sendChat("Give me more detail about today from my briefing: "+briefing.today_summary);setCriticalOnly(false);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`,cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={SL}>Today at a Glance</div><span style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase"}}>tap to ask Eleanor →</span></div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div></div>}
+        {briefing.today_summary&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderTop:`3px solid ${C.goldBorder}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={SL}>Today at a Glance</div></div><div style={{fontSize:14,fontFamily:FB,color:C.inkMid,lineHeight:1.7}}>{briefing.today_summary}</div><SectionReply sectionId="today" context={"Today at a glance: "+briefing.today_summary}/></div>}
         {briefing.weekly_balance&&<div style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"16px 18px",marginBottom:18,borderRadius:4,boxShadow:`0 2px 10px ${C.shadow}`}}><div style={{...SL,marginBottom:12}}>Schedule Balance</div><div style={{display:"flex",alignItems:"center",gap:16}}><div style={{textAlign:"center",minWidth:50}}><div style={{fontSize:34,fontFamily:FD,color:briefing.weekly_balance.score>=7?C.emerald:briefing.weekly_balance.score>=4?C.gold:C.crimson,fontWeight:300,lineHeight:1}}>{briefing.weekly_balance.score}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>/10</div></div><div style={{flex:1}}><div style={{height:3,background:C.borderSoft,borderRadius:2,marginBottom:10,overflow:"hidden"}}><div style={{height:3,width:`${briefing.weekly_balance.score*10}%`,background:`linear-gradient(90deg,${C.gold},${C.goldLight})`,borderRadius:2}}/></div><div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{briefing.weekly_balance.comment}</div></div></div></div>}
         {/* Eleanor chat updates notice */}
         {(persistentMemory.pending_tasks||[]).length>0&&<div style={{background:C.card,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,padding:"12px 16px",marginBottom:14}}>
@@ -4048,6 +4244,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 if(match){
                   if(window.confirm("Cancel \""+match.title+"\" on "+match.date+"?\n\nThis removes it from your calendar.")){
                     setEvents(ev=>ev.filter(x=>x.id!==match.id));
+                    observeSignal("cancelled",match.title);
+                    recordMoment("Cancelled '"+match.title+"' (chose to protect energy/time)");
                     const key=(a.title||"").toLowerCase().trim();
                     const nr=[...resolvedBriefItems,key];
                     setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));
@@ -4057,12 +4255,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   setChatIn("From my briefing, please cancel this: "+a.title+" — "+(a.detail||""));setCriticalOnly(false);setView("chat");
                 }
               }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.crimson}40`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>✕ Cancel this</button>
-              <button onClick={(e)=>{e.stopPropagation();setChatIn("Tell me more about: "+a.title);setCriticalOnly(false);setView("chat");}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Ask Eleanor</button>
+              <button onClick={(e)=>{e.stopPropagation();setActiveReplySection("alert"+i);setBriefReplyThread([]);}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Reply</button>
             </div>
+            {activeReplySection==="alert"+i&&<SectionReply sectionId={"alert"+i} context={"Sarah is replying about this alert from her briefing: '"+a.title+"' — "+(a.detail||"")}/>}
           </div>
         </div>)}</div>}
         {resolvedBriefItems.length>0&&briefing.alerts?.some(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim()))&&<div style={{marginBottom:18}}><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Done</div>{briefing.alerts.filter(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim())).map((a,i)=><div key={i} style={{padding:"8px 16px",marginBottom:4,display:"flex",gap:12,alignItems:"center",opacity:0.55}}><span style={{color:C.emerald,fontSize:14}}>☑</span><div style={{fontSize:13,fontFamily:FB,color:C.inkFaint,textDecoration:"line-through"}}>{a.title}</div><button onClick={()=>{const key=(a.title||"").toLowerCase().trim();const nr=resolvedBriefItems.filter(x=>x!==key);setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));}} style={{marginLeft:"auto",background:"none",border:"none",color:C.inkFaint,fontSize:10,fontFamily:FM,cursor:"pointer"}}>undo</button></div>)}</div>}
-        {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}</div>}
+        {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}<SectionReply sectionId="holidays" context="Sarah's holidays and trips"/></div>}
         {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities</div>{briefing.opportunities.map((o,i)=><div key={i} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}><button onClick={()=>{const dt=extractDateTime((o.title||"")+" "+(o.detail||""));if(dt){addEvs([{title:(o.title||"").slice(0,70),date:dt.date,time:dt.time,priority:"medium",notes:(o.detail||"").slice(0,140),source:"briefing"}],"briefing");alert("✓ Added to your calendar: "+(o.title||"").slice(0,50)+" on "+dt.date+(dt.hadTime?" at "+dt.time:""));}else{setChatIn("From my briefing, please add this to my calendar with the right date and time: "+o.title+" — "+(o.detail||""));setCriticalOnly(false);setView("chat");}}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.emerald}`,background:C.card,color:C.emerald,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>＋ Add to calendar</button><button onClick={()=>{setChatIn("Help me with this opportunity: "+o.title);setCriticalOnly(false);setView("chat");}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Ask Eleanor</button></div></div>)}</div>}
         {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations — tap any to ask Eleanor</div>{briefing.recommendations.map((r,i)=><div key={i} onClick={()=>{setChatIn("Help me with: "+r.title);setView("chat");}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`,cursor:"pointer",position:"relative"}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.inkFaint,fontFamily:FM}}>tap →</div></div>)}</div>}
         <button style={goldBtn(true)} onClick={()=>{setBriefing(null);generateBriefing();}}>↺ Refresh Briefing</button>
