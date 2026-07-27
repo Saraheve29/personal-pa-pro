@@ -1,4 +1,4 @@
-// VERSION_CHECK: Confidence-Proactive-SelfCritique build - July 26 2026 v112
+// VERSION_CHECK: Auto-Dedup-And-Editable-Cards build - July 27 2026 v114
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -90,6 +90,9 @@ const isReminderEntry=e=>{
 // Does this event actually prevent Sarah taking a dog boarding? Only things that take her AWAY from home
 // without the dog block it. Home tasks, payments, craft cabin, garden jobs, deliveries do NOT block boarding.
 // Works out which boarding dogs are CURRENTLY staying vs already gone. Shared by chat AND briefing so they can never disagree.
+// Strip stray escape characters that sometimes leak into titles/notes (e.g. "flowers\; cherry\," -> "flowers; cherry,")
+const cleanTitle=s=>(s||"").replace(/\\+([;,.\-])/g,"$1").replace(/\\+/g," ").replace(/\s+/g," ").trim();
+
 const computeDogStatus=(evs,todayStr)=>{
   const staying=[],left=[],upcoming=[];
   const byDog={};
@@ -808,6 +811,7 @@ function AppInner(){
   const [dismissedCriticalIds,setDismissedCriticalIds]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_critical")||"[]");}catch{return [];}});
   const [eventNotes,setEventNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_event_notes")||"{}");}catch{return {};}});
   const [editingEventId,setEditingEventId]=useState(null);
+  const [editingEvent,setEditingEvent]=useState(null);
   const [rescheduleId,setRescheduleId]=useState(null);
   const [rescheduleSearch,setRescheduleSearch]=useState("");
   const [rescheduleDate,setRescheduleDate]=useState("");
@@ -977,6 +981,19 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
+  // Auto-remove EXACT duplicate events (same title, date and time) — the only case safe to delete without asking.
+  // Anything less certain (similar wording) is left for the Things to Check screen to flag, never auto-deleted.
+  useEffect(()=>{
+    setEvents(prev=>{
+      const seen=new Set();const kept=[];let removed=0;
+      for(const e of prev){
+        const key=(cleanTitle(e.title||"").toLowerCase())+"|"+(e.date||"")+"|"+(e.time||"");
+        if(seen.has(key)){removed++;continue;}
+        seen.add(key);kept.push(e);
+      }
+      return removed>0?kept:prev;
+    });
+  },[]);
   // PROACTIVE — on opening the app, quietly look ahead (no AI, no cost) and surface ONE gentle nudge if
   // something soon needs attention that Sarah hasn't set up. Genuinely looking out for her between briefings.
   useEffect(()=>{
@@ -3439,6 +3456,29 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
       )}
 
+      {editingEvent&&<div onClick={()=>setEditingEvent(null)} style={{position:"fixed",inset:0,background:"rgba(30,20,10,0.45)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:10,padding:"20px 20px 16px",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(30,20,10,0.3)"}}>
+          <div style={{fontFamily:FD,fontSize:18,color:C.ink,marginBottom:14}}>Edit this entry</div>
+          <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Title</label>
+          <input value={editingEvent.title||""} onChange={e=>setEditingEvent({...editingEvent,title:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:16,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,marginBottom:12,boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:10,marginBottom:12}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Date</label>
+              <input type="date" value={editingEvent.date||""} onChange={e=>setEditingEvent({...editingEvent,date:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{width:110}}>
+              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Time</label>
+              <input type="time" value={editingEvent.time||""} onChange={e=>setEditingEvent({...editingEvent,time:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button onClick={()=>{setEvents(evs=>evs.map(x=>x.id===editingEvent.id?{...x,title:editingEvent.title,date:editingEvent.date,time:editingEvent.time}:x));observeSignal("edited",editingEvent.title);setEditingEvent(null);}} style={{flex:1,padding:"12px",borderRadius:6,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Save</button>
+            <button onClick={()=>{if(window.confirm("Delete \""+(editingEvent.title||"this entry")+"\"?")){setEvents(evs=>evs.filter(x=>x.id!==editingEvent.id));observeSignal("deleted",editingEvent.title);recordMoment("Removed '"+(editingEvent.title||"an entry")+"' from calendar");setEditingEvent(null);}}} style={{padding:"12px 16px",borderRadius:6,border:`1px solid ${C.crimson}`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Delete</button>
+          </div>
+          <button onClick={()=>setEditingEvent(null)} style={{width:"100%",padding:"10px",marginTop:8,borderRadius:6,border:"none",background:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>}
+
       {proactiveNudge&&view==="home"&&<div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:8,padding:"13px 15px",marginBottom:12,boxShadow:`0 2px 12px ${C.shadow}`}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:14}}>✦</span>
@@ -4044,15 +4084,17 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                     </div>
                     {real.length===0&&rems.length===0&&<div style={{fontSize:12,color:C.inkFaint,fontFamily:FB,fontStyle:"italic"}}>Nothing planned — free day</div>}
                     {real.map((e,j)=>(
-                      <div key={j} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2}}>
+                      <div key={j} onClick={()=>setEditingEvent(e)} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2,cursor:"pointer",padding:"3px 4px",borderRadius:4,margin:"2px -4px 0"}}>
                         <span style={{fontSize:11,fontFamily:FM,color:C.gold,minWidth:38}}>{e.time&&e.time!=="09:00"?e.time:"—"}</span>
-                        <span style={{fontSize:12.5,fontFamily:FB,color:C.inkMid,lineHeight:1.45,flex:1}}>{e.title}</span>
+                        <span style={{fontSize:12.5,fontFamily:FB,color:C.inkMid,lineHeight:1.45,flex:1}}>{cleanTitle(e.title)}</span>
+                        <span style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>✎</span>
                       </div>
                     ))}
                     {rems.map((e,j)=>(
-                      <div key={"r"+j} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2,opacity:0.7}}>
+                      <div key={"r"+j} onClick={()=>setEditingEvent(e)} style={{display:"flex",gap:8,alignItems:"baseline",marginTop:2,opacity:0.7,cursor:"pointer",padding:"3px 4px",borderRadius:4,margin:"2px -4px 0"}}>
                         <span style={{fontSize:11,fontFamily:FM,color:C.inkFaint,minWidth:38}}>💷</span>
-                        <span style={{fontSize:11.5,fontFamily:FB,color:C.inkFaint,lineHeight:1.45,flex:1}}>{e.title} <span style={{fontSize:9,fontFamily:FM}}>(reminder)</span></span>
+                        <span style={{fontSize:11.5,fontFamily:FB,color:C.inkFaint,lineHeight:1.45,flex:1}}>{cleanTitle(e.title)} <span style={{fontSize:9,fontFamily:FM}}>(reminder)</span></span>
+                        <span style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>✎</span>
                       </div>
                     ))}
                   </div>
@@ -4255,6 +4297,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   setChatIn("From my briefing, please cancel this: "+a.title+" — "+(a.detail||""));setCriticalOnly(false);setView("chat");
                 }
               }} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.crimson}40`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>✕ Cancel this</button>
+              <button onClick={(e)=>{e.stopPropagation();const m=findMatchingEvent(a.title,a.detail);if(m){setEditingEvent(m);}else{setActiveReplySection("alert"+i);setBriefReplyThread([]);}}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>✎ Edit</button>
               <button onClick={(e)=>{e.stopPropagation();setActiveReplySection("alert"+i);setBriefReplyThread([]);}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Reply</button>
             </div>
             {activeReplySection==="alert"+i&&<SectionReply sectionId={"alert"+i} context={"Sarah is replying about this alert from her briefing: '"+a.title+"' — "+(a.detail||"")}/>}
