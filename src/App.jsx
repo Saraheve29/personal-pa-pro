@@ -1,4 +1,4 @@
-// VERSION_CHECK: Auto-Dedup-And-Editable-Cards build - July 27 2026 v114
+// VERSION_CHECK: Weekly-Review-Meeting build - July 27 2026 v115
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -796,6 +796,8 @@ function AppInner(){
   const [learnedPatterns,setLearnedPatterns]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_learned_patterns")||"[]");}catch{return [];}});
   const [lifeInsights,setLifeInsights]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_life_insights")||"[]");}catch{return [];}});
   const [proactiveNudge,setProactiveNudge]=useState(null);
+  const [reviewDue,setReviewDue]=useState(false);
+  const [reviewBusy,setReviewBusy]=useState(false);
   const [myRules,setMyRules]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_my_rules")||"[]");}catch{return [];}});
   const [newRuleText,setNewRuleText]=useState("");
   const [briefReplyOpen,setBriefReplyOpen]=useState(false);
@@ -1024,6 +1026,15 @@ function AppInner(){
           return;
         }
       }
+    }catch(e){}
+  },[]);
+  // WEEKLY REVIEW — is a review meeting due? (7+ days since the last, or never done)
+  useEffect(()=>{
+    try{
+      const last=localStorage.getItem("papa_last_review")||"";
+      if(!last){setReviewDue(true);return;}
+      const days=Math.round((new Date(fmt(getToday()))-new Date(last))/86400000);
+      if(days>=7)setReviewDue(true);
     }catch(e){}
   },[]);
   // One-time cleanup: remove any duplicate finance entries already saved (same booking/amount/date, differently worded)
@@ -1335,6 +1346,40 @@ Rules:
 - Priority: flights/medical/school = critical, travel/bookings = high, social = medium, optional = low
 - Never return an empty events array — if you find ANY dates at all, include them
 - summary should be a warm one-sentence overview of what was found`;
+
+  // WEEKLY REVIEW MEETING — Eleanor steps back, reviews the week, spots patterns, gives honest praise and
+  // encouragement, then opens up plans, concerns and improvements. Pattern recognition is central.
+  async function runReviewMeeting(){
+    if(reviewBusy)return;
+    setReviewBusy(true);
+    setReviewDue(false);
+    setView("chat");
+    localStorage.setItem("papa_last_review",fmt(getToday()));
+    setMsgs(m=>[...m,{role:"assistant",text:"✦ Let's have our weekly review. Give me a moment to look back over your week…",ts:new Date(),isSystem:true}]);
+    try{
+      const now=getToday();
+      const weekAgo=fmt(new Date(now.getTime()-7*86400000));
+      const signalLog=(()=>{try{return JSON.parse(localStorage.getItem("papa_signal_log")||"[]");}catch{return [];}})();
+      const history=(()=>{try{return JSON.parse(localStorage.getItem("papa_life_history")||"[]");}catch{return [];}})();
+      const recentSignals=signalLog.filter(s=>s.date>=weekAgo).map(s=>s.date+" ("+s.weekday+"): "+s.type+(s.detail?" — "+s.detail:"")).join("\n");
+      const recentHistory=history.filter(h=>h.date>=weekAgo).map(h=>h.date+": "+h.note).join("\n");
+      const weekEvents=events.filter(e=>e.date>=weekAgo&&e.date<=fmt(now)).map(e=>e.date+" "+(e.title||"")).join("\n");
+      const upcoming=events.filter(e=>e.date>fmt(now)&&e.date<=fmt(new Date(now.getTime()+21*86400000))&&!isReminderEntry(e)).map(e=>e.date+" "+(e.title||"")).join("\n");
+      const patternsCtx=learnedPatterns.length?learnedPatterns.map(p=>"- "+p).join("\n"):"(none yet)";
+      const insightsCtx=lifeInsights.length?lifeInsights.map(p=>"- "+p).join("\n"):"(none yet)";
+      const sys="You are Eleanor, Sarah's warm, wise Personal Assistant, holding your WEEKLY REVIEW MEETING with her. Sarah has ME/CFS (limited energy) and autism, and finds this review — a chance to step back together — genuinely valuable. Speak warmly and personally, in flowing prose (no markdown symbols, no asterisks). Structure your review in this order, with a gentle line between each part:\n\n1. THE WEEK IN REVIEW — briefly, what her week actually held (from her events and the moments she shared).\n2. PATTERNS I'VE NOTICED — THIS IS THE MOST IMPORTANT PART. Look carefully at her actions, what she cancelled, how she felt, what recurs, and name any genuine patterns you can see — gently and specifically (e.g. 'you tend to be flatter the day after a trip', 'you've cancelled two things this week that were on busy days — you're getting better at protecting your energy'). Only real patterns from the data, never invented. Frame them kindly, as observations that help her, never as criticism.\n3. PRAISE & ENCOURAGEMENT — honest, specific recognition of what she managed or handled well this week. Not empty flattery — real, earned encouragement. She has very little external support, so genuine acknowledgement matters.\n4. LOOKING AHEAD — glance at what's coming up and gently raise anything worth planning for.\n5. OVER TO YOU — warmly invite her to share: her own plans and ideas, any concerns, and anything either of you could improve. Ask ONE gentle opening question to start that conversation.\n\nKeep it warm but not overwhelming — this should feel like a caring catch-up, not a report. Be honest and real, never hollow.";
+      const content="TODAY: "+now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+"\n\nHER EVENTS THIS PAST WEEK:\n"+(weekEvents||"(quiet week)")+"\n\nSIGNIFICANT MOMENTS SHE SHARED THIS WEEK:\n"+(recentHistory||"(none recorded)")+"\n\nHER ACTIONS THIS WEEK (what she added, cancelled, dismissed):\n"+(recentSignals||"(none recorded)")+"\n\nPATTERNS ALREADY LEARNED ABOUT HER:\n"+patternsCtx+"\n\nDEEPER UNDERSTANDING OF HER:\n"+insightsCtx+"\n\nWHAT'S COMING UP (next 3 weeks):\n"+(upcoming||"(nothing booked)");
+      const raw=await callAI({max_tokens:1600,system:sys,messages:[{role:"user",content}]});
+      if(raw){
+        setMsgs(m=>[...m,{role:"assistant",text:raw.trim(),ts:new Date()}]);
+      }else{
+        setMsgs(m=>[...m,{role:"assistant",text:"I couldn't pull the review together just now — it may be my connection. We can try again in a moment.",ts:new Date(),isSystem:true}]);
+      }
+    }catch(e){
+      setMsgs(m=>[...m,{role:"assistant",text:"Something interrupted our review — shall we try again shortly?",ts:new Date(),isSystem:true}]);
+    }
+    setReviewBusy(false);
+  }
 
   async function sendChat(directText,images,imageMimeLegacy){
     const el=document.getElementById("chat-input");
@@ -4994,6 +5039,15 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={{width:6,height:6,borderRadius:"50%",background:C.gold,animation:"memoryPulse 2s ease-in-out infinite"}}/>
           <div style={{fontSize:9,color:C.gold,fontFamily:FM,letterSpacing:"0.12em",textTransform:"uppercase"}}>
             Eleanor has {(persistentMemory.facts||[]).length} memories · {(persistentMemory.pending_tasks||[]).length} pending tasks
+          </div>
+        </div>}
+
+        {reviewDue&&<div style={{marginTop:8,padding:"11px 13px",background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:6,boxShadow:`0 1px 8px ${C.shadow}`}}>
+          <div style={{fontSize:13,fontFamily:FD,color:C.ink,marginBottom:3}}>✦ Your weekly review is ready</div>
+          <div style={{fontSize:11.5,fontFamily:FB,color:C.inkMid,lineHeight:1.5,marginBottom:9}}>A chance to look back over your week together — patterns I've noticed, what went well, and a talk about what's ahead.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={runReviewMeeting} disabled={reviewBusy} style={{padding:"8px 15px",borderRadius:5,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>{reviewBusy?"Preparing…":"Start review meeting"}</button>
+            <button onClick={()=>{setReviewDue(false);localStorage.setItem("papa_last_review",fmt(getToday()));}} style={{padding:"8px 13px",borderRadius:5,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Not now</button>
           </div>
         </div>}
 
