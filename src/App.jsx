@@ -1,4 +1,4 @@
-// VERSION_CHECK: All-Briefing-Sections-Inline-Reply build - July 27 2026 v116
+// VERSION_CHECK: Payments-Not-Conflicts build - July 27 2026 v117
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1253,10 +1253,10 @@ function AppInner(){
       if(!filtered.length)return ev;
       const newEvs=filtered.map((e,i)=>({...e,id:mx+i+1+(Math.floor(Math.random()*10000)),source:src}));
       if(newEvs.length>0){
-        const clashes=ev.filter(e=>e.date===newEvs[0].date);
+        const clashes=ev.filter(e=>e.date===newEvs[0].date&&!isReminderEntry(e)&&blocksBoarding(e));
         const dayBefore=fmt(new Date(new Date(newEvs[0].date+"T12:00:00").getTime()-86400000));
         const dayAfter=fmt(new Date(new Date(newEvs[0].date+"T12:00:00").getTime()+86400000));
-        const nearby=ev.filter(e=>e.date===dayBefore||e.date===dayAfter);
+        const nearby=ev.filter(e=>(e.date===dayBefore||e.date===dayAfter)&&!isReminderEntry(e)&&blocksBoarding(e));
         if(clashes.length>0||nearby.length>0){
           setTimeout(()=>setConflictWarning({event:newEvs[0],clashes,nearby,dayBefore,dayAfter}),300);
         }
@@ -3071,10 +3071,10 @@ Rules: Keep ALL text values concise. summary=2 sentences max. positives=max 3 sh
     // Reminders don't physically clash with anything, so don't warn for them
     if(isReminderEntry(newEvent))return;
     const sameDay=events.filter(e=>e.date===newEvent.date&&e.id!==newEvent.id);
-    const clashes=sameDay.filter(e=>!isReminderEntry(e)); // only real attended events count as clashes
+    const clashes=sameDay.filter(e=>!isReminderEntry(e)&&blocksBoarding(e)); // only real attended events count as clashes
     const dayBefore=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()-86400000));
     const dayAfter=fmt(new Date(new Date(newEvent.date+"T12:00:00").getTime()+86400000));
-    const nearby=events.filter(e=>(e.date===dayBefore||e.date===dayAfter)&&!isReminderEntry(e));
+    const nearby=events.filter(e=>(e.date===dayBefore||e.date===dayAfter)&&!isReminderEntry(e)&&blocksBoarding(e));
     if(clashes.length>0||nearby.length>0){
       setConflictWarning({event:newEvent,clashes,nearby,dayBefore,dayAfter});
     }
@@ -5129,10 +5129,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
       const mx=Math.max(0,...events.map(e=>e.id));
       const newEv={id:mx+1+Math.floor(Math.random()*1000),title,date,time,priority,notes,source};
       setEvents(ev=>{
-        const clashes=ev.filter(e=>e.date===date);
+        const clashes=ev.filter(e=>e.date===date&&!isReminderEntry(e)&&blocksBoarding(e));
         const dayBefore=fmt(new Date(new Date(date+"T12:00:00").getTime()-86400000));
         const dayAfter=fmt(new Date(new Date(date+"T12:00:00").getTime()+86400000));
-        const nearby=ev.filter(e=>e.date===dayBefore||e.date===dayAfter);
+        const nearby=ev.filter(e=>(e.date===dayBefore||e.date===dayAfter)&&!isReminderEntry(e)&&blocksBoarding(e));
         if(clashes.length>0||nearby.length>0){
           setTimeout(()=>setConflictWarning({event:newEv,clashes,nearby,dayBefore,dayAfter}),300);
         }
