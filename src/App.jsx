@@ -1,4 +1,4 @@
-// VERSION_CHECK: Payments-Not-Conflicts build - July 27 2026 v117
+// VERSION_CHECK: Things-To-Check-Inline-Reply build - July 28 2026 v119
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -983,16 +983,42 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
-  // Auto-remove EXACT duplicate events (same title, date and time) — the only case safe to delete without asking.
-  // Anything less certain (similar wording) is left for the Things to Check screen to flag, never auto-deleted.
+  // Auto-remove duplicate events when Eleanor is CONFIDENT. Two safe cases:
+  // 1. Exact same title + date + time.
+  // 2. Same day, and one title's meaningful words are a COMPLETE SUBSET of another's (e.g. "Wicksteed Park Trip"
+  //    ⊂ "Wicksteed Park (Coach Trip)") — the shorter adds nothing, so keep the richer one and drop the plain one.
+  // Anything genuinely uncertain (each has unique info, like a time the other lacks) is LEFT for Things to Check.
   useEffect(()=>{
     setEvents(prev=>{
-      const seen=new Set();const kept=[];let removed=0;
+      const filler=new Set(["the","a","an","to","for","of","at","on","in","and","with","my","trip","day","out","visit","see","go","going","event","am","pm"]);
+      const words=t=>new Set(cleanTitle(t||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2&&!filler.has(w)));
+      const hasTime=t=>/\d{1,2}[:.]\d{2}|\d{1,2}\s*(am|pm)/i.test(t||"");
+      // Pass 1: exact duplicates
+      const seen=new Set();let kept=[];let removed=0;
       for(const e of prev){
         const key=(cleanTitle(e.title||"").toLowerCase())+"|"+(e.date||"")+"|"+(e.time||"");
         if(seen.has(key)){removed++;continue;}
         seen.add(key);kept.push(e);
       }
+      // Pass 2: subset near-duplicates on the same day
+      const toDrop=new Set();
+      for(let i=0;i<kept.length;i++){
+        for(let j=0;j<kept.length;j++){
+          if(i===j||toDrop.has(kept[i].id)||toDrop.has(kept[j].id))continue;
+          if(kept[i].date!==kept[j].date)continue;
+          if(isReminderEntry(kept[i])||isReminderEntry(kept[j]))continue;
+          const a=words(kept[i].title),b=words(kept[j].title);
+          if(a.size<2||b.size<2)continue;
+          // is A a complete subset of B (every word of A in B), and B has more info?
+          const aSubsetOfB=[...a].every(w=>b.has(w))&&b.size>a.size;
+          if(aSubsetOfB){
+            // Don't drop A if A carries a time that B lacks (A may be the one with departure info)
+            if(hasTime(kept[i].title)&&!hasTime(kept[j].title))continue;
+            toDrop.add(kept[i].id);removed++;
+          }
+        }
+      }
+      if(toDrop.size>0)kept=kept.filter(e=>!toDrop.has(e.id));
       return removed>0?kept:prev;
     });
   },[]);
@@ -5799,7 +5825,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         <div style={SL}>Things to Check</div>
         {checks.length>0&&<button onClick={()=>{if(window.confirm("Clear all items from Things to Check? This dismisses them all.")){const nd=[...dismissedChecks,...checks.map(c=>c.id)];setDismissedChecks(nd);localStorage.setItem("papa_dismissed_checks",JSON.stringify(nd));}}} style={{padding:"6px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkFaint,fontFamily:FM,fontSize:8,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>Clear All</button>}
       </div>
-      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:18}}>Anything Eleanor isn't sure about and would like you to confirm. Tap Ask Eleanor to sort it in chat, or dismiss anything that isn't relevant.</div>
+      <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.6,marginBottom:18}}>Anything Eleanor isn't sure about and would like you to confirm. Reply to any card to sort it right here, remove a duplicate directly, or dismiss anything that isn't relevant.</div>
       {checks.length===0
         ?<div style={{textAlign:"center",padding:"40px 20px",color:C.inkFaint,fontFamily:FD,fontSize:16,fontStyle:"italic"}}>✦ All clear — nothing needs checking right now.</div>
         :checks.map(c=>(
@@ -5810,13 +5836,19 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{c.title}</div>
                 <div style={{fontSize:12,color:C.inkMid,fontFamily:FB,lineHeight:1.5}}>{c.detail}</div>
                 <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-                  <button onClick={()=>{
-                    const q=c.type==="holiday-end"?"When does my '"+c.title+"' holiday (starting "+c.date+") end? Please save the full dates.":c.type==="duplicate"?"Is '"+c.title+"' on "+c.date+" a duplicate? Should I remove one?":c.type==="time"?"What time is '"+c.title+"' on "+c.date+"?":"Can you help me check '"+c.title+"'?";
-                    setView("chat");setTimeout(()=>{setChatIn(q);sendChat(q);},200);
-                  }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Ask Eleanor</button>
+                  {c.type==="duplicate"&&c.eventId&&<button onClick={()=>{
+                    const ev=events.find(e=>e.id===c.eventId);
+                    if(ev&&window.confirm("Remove \""+ev.title+"\" on "+ev.date+"?\n\nThis deletes this duplicate from your calendar.")){
+                      setEvents(evs=>evs.filter(x=>x.id!==c.eventId));
+                      observeSignal("removed duplicate",ev.title);
+                      dismiss(c);
+                    }
+                  }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Remove this one</button>}
+                  <button onClick={()=>{setActiveReplySection("check"+c.id);setBriefReplyThread([]);}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>💬 Reply</button>
                   <button onClick={()=>{setCriticalOnly(false);setView("schedule");}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>View in Schedule</button>
                   <button onClick={()=>dismiss(c)} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Not relevant</button>
                 </div>
+                {activeReplySection==="check"+c.id&&<SectionReply sectionId={"check"+c.id} context={"Sarah is replying about this item on her Things to Check list: '"+c.title+"' on "+(c.date||"")+". The concern was: "+c.detail+" — help her resolve it, and if she wants an entry removed or changed, do it directly."}/>}
               </div>
             </div>
           </div>
