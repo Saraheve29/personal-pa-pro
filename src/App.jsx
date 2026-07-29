@@ -3548,29 +3548,6 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>
       )}
 
-      {editingEvent&&<div onClick={()=>setEditingEvent(null)} style={{position:"fixed",inset:0,background:"rgba(30,20,10,0.45)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:10,padding:"20px 20px 16px",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(30,20,10,0.3)"}}>
-          <div style={{fontFamily:FD,fontSize:18,color:C.ink,marginBottom:14}}>Edit this entry</div>
-          <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Title</label>
-          <input value={editingEvent.title||""} onChange={e=>setEditingEvent({...editingEvent,title:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:16,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,marginBottom:12,boxSizing:"border-box"}}/>
-          <div style={{display:"flex",gap:10,marginBottom:12}}>
-            <div style={{flex:1}}>
-              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Date</label>
-              <input type="date" value={editingEvent.date||""} onChange={e=>setEditingEvent({...editingEvent,date:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
-            </div>
-            <div style={{width:110}}>
-              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Time</label>
-              <input type="time" value={editingEvent.time||""} onChange={e=>setEditingEvent({...editingEvent,time:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:8,marginTop:4}}>
-            <button onClick={()=>{setEvents(evs=>evs.map(x=>x.id===editingEvent.id?{...x,title:editingEvent.title,date:editingEvent.date,time:editingEvent.time}:x));observeSignal("edited",editingEvent.title);setEditingEvent(null);}} style={{flex:1,padding:"12px",borderRadius:6,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Save</button>
-            <button onClick={()=>{if(window.confirm("Delete \""+(editingEvent.title||"this entry")+"\"?")){setEvents(evs=>evs.filter(x=>x.id!==editingEvent.id));observeSignal("deleted",editingEvent.title);recordMoment("Removed '"+(editingEvent.title||"an entry")+"' from calendar");setEditingEvent(null);}}} style={{padding:"12px 16px",borderRadius:6,border:`1px solid ${C.crimson}`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Delete</button>
-          </div>
-          <button onClick={()=>setEditingEvent(null)} style={{width:"100%",padding:"10px",marginTop:8,borderRadius:6,border:"none",background:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
-        </div>
-      </div>}
-
       {proactiveNudge&&view==="home"&&<div style={{background:`linear-gradient(135deg,${C.goldPale},${C.card})`,border:`1px solid ${C.goldBorder}`,borderLeft:`4px solid ${C.gold}`,borderRadius:8,padding:"13px 15px",marginBottom:12,boxShadow:`0 2px 12px ${C.shadow}`}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{fontSize:14}}>✦</span>
@@ -6471,6 +6448,31 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {view==="checks"  && ChecksView()}
         {view==="rules"  && RulesView()}
       </div>
+
+      {/* Edit Event Modal — top level so it appears over ANY view (home, checks, briefing, etc.) */}
+      {editingEvent&&<div onClick={()=>setEditingEvent(null)} style={{position:"fixed",inset:0,background:"rgba(30,20,10,0.45)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:10,padding:"20px 20px 16px",width:"100%",maxWidth:360,boxShadow:"0 8px 40px rgba(30,20,10,0.3)"}}>
+          <div style={{fontFamily:FD,fontSize:18,color:C.ink,marginBottom:14}}>Edit this entry</div>
+          <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Title</label>
+          <input value={editingEvent.title||""} onChange={e=>setEditingEvent({...editingEvent,title:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:16,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,marginBottom:12,boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:10,marginBottom:12}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Date</label>
+              <input type="date" value={editingEvent.date||""} onChange={e=>setEditingEvent({...editingEvent,date:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
+              {editingEvent.date&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginTop:4}}>{new Date(editingEvent.date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>}
+            </div>
+            <div style={{width:110}}>
+              <label style={{fontSize:9,fontFamily:FM,letterSpacing:"0.1em",textTransform:"uppercase",color:C.inkFaint}}>Time</label>
+              <input type="time" value={editingEvent.time||""} onChange={e=>setEditingEvent({...editingEvent,time:e.target.value})} style={{width:"100%",padding:"11px 13px",border:`1px solid ${C.borderSoft}`,borderRadius:6,fontSize:15,fontFamily:FB,color:C.ink,background:C.parchment,outline:"none",marginTop:4,boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button onClick={()=>{setEvents(evs=>evs.map(x=>x.id===editingEvent.id?{...x,title:editingEvent.title,date:editingEvent.date,time:editingEvent.time}:x));observeSignal("edited",editingEvent.title);setEditingEvent(null);}} style={{flex:1,padding:"12px",borderRadius:6,border:"none",background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Save</button>
+            <button onClick={()=>{if(window.confirm("Delete \""+(editingEvent.title||"this entry")+"\"?")){setEvents(evs=>evs.filter(x=>x.id!==editingEvent.id));observeSignal("deleted",editingEvent.title);recordMoment("Removed '"+(editingEvent.title||"an entry")+"' from calendar");setEditingEvent(null);}}} style={{padding:"12px 16px",borderRadius:6,border:`1px solid ${C.crimson}`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Delete</button>
+          </div>
+          <button onClick={()=>setEditingEvent(null)} style={{width:"100%",padding:"10px",marginTop:8,borderRadius:6,border:"none",background:"none",color:C.inkFaint,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>}
 
       {/* Weekly Goals Modal */}
       {showGoalsModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
