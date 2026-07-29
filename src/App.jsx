@@ -1,4 +1,4 @@
-// VERSION_CHECK: Things-To-Check-Inline-Reply build - July 28 2026 v119
+// VERSION_CHECK: Weekday-Date-Check build - July 28 2026 v121
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -90,7 +90,9 @@ const isReminderEntry=e=>{
 // Does this event actually prevent Sarah taking a dog boarding? Only things that take her AWAY from home
 // without the dog block it. Home tasks, payments, craft cabin, garden jobs, deliveries do NOT block boarding.
 // Works out which boarding dogs are CURRENTLY staying vs already gone. Shared by chat AND briefing so they can never disagree.
-// Strip stray escape characters that sometimes leak into titles/notes (e.g. "flowers\; cherry\," -> "flowers; cherry,")
+// Format an ISO date (YYYY-MM-DD) as UK style DD.MM.YYYY for display.
+const ukDate=s=>{if(!s)return "";const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+"."+m[2]+"."+m[1]:s;};
+// Strip stray escape characters that sometimes leak into titles/notes
 const cleanTitle=s=>(s||"").replace(/\\+([;,.\-])/g,"$1").replace(/\\+/g," ").replace(/\s+/g," ").trim();
 
 const computeDogStatus=(evs,todayStr)=>{
@@ -472,7 +474,7 @@ function ICalImport({onAdd}){
       <div style={{fontSize:9,color:C.gold,letterSpacing:"0.25em",textTransform:"uppercase",fontFamily:FM,marginBottom:12}}>{events.length} Upcoming Events</div>
       {events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
         <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
-          <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+          <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
           <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
           {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:4}}>{e.notes}</div>}
           <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
@@ -1364,9 +1366,14 @@ function AppInner(){
 
   const PARSE_SYS=`You are a smart calendar assistant. Extract EVERY date, appointment, trip, holiday, booking, plan or event from the text — no matter how long, messy or informal the input is. Be generous: if something looks like a date or plan, include it. Return ONLY valid JSON with no markdown fences, no explanation, nothing else:
 {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM","priority":"critical|high|medium|low","notes":string}],"summary":string}
-Rules:
-- If no year is mentioned assume ${today.getFullYear()} or ${today.getFullYear()+1} whichever is in the future
-- If no time is given use "09:00"
+CRITICAL DATE RULES — get these exactly right, Sarah relies on them:
+- TODAY is ${today.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} (${fmt(today)}). The current year is ${today.getFullYear()}.
+- Dates are written in UK/British style: day comes BEFORE month. "30th July" or "30/07" means the 30th day of July, NEVER the 7th day of the 30th month. Never use American month-first reading.
+- When the text gives a day-of-month (e.g. "30th July"), the date MUST end in that exact day number. "Thursday 30th July" is ${today.getFullYear()}-07-30 — the day is 30, so the date is ...-07-30, never -07-31 or -07-29. Copy the day number the person wrote exactly.
+- If a weekday AND a day-number are both given (e.g. "Thursday 30th July"), TRUST THE DAY NUMBER (30). Do not shift it to make the weekday match — just use the day the person wrote.
+- Choose the year that makes the date fall in the FUTURE relative to today (${fmt(today)}). Never pick a past year. If "30th July" is still ahead this year, use ${today.getFullYear()}; if it has passed, use ${today.getFullYear()+1}.
+- Convert times to 24-hour HH:MM. "4pm" = "16:00". If no time given use "09:00".
+Other rules:
 - If no date is clear use today: ${fmt(today)}
 - For multi-day trips create one event for the start date with notes covering the full range
 - Priority: flights/medical/school = critical, travel/bookings = high, social = medium, optional = low
@@ -2616,6 +2623,20 @@ EXTRACTION RULES:
         out.push({id:"time-"+e.id,type:"time",icon:"🕐",title:e.title,detail:"On "+e.date+" with no specific time set — what time is it?",eventId:e.id,date:e.date});
       }
     });
+    // DATE CHECK — if the title/notes name a weekday that does NOT match the stored date's actual weekday,
+    // the date may have been misread on entry. Flag it (never auto-change) so Sarah can confirm or fix in one tap.
+    const wkNames=["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+    fut.forEach(e=>{
+      const full=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+      const mentioned=wkNames.find(w=>new RegExp("\\b"+w+"\\b").test(full));
+      if(!mentioned)return;
+      const actual=new Date(e.date+"T12:00:00").getDay();
+      if(actual!==wkNames.indexOf(mentioned)){
+        const actualName=wkNames[actual][0].toUpperCase()+wkNames[actual].slice(1);
+        const saidName=mentioned[0].toUpperCase()+mentioned.slice(1);
+        out.push({id:"datecheck-"+e.id,type:"datecheck",icon:"📅",title:e.title,detail:"You wrote "+saidName+", but "+ukDate(e.date)+" is actually a "+actualName+". The date may be a day out — is it right?",eventId:e.id,date:e.date});
+      }
+    });
     return out.filter(c=>!dismissedChecks.includes(c.id)&&!dismissedChecks.includes((c.title||"").toLowerCase().trim()));
   }
 
@@ -3491,7 +3512,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           <div style={SL}>{result.events.length} Appointments Found</div>
           {result.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
             <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
-              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
               <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
               {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
               <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
@@ -4485,7 +4506,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               ):(
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                   <div style={{flex:1,cursor:"pointer"}} onClick={()=>setImgEventEdit(i)}>
-                    <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                    <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
                     <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
                     {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:5,lineHeight:1.5}}>{e.notes}</div>}
                     <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span>
@@ -4571,7 +4592,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={SL}>{docRes.events.length} Important Dates</div>
             {docRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
               <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
-                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
                 <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
                 {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
               </div>
@@ -4660,7 +4681,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={SL}>{pdfRes.events.length} Dates Found</div>
             {pdfRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
               <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
-                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+                <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
                 <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
                 {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
               </div>
@@ -4891,7 +4912,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           {linkRes.price&&<div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:10}}>💰 {linkRes.price}</div>}
           {linkRes.events?.length>0&&linkRes.events.map((e,i)=>(
             <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:8,borderRadius:4}}>
-              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time}</div>
+              <div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time}</div>
               <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:3}}>{e.title}</div>
               {e.notes&&<div style={{fontSize:11,color:C.inkLight,marginBottom:4}}>{e.notes}</div>}
             </div>
@@ -5004,7 +5025,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             <div style={SL}>{emailRes.events.length} Date{emailRes.events.length>1?"s":""} Found</div>
             {emailRes.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
               <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${p.color}`,padding:"11px 14px",marginBottom:6,borderRadius:4}}>
-                <div style={{fontSize:10,color:p.color,fontFamily:FM,marginBottom:2}}>{e.date} · {e.time} · <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>
+                <div style={{fontSize:10,color:p.color,fontFamily:FM,marginBottom:2}}>{ukDate(e.date)} · {e.time} · <span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>
                 <div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:2}}>{e.title}</div>
                 {e.notes&&<div style={{fontSize:11,color:C.inkLight}}>{e.notes}</div>}
               </div>
@@ -5028,7 +5049,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         {calSt==="connecting"&&<div style={{textAlign:"center",color:C.gold,padding:"28px 0",fontFamily:FM,fontSize:10,letterSpacing:"0.22em",textTransform:"uppercase"}} className="shimmer">Syncing calendar…</div>}
         {calSt==="mock"&&calEvs&&<div>
           <div style={{border:`1px solid ${C.emerald}40`,background:C.emeraldBg,padding:"12px 16px",marginBottom:14,fontSize:13,color:C.emerald,fontFamily:FB,borderRadius:4,borderLeft:`4px solid ${C.emerald}`}}>✦ {calEvs.length} event{calEvs.length!==1?"s":""} found in Google Calendar.</div>
-          {calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{e.date} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
+          {calEvs.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(<div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:3}}>{ukDate(e.date)} · {e.time}</div><div style={{fontSize:15,fontFamily:FD,color:C.ink,marginBottom:4}}>{e.title}</div><div style={{fontSize:12,color:C.inkLight,marginBottom:6}}>{e.notes}</div><span style={chip(p.color,p.bg)}>{p.glyph} {p.label}</span></div>);})}
           <div style={{height:8}}/>
           <button style={goldBtn()} onClick={()=>{addEvs(calEvs,"calendar");setCalSt("idle");setCalEvs(null);setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
           <button style={goldBtn(true)} onClick={()=>{setCalSt("idle");setCalEvs(null);}}>Discard</button>
@@ -5844,6 +5865,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                       dismiss(c);
                     }
                   }} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.crimson}`,background:C.card,color:C.crimson,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>🗑 Remove this one</button>}
+                  {c.type==="datecheck"&&c.eventId&&<button onClick={()=>{const ev=events.find(e=>e.id===c.eventId);if(ev)setEditingEvent(ev);}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.gold}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>📅 Fix the date</button>}
                   <button onClick={()=>{setActiveReplySection("check"+c.id);setBriefReplyThread([]);}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.goldPale,color:C.gold,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>💬 Reply</button>
                   <button onClick={()=>{setCriticalOnly(false);setView("schedule");}} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkLight,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>View in Schedule</button>
                   <button onClick={()=>dismiss(c)} style={{padding:"6px 12px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}>✕ Not relevant</button>
