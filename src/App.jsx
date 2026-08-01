@@ -1,4 +1,4 @@
-// VERSION_CHECK: Briefing-Calendar-Locked-Sync build - July 29 2026 v123
+// VERSION_CHECK: Trip-List-And-Today-Detail build - July 29 2026 v124
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -4014,7 +4014,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             </div>
             <div style={{fontSize:13,fontFamily:FB,color:C.inkMid,lineHeight:1.6}}>
               {todayEvs.length>0
-                ? "You've "+todayEvs.length+(todayEvs.length===1?" thing":" things")+" on today. "
+                ? "Today you've got "+todayEvs.map(e=>(e.time&&e.time!=="09:00"?e.time+" ":"")+cleanTitle(e.title)).join(", ")+". "
                 : "Nothing scheduled to attend today — a clear day. "}
               {needsAttention>0
                 ? "I've looked over your week and "+(probs.length>0?"flagged "+probs.length+(probs.length===1?" thing":" things")+" worth a glance":"")+(probs.length>0&&preps.length>0?", and ":"")+(preps.length>0?"prepared "+preps.length+(preps.length===1?" thing":" things")+" ready for you to approve":"")+" below."
@@ -4385,6 +4385,38 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           </div>
         </div>)}</div>}
         {resolvedBriefItems.length>0&&briefing.alerts?.some(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim()))&&<div style={{marginBottom:18}}><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>✓ Done</div>{briefing.alerts.filter(a=>resolvedBriefItems.includes((a.title||"").toLowerCase().trim())).map((a,i)=><div key={i} style={{padding:"8px 16px",marginBottom:4,display:"flex",gap:12,alignItems:"center",opacity:0.55}}><span style={{color:C.emerald,fontSize:14}}>☑</span><div style={{fontSize:13,fontFamily:FB,color:C.inkFaint,textDecoration:"line-through"}}>{a.title}</div><button onClick={()=>{const key=(a.title||"").toLowerCase().trim();const nr=resolvedBriefItems.filter(x=>x!==key);setResolvedBriefItems(nr);localStorage.setItem("papa_resolved_brief",JSON.stringify(nr));}} style={{marginLeft:"auto",background:"none",border:"none",color:C.inkFaint,fontSize:10,fontFamily:FM,cursor:"pointer"}}>undo</button></div>)}</div>}
+        {(()=>{
+          // Guaranteed complete list of ALL upcoming trips, computed from the calendar (nearest first) — so none
+          // are ever dropped, and the closest trip is always at the top. Independent of what the AI chose to include.
+          const tk=["holiday","trip","stay","break","clacton","haven","fuerteventura","butlins","skegness","parkdean","valley farm","seashore","coach","day trip","getaway","caravan","resort","castle","museum","zoo","yarmouth","hunstanton","wicksteed","cromer","warwick"];
+          const todayS=fmt(today);
+          const trips=events.filter(e=>{const t=(e.title||"").toLowerCase();return e.date>=todayS&&!isReminderEntry(e)&&(e.source==="link"||e.source==="import"||tk.some(k=>t.includes(k)));})
+            .sort((a,b)=>a.date.localeCompare(b.date));
+          // de-dupe by title+date
+          const seen=new Set();const uniq=trips.filter(e=>{const k=cleanTitle(e.title).toLowerCase()+e.date;if(seen.has(k))return false;seen.add(k);return true;});
+          if(uniq.length===0)return null;
+          return(<div style={{marginBottom:18}}>
+            <div style={SL}>Your Upcoming Trips</div>
+            <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
+              {uniq.slice(0,12).map((e,i)=>{
+                const days=Math.ceil((new Date(e.date+"T12:00:00")-new Date(todayS+"T12:00:00"))/86400000);
+                const dd=new Date(e.date+"T12:00:00");
+                return(
+                  <div key={e.id} onClick={()=>setEditingEvent(e)} style={{padding:"11px 14px",borderTop:i===0?"none":`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",background:i===0?C.goldPale:"transparent"}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontFamily:FD,color:C.ink,lineHeight:1.3}}>{cleanTitle(e.title)}</div>
+                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"?" · "+e.time:""}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:18,fontFamily:FD,fontWeight:300,lineHeight:1,color:days<=14?C.crimson:days<=30?C.gold:C.inkFaint}}>{days===0?"today":days===1?"1":days}</div>
+                      <div style={{fontSize:8,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em"}}>{days<=1?"":"DAYS"}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>);
+        })()}
         {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}<SectionReply sectionId="holidays" context="Sarah's holidays and trips"/></div>}
         {briefing.opportunities?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Opportunities</div>{briefing.opportunities.map((o,i)=><div key={i} style={{background:C.emeraldBg,border:`1px solid ${C.emerald}30`,borderLeft:`4px solid ${C.emerald}`,padding:"13px 16px",marginBottom:8,borderRadius:3}}><div style={{fontSize:14,fontFamily:FD,color:C.emerald,marginBottom:4,fontWeight:500}}>{o.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{o.detail}</div><div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}><button onClick={()=>{const dt=extractDateTime((o.title||"")+" "+(o.detail||""));if(dt){addEvs([{title:(o.title||"").slice(0,70),date:dt.date,time:dt.time,priority:"medium",notes:(o.detail||"").slice(0,140),source:"briefing"}],"briefing");alert("✓ Added to your calendar: "+(o.title||"").slice(0,50)+" on "+dt.date+(dt.hadTime?" at "+dt.time:""));}else{setChatIn("From my briefing, please add this to my calendar with the right date and time: "+o.title+" — "+(o.detail||""));setCriticalOnly(false);setView("chat");}}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.emerald}`,background:C.card,color:C.emerald,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>＋ Add to calendar</button><button onClick={()=>{setActiveReplySection("opp"+i);setBriefReplyThread([]);}} style={{padding:"5px 10px",borderRadius:4,border:`1px solid ${C.borderSoft}`,background:C.card,color:C.inkMid,fontFamily:FM,fontSize:8,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"}}>💬 Reply</button></div>{activeReplySection==="opp"+i&&<SectionReply sectionId={"opp"+i} context={"Sarah is replying about this opportunity from her briefing: '"+o.title+"' — "+(o.detail||"")}/>}</div>)}</div>}
         {briefing.recommendations?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Recommendations — tap any to reply</div>{briefing.recommendations.map((r,i)=><div key={i}><div onClick={()=>{setActiveReplySection("rec"+i);setBriefReplyThread([]);}} style={{background:C.card,border:`1px solid ${C.borderSoft}`,padding:"13px 16px",marginBottom:activeReplySection==="rec"+i?0:8,borderRadius:3,display:"flex",gap:14,alignItems:"flex-start",boxShadow:`0 1px 6px ${C.shadow}`,cursor:"pointer",position:"relative"}}><div style={{fontSize:20,color:C.goldBright,fontFamily:FD,lineHeight:1,paddingTop:2,minWidth:20,textAlign:"center",fontWeight:300}}>{i+1}</div><div><div style={{fontSize:14,fontFamily:FD,color:C.ink,marginBottom:4}}>{r.title}</div><div style={{fontSize:12,color:C.inkLight,fontFamily:FB,lineHeight:1.6}}>{r.detail}</div></div><div style={{position:"absolute",top:10,right:12,fontSize:10,color:C.inkFaint,fontFamily:FM}}>✎ reply</div></div>{activeReplySection==="rec"+i&&<div style={{marginBottom:8,padding:"0 4px"}}><SectionReply sectionId={"rec"+i} context={"Sarah is replying about this recommendation from her briefing: '"+r.title+"' — "+(r.detail||"")}/></div>}</div>)}</div>}
