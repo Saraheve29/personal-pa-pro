@@ -1,4 +1,4 @@
-// VERSION_CHECK: Crash-Fix-Undefined-Title build - August 4 2026 v126
+// VERSION_CHECK: Crash-Fix-At-Load build - August 4 2026 v127
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -756,7 +756,19 @@ function AppInner(){
   const [events, setEvents] = useState(()=>{
     try{
       const saved=localStorage.getItem("papa_events");
-      return saved?JSON.parse(saved):[];
+      if(!saved)return [];
+      const parsed=JSON.parse(saved);
+      if(!Array.isArray(parsed))return [];
+      // SAFETY: guarantee every event has a string title and a date, so no downstream code can crash on undefined.
+      return parsed
+        .filter(e=>e&&typeof e==="object"&&e.date)
+        .map(e=>({
+          ...e,
+          title:(typeof e.title==="string"&&e.title.trim())?e.title:(e.title==null?"Untitled":String(e.title)||"Untitled"),
+          date:String(e.date),
+          time:typeof e.time==="string"?e.time:(e.time==null?"":String(e.time)),
+          notes:typeof e.notes==="string"?e.notes:(e.notes==null?"":String(e.notes))
+        }));
     }catch{return [];}
   });
   const [view,      setView]     =useState("home");    // home | schedule | week | briefing | import | chat | add
