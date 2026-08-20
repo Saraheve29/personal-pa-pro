@@ -1,4 +1,4 @@
-// VERSION_CHECK: Reminders-Not-Tasks-In-Reasoning build - August 2 2026 v125
+// VERSION_CHECK: Crash-Fix-Undefined-Title build - August 4 2026 v126
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -992,6 +992,22 @@ function AppInner(){
   }
 
   useEffect(()=>{cleanupOldStorage();},[]);
+  // SAFETY: make sure every event has a string title, date and time — a missing title crashes downstream code
+  // (this is what caused the "Cannot read properties of undefined (reading 'replace')" crash).
+  useEffect(()=>{
+    setEvents(prev=>{
+      let changed=false;
+      const fixed=prev.map(e=>{
+        const t=typeof e.title==="string"?e.title:(e.title==null?"":String(e.title));
+        const d=typeof e.date==="string"?e.date:(e.date==null?"":String(e.date));
+        const tm=typeof e.time==="string"?e.time:(e.time==null?"":String(e.time));
+        if(t!==e.title||d!==e.date||tm!==e.time){changed=true;return{...e,title:t||"Untitled",date:d,time:tm};}
+        if(!t){changed=true;return{...e,title:"Untitled"};}
+        return e;
+      }).filter(e=>e.date);// drop any event with no date at all (unusable, would crash date code)
+      return changed||fixed.length!==prev.length?fixed:prev;
+    });
+  },[]);
   // Auto-remove duplicate events when Eleanor is CONFIDENT. Two safe cases:
   // 1. Exact same title + date + time.
   // 2. Same day, and one title's meaningful words are a COMPLETE SUBSET of another's (e.g. "Wicksteed Park Trip"
@@ -1484,12 +1500,12 @@ Other rules:
       const busyPeriods=[];
       futureEvents.forEach(e=>{
         const r=parseRange(e);
-        if(r&&r.end>r.start){const base=e.title.replace(/\s*\((start|end)\)\s*/i,"").trim();if(!busyPeriods.find(b=>b.title===base&&b.start===r.start))busyPeriods.push({title:base,start:r.start,end:r.end});}
+        if(r&&r.end>r.start){const base=(e.title||"").replace(/\s*\((start|end)\)\s*/i,"").trim();if(!busyPeriods.find(b=>b.title===base&&b.start===r.start))busyPeriods.push({title:base,start:r.start,end:r.end});}
       });
       // Also pair (Start)…(End) by title when no range in notes
-      futureEvents.filter(e=>/\(start\)/i.test(e.title)).forEach(s=>{
-        const base=s.title.replace(/\s*\(start\)\s*/i,"").trim();
-        const end=futureEvents.find(x=>x.title.replace(/\s*\(end\)\s*/i,"").trim()===base&&/\(end\)/i.test(x.title)&&x.date>=s.date);
+      futureEvents.filter(e=>/\(start\)/i.test(e.title||"")).forEach(s=>{
+        const base=(s.title||"").replace(/\s*\(start\)\s*/i,"").trim();
+        const end=futureEvents.find(x=>(x.title||"").replace(/\s*\(end\)\s*/i,"").trim()===base&&/\(end\)/i.test(x.title||"")&&x.date>=s.date);
         if(end&&!busyPeriods.find(b=>b.title===base&&b.start===s.date))busyPeriods.push({title:base,start:s.date,end:end.date});
       });
       // HOLIDAYS & TRIPS — group same-named trip events that span consecutive/near days into one away-period
@@ -1497,8 +1513,8 @@ Other rules:
       const tripEvs=futureEvents.filter(e=>tripKw.test((e.title||"")+" "+(e.notes||""))&&!isReminderEntry(e));
       const tripGroups={};
       tripEvs.forEach(e=>{
-        const base=e.title.replace(/\s*\((start|end|day \d+)\)\s*/i,"").replace(/\s+day \d+/i,"").trim().toLowerCase();
-        if(!tripGroups[base])tripGroups[base]={title:e.title.replace(/\s*\((start|end|day \d+)\)\s*/i,"").trim(),dates:[]};
+        const base=(e.title||"").replace(/\s*\((start|end|day \d+)\)\s*/i,"").replace(/\s+day \d+/i,"").trim().toLowerCase();
+        if(!tripGroups[base])tripGroups[base]={title:(e.title||"").replace(/\s*\((start|end|day \d+)\)\s*/i,"").trim(),dates:[]};
         tripGroups[base].dates.push(e.date);
         if(e.notes){const r=parseRange(e);if(r){tripGroups[base].dates.push(r.start,r.end);}}
       });
@@ -2551,7 +2567,7 @@ EXTRACTION RULES:
     fut.forEach(e=>{
       const isRealTrip=stayKw.test(e.title||"")&&!schoolMarker(e)&&!notAHoliday(e)&&!isReminderish(e);
       if(isRealTrip&&!hasRange(e)&&!alreadyCovered(e)&&!/\((start|end|check.?in|check.?out)\)/i.test(e.title||"")){
-        if(!fut.find(x=>x!==e&&x.title.replace(/\s*\((start|end)\)/i,"").trim()===e.title.replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
+        if(!fut.find(x=>x!==e&&(x.title||"").replace(/\s*\((start|end)\)/i,"").trim()===(e.title||"").replace(/\s*\((start|end)\)/i,"").trim()&&x.date!==e.date)){
           out.push({id:"end-"+e.id,type:"holiday-end",icon:"🏖",title:e.title,detail:"Starts "+e.date+" but no end date saved — when does it finish?",eventId:e.id,date:e.date});
         }
       }
