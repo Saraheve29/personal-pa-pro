@@ -1,4 +1,4 @@
-// VERSION_CHECK: Crash-Fix-At-Load build - August 4 2026 v127
+// VERSION_CHECK: Rover-Dog-Sitting-Intelligence build - August 4 2026 v128
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -4443,6 +4443,46 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                 );
               })}
             </div>
+          </div>);
+        })()}
+        {(()=>{
+          // ROVER DOG SITTING — all upcoming dog bookings, computed from the calendar (nearest first), so Sarah
+          // can see her paid work clearly. Uses the same recognition as the dog-status logic (any dog, by booking type).
+          const todayS=fmt(today);
+          const dogEvs=events.filter(e=>{
+            const t=((e.title||"")+" "+(e.notes||"")).toLowerCase();
+            return e.date>=todayS&&/boarding|day care|doggy day|dog sitting|sitting for|dog walk|pet sitting|rover|drop.?off|pick.?up/.test(t);
+          }).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||"")));
+          const seen=new Set();const uniq=dogEvs.filter(e=>{const k=cleanTitle(e.title).toLowerCase()+e.date+(e.time||"");if(seen.has(k))return false;seen.add(k);return true;});
+          if(uniq.length===0)return null;
+          // Try to surface the dog's name and any fee from each booking
+          const dogName=e=>{
+            let m=(e.title||"").match(/(?:for|sitting|caring for|looking after|walk(?:ing)?|care|boarding|day care)\s*[-–—:]?\s*([A-Z][a-z]+)/)||(e.title||"").match(/[-–—]\s*([A-Z][a-z]+)/)||(e.title||"").match(/\b([A-Z][a-z]{2,})(?:'s)\b/);
+            return m?m[1]:null;
+          };
+          const fee=e=>{const m=((e.title||"")+" "+(e.notes||"")).match(/£\s?(\d+(?:\.\d{2})?)/);return m?"£"+m[1]:null;};
+          return(<div style={{marginBottom:18}}>
+            <div style={{...SL,color:C.emerald}}>🐕 Rover Dog Sitting</div>
+            <div style={{background:C.card,border:`1px solid ${C.emerald}30`,borderRadius:6,overflow:"hidden",boxShadow:`0 1px 8px ${C.shadow}`}}>
+              {uniq.slice(0,14).map((e,i)=>{
+                const days=Math.ceil((new Date(e.date+"T12:00:00")-new Date(todayS+"T12:00:00"))/86400000);
+                const dd=new Date(e.date+"T12:00:00");
+                const nm=dogName(e);const f=fee(e);
+                return(
+                  <div key={e.id} onClick={()=>setEditingEvent(e)} style={{padding:"11px 14px",borderTop:i===0?"none":`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",background:i===0?C.emeraldBg:"transparent"}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontFamily:FD,color:C.ink,lineHeight:1.3}}>{cleanTitle(e.title)}</div>
+                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"?" · "+e.time:""}{f?" · "+f:""}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:18,fontFamily:FD,fontWeight:300,lineHeight:1,color:days<=3?C.emerald:days<=14?C.gold:C.inkFaint}}>{days===0?"today":days===1?"1":days}</div>
+                      <div style={{fontSize:8,color:C.inkFaint,fontFamily:FM,letterSpacing:"0.1em"}}>{days===0?"":days===1?"DAY":"DAYS"}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <SectionReply sectionId="dogsitting" context="Sarah's Rover dog-sitting bookings"/>
           </div>);
         })()}
         {briefing.holiday_advice?.length>0&&<div style={{marginBottom:18}}><div style={SL}>Holiday Intelligence</div>{briefing.holiday_advice.map((h,i)=><div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"13px 16px",marginBottom:8,borderRadius:3,cursor:"pointer",boxShadow:`0 1px 6px ${C.shadow}`}} onClick={()=>setBriefExp(briefExp===`h${i}`?null:`h${i}`)}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:15,fontFamily:FD,color:C.ink}}>{h.holiday}</div><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{textAlign:"right"}}><div style={{fontSize:18,fontFamily:FD,color:h.days_until<=14?C.crimson:h.days_until<=30?C.gold:C.inkFaint,fontWeight:300,lineHeight:1}}>{h.days_until}</div><div style={{fontSize:9,color:C.inkFaint,fontFamily:FM}}>days</div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM}}>{briefExp===`h${i}`?"▲":"▼"}</div></div></div><div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,marginTop:3}}>{h.date_range}</div>{briefExp===`h${i}`&&<div style={{fontSize:13,color:C.inkMid,fontFamily:FB,lineHeight:1.65,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderSoft}`}}>{h.advice}</div>}</div>)}<SectionReply sectionId="holidays" context="Sarah's holidays and trips"/></div>}
