@@ -1,4 +1,4 @@
-// VERSION_CHECK: Rover-Dog-Sitting-Intelligence build - August 4 2026 v128
+// VERSION_CHECK: Briefing-Reply-Image-Upload build - August 4 2026 v129
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -766,7 +766,7 @@ function AppInner(){
           ...e,
           title:(typeof e.title==="string"&&e.title.trim())?e.title:(e.title==null?"Untitled":String(e.title)||"Untitled"),
           date:String(e.date),
-          time:typeof e.time==="string"?e.time:(e.time==null?"":String(e.time)),
+          time:(typeof e.time==="string"&&e.time!=="null"&&e.time!=="undefined")?e.time:(e.time==null?"":String(e.time)),
           notes:typeof e.notes==="string"?e.notes:(e.notes==null?"":String(e.notes))
         }));
     }catch{return [];}
@@ -826,6 +826,7 @@ function AppInner(){
   const [briefReplyText,setBriefReplyText]=useState("");
   const [briefReplyThread,setBriefReplyThread]=useState([]); // {role,text}
   const [briefReplyBusy,setBriefReplyBusy]=useState(false);
+  const [briefReplyImg,setBriefReplyImg]=useState(null);
   const [resolvedBriefItems,setResolvedBriefItems]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_resolved_brief")||"[]");}catch{return [];}});
   const [dismissedChecks,setDismissedChecks]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_dismissed_checks")||"[]");}catch{return [];}});
   const [sessionSummary,setSessionSummary]=useState(()=>localStorage.getItem("papa_last_session")||"");
@@ -1886,10 +1887,12 @@ Other rules:
   }
 
   async function sendBriefReply(text,sectionContext){
-    if(!text.trim()||briefReplyBusy)return;
-    const userMsg=text.trim();
+    if((!text.trim()&&!briefReplyImg)||briefReplyBusy)return;
+    const userMsg=text.trim()||"(sent an image)";
+    const sentImg=briefReplyImg;
     setBriefReplyThread(t=>[...t,{role:"user",text:userMsg}]);
     setBriefReplyText("");
+    setBriefReplyImg(null);
     setBriefReplyBusy(true);
     try{
       const now=getToday();
@@ -1909,6 +1912,11 @@ Other rules:
         "Keep it brief and kind. One follow-up question at most."
       ].filter(Boolean).join("\n\n");
       const threadForAI=[...briefReplyThread,{role:"user",text:userMsg}].map(m=>({role:m.role,content:m.text}));
+      // If Sarah attached an image, include it with her latest message so Eleanor can see it.
+      if(sentImg&&threadForAI.length>0){
+        const last=threadForAI[threadForAI.length-1];
+        threadForAI[threadForAI.length-1]={role:"user",content:[{type:"image",source:{type:"base64",media_type:sentImg.mime||"image/jpeg",data:sentImg.b64}},{type:"text",text:last.content||"Please look at this image and help me."}]};
+      }
       const raw=await callAI({max_tokens:1200,system:sys,messages:threadForAI});
       let didAction=false;
       const rx=/\[SCHEDULE_ACTION:(\{.*?\})\]/g;let m2;
@@ -1942,10 +1950,18 @@ Other rules:
               ))}
             </div>}
             {briefReplyBusy&&<div style={{fontSize:10,color:C.gold,fontFamily:FM,marginBottom:6}} className="shimmer">Eleanor is replying…</div>}
+            {briefReplyImg&&<div style={{marginBottom:8,display:"flex",alignItems:"center",gap:8,background:C.parchment,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`}}>
+              <img src={"data:"+(briefReplyImg.mime||"image/jpeg")+";base64,"+briefReplyImg.b64} alt="attached" style={{width:40,height:40,objectFit:"cover",borderRadius:5}}/>
+              <span style={{flex:1,fontSize:11,fontFamily:FB,color:C.inkMid}}>Image attached</span>
+              <button onClick={()=>setBriefReplyImg(null)} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:12,cursor:"pointer"}}>✕</button>
+            </div>}
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <label style={{width:42,height:42,borderRadius:"50%",border:`1px solid ${C.goldBorder}`,background:C.card,color:C.gold,cursor:"pointer",fontSize:17,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                📎<input type="file" accept="image/*" style={{display:"none"}} onChange={ev=>{const f=ev.target.files&&ev.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const b64=String(rd.result).split(",")[1];setBriefReplyImg({b64,mime:f.type||"image/jpeg"});};rd.readAsDataURL(f);ev.target.value="";}}/>
+              </label>
               <input value={briefReplyText} onChange={e=>setBriefReplyText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendBriefReply(briefReplyText,context);}} placeholder="Reply to Eleanor…" autoFocus style={{flex:1,padding:"12px 15px",border:`1px solid ${C.goldBorder}`,fontSize:16,background:C.parchment,color:C.ink,fontFamily:FB,outline:"none",borderRadius:20,lineHeight:1.3}}/>
-              <button onClick={()=>sendBriefReply(briefReplyText,context)} disabled={briefReplyBusy||!briefReplyText.trim()} style={{width:42,height:42,borderRadius:"50%",border:"none",background:briefReplyBusy||!briefReplyText.trim()?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:"pointer",fontSize:16,flexShrink:0}}>→</button>
-              <button onClick={()=>{setActiveReplySection(null);setBriefReplyText("");}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>✕</button>
+              <button onClick={()=>sendBriefReply(briefReplyText,context)} disabled={briefReplyBusy||(!briefReplyText.trim()&&!briefReplyImg)} style={{width:42,height:42,borderRadius:"50%",border:"none",background:briefReplyBusy||(!briefReplyText.trim()&&!briefReplyImg)?C.borderSoft:`linear-gradient(135deg,${C.gold},${C.goldBright})`,color:C.card,cursor:"pointer",fontSize:16,flexShrink:0}}>→</button>
+              <button onClick={()=>{setActiveReplySection(null);setBriefReplyText("");setBriefReplyImg(null);}} style={{background:"none",border:"none",color:C.inkFaint,fontFamily:FM,fontSize:9,cursor:"pointer",flexShrink:0}}>✕</button>
             </div>
           </div>}
       </div>
@@ -4433,7 +4449,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   <div key={e.id} onClick={()=>setEditingEvent(e)} style={{padding:"11px 14px",borderTop:i===0?"none":`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",background:i===0?C.goldPale:"transparent"}}>
                     <div style={{flex:1}}>
                       <div style={{fontSize:14,fontFamily:FD,color:C.ink,lineHeight:1.3}}>{cleanTitle(e.title)}</div>
-                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"?" · "+e.time:""}</div>
+                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"&&/^\d{1,2}:/.test(e.time)?" · "+e.time:""}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:18,fontFamily:FD,fontWeight:300,lineHeight:1,color:days<=14?C.crimson:days<=30?C.gold:C.inkFaint}}>{days===0?"today":days===1?"1":days}</div>
@@ -4472,7 +4488,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
                   <div key={e.id} onClick={()=>setEditingEvent(e)} style={{padding:"11px 14px",borderTop:i===0?"none":`1px solid ${C.borderSoft}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",background:i===0?C.emeraldBg:"transparent"}}>
                     <div style={{flex:1}}>
                       <div style={{fontSize:14,fontFamily:FD,color:C.ink,lineHeight:1.3}}>{cleanTitle(e.title)}</div>
-                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"?" · "+e.time:""}{f?" · "+f:""}</div>
+                      <div style={{fontSize:10,fontFamily:FM,color:C.inkFaint,marginTop:2}}>{dd.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long"})}{e.time&&e.time!=="09:00"&&/^\d{1,2}:/.test(e.time)?" · "+e.time:""}{f?" · "+f:""}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:18,fontFamily:FD,fontWeight:300,lineHeight:1,color:days<=3?C.emerald:days<=14?C.gold:C.inkFaint}}>{days===0?"today":days===1?"1":days}</div>
