@@ -1,4 +1,4 @@
-// VERSION_CHECK: Briefing-Reply-Image-Upload build - August 4 2026 v129
+// VERSION_CHECK: Unmissable-Save-Step build - August 29 2026 v131
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1500,6 +1500,9 @@ Other rules:
         :"No upcoming events";
       // MULTI-DAY BUSY PERIODS — detect date ranges (dog boarding, holidays, stays) so 'am I free' checks span them
       const parseRange=(e)=>{
+        // Prefer a real stored end date field if present
+        const ed=e.endDate||e.end||e.dateEnd||null;
+        if(ed&&/^\d{4}-\d{2}-\d{2}/.test(String(ed))&&e.date&&String(ed)>e.date)return{start:e.date,end:String(ed).slice(0,10)};
         const txt=(e.notes||"")+" "+(e.title||"");
         // dd/mm/yyyy - dd/mm/yyyy
         let m=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–to]+\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -1507,6 +1510,9 @@ Other rules:
         // yyyy-mm-dd to yyyy-mm-dd
         m=txt.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
         if(m)return{start:m[1],end:m[2]};
+        // "4 nights" / "3 night" duration from a start date
+        const nm=txt.match(/(\d{1,2})\s*nights?/i);
+        if(nm&&e.date){const d=new Date(e.date+"T12:00:00");d.setDate(d.getDate()+parseInt(nm[1]));return{start:e.date,end:fmt(d)};}
         return null;
       };
       // Pair up (Start)/(End) events with the same base title, plus any explicit ranges in notes
@@ -2078,23 +2084,39 @@ Other rules:
     // NOT free days; they cost significant energy. Computed from any date range found on a trip entry.
     const travelDaysCtx=(()=>{
       const spans=[];
+      const todayS=fmt(today);
       allEvs.forEach(e=>{
         const t=(e.title||"").toLowerCase();
         if(!tripKeywords.some(k=>t.includes(k)))return;
         const txt=(e.notes||"")+" "+(e.title||"");
         let s=null,en=null;
-        const m1=txt.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|-|–|until)\s*(\d{4}-\d{2}-\d{2})/i);
-        const m2=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(?:to|-|–|until)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if(m1){s=m1[1];en=m1[2];}
-        else if(m2){s=`${m2[3]}-${String(m2[2]).padStart(2,"0")}-${String(m2[1]).padStart(2,"0")}`;en=`${m2[6]}-${String(m2[5]).padStart(2,"0")}-${String(m2[4]).padStart(2,"0")}`;}
+        // Prefer a real stored end date field
+        const ed=e.endDate||e.end||e.dateEnd||null;
+        if(ed&&/^\d{4}-\d{2}-\d{2}/.test(String(ed))&&e.date&&String(ed).slice(0,10)>e.date){s=e.date;en=String(ed).slice(0,10);}
+        if(!s){
+          const m1=txt.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|-|–|until)\s*(\d{4}-\d{2}-\d{2})/i);
+          const m2=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(?:to|-|–|until)\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+          const nm=txt.match(/(\d{1,2})\s*nights?/i);
+          if(m1){s=m1[1];en=m1[2];}
+          else if(m2){s=`${m2[3]}-${String(m2[2]).padStart(2,"0")}-${String(m2[1]).padStart(2,"0")}`;en=`${m2[6]}-${String(m2[5]).padStart(2,"0")}-${String(m2[4]).padStart(2,"0")}`;}
+          else if(nm&&e.date){const d=new Date(e.date+"T12:00:00");d.setDate(d.getDate()+parseInt(nm[1]));s=e.date;en=fmt(d);}
+        }
         if(s&&en&&en>s)spans.push({title:e.title,start:s,end:en,mode:(txt.match(/\b(train|coach|bus|car|flight|fly|plane|taxi|drive|driving)\b/i)||[])[1]||null});
       });
       if(!spans.length)return "";
+      // Is Sarah travelling HOME today, or away today?
+      const homeToday=spans.filter(sp=>sp.end===todayS);
+      const awayToday=spans.filter(sp=>sp.start<todayS&&sp.end>todayS);
+      const outToday=spans.filter(sp=>sp.start===todayS);
+      let todayNote="";
+      if(homeToday.length)todayNote="\n>>> TODAY ("+todayS+") Sarah is TRAVELLING HOME from "+homeToday.map(s=>s.title).join(", ")+". This is a tiring travel day — say so clearly at the top of the briefing, and suggest she rest once home. Do NOT call today free or clear.";
+      else if(outToday.length)todayNote="\n>>> TODAY ("+todayS+") Sarah is TRAVELLING OUT to "+outToday.map(s=>s.title).join(", ")+" — a travel day. Acknowledge it and the journey ahead.";
+      else if(awayToday.length)todayNote="\n>>> TODAY ("+todayS+") Sarah is AWAY on "+awayToday.map(s=>s.title).join(", ")+" (mid-trip). Frame the day around being on holiday.";
       const lines=spans.map(sp=>{
         const mode=sp.mode?" by "+sp.mode:"";
         return "- "+sp.title+": OUTWARD TRAVEL DAY "+sp.start+" and RETURN TRAVEL DAY "+sp.end+mode+" (both are travel days, NOT free days)";
       });
-      return "🚆 TRAVEL DAYS (Sarah has ME/CFS — travelling is genuinely draining and takes most of a day. The FIRST and LAST day of every trip involve a journey):\n"+lines.join("\n")
+      return "🚆 TRAVEL DAYS (Sarah has ME/CFS — travelling is genuinely draining and takes most of a day. The FIRST and LAST day of every trip involve a journey):\n"+lines.join("\n")+todayNote
         +"\nCRITICAL: NEVER describe the first or last day of a trip as 'completely clear', 'free', 'a rest day', or 'nothing on'. On the last day Sarah is travelling HOME — say so, and treat it as an occupied, tiring day. Suggest recovery time AFTER a travel day rather than activities ON it.";
     })();
     const hour=new Date().getHours();
@@ -3564,6 +3586,10 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
 
         {/* Events */}
         {result.events?.length>0&&<div style={{marginBottom:8}}>
+          <div style={{background:C.goldPale,border:`2px solid ${C.gold}`,borderRadius:8,padding:"12px 14px",marginBottom:12,textAlign:"center"}}>
+            <div style={{fontSize:13,fontFamily:FD,color:C.ink,marginBottom:3}}>⚠ These aren't saved yet</div>
+            <div style={{fontSize:11.5,fontFamily:FB,color:C.inkMid,lineHeight:1.5}}>I found {result.events.length} {result.events.length===1?"booking":"bookings"} below. Tap the green <b>Add All Events</b> button at the bottom to save {result.events.length===1?"it":"them"} to your calendar — otherwise {result.events.length===1?"it":"they"} will be lost.</div>
+          </div>
           <div style={SL}>{result.events.length} Appointments Found</div>
           {result.events.map((e,i)=>{const p=PM[e.priority]||PM.medium;return(
             <div key={i} style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderLeft:`4px solid ${C.goldBorder}`,padding:"12px 15px",marginBottom:7,borderRadius:4}}>
@@ -3576,7 +3602,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>}
 
         <div style={{height:8}}/>
-        <button style={goldBtn()} onClick={onAdd}>Add All Events to Schedule</button>
+        {result.events?.length>0&&<button onClick={onAdd} style={{width:"100%",padding:"16px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.emerald},#3a7a5a)`,color:"#fff",fontFamily:FM,fontSize:13,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",boxShadow:`0 3px 14px ${C.emerald}55`,marginBottom:8}}>✓ Add {result.events.length} {result.events.length===1?"Booking":"Bookings"} to My Calendar</button>}
+        {!(result.events?.length>0)&&<button style={goldBtn()} onClick={onAdd}>Add All Events to Schedule</button>}
         <button style={goldBtn(true)} onClick={onDiscard}>Discard</button>
       </div>
     );
@@ -4510,8 +4537,13 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   );
 
   /* ── IMPORT VIEW ── */
-  const ImportView=()=>(
+  const ImportView=()=>{
+    const unsaved=(pasteRes?.events?.length||0)+(imgRes?.events?.length||0)+(docRes?.events?.length||0)+(pdfRes?.events?.length||0)+(emailRes?.events?.length||0);
+    return(
     <div>
+      {unsaved>0&&<div style={{position:"sticky",top:0,zIndex:30,background:`linear-gradient(135deg,${C.gold},${C.goldBright})`,borderRadius:8,padding:"12px 14px",marginBottom:14,boxShadow:`0 3px 14px ${C.gold}55`}}>
+        <div style={{fontSize:12.5,fontFamily:FD,color:"#fff",lineHeight:1.5}}>⚠ You have {unsaved} {unsaved===1?"booking":"bookings"} found but NOT yet saved. Scroll down and tap the green save button, or {unsaved===1?"it":"they"} will be lost when you leave this screen.</div>
+      </div>}
       <div style={SL}>Import Appointments</div>
 
       {/* Add a note for Eleanor - uncontrolled to prevent typing lag */}
@@ -5160,7 +5192,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
         </div>}
       </div>}
     </div>
-  );
+  );};
 
   /* ── CHAT VIEW ── */
   const ChatView=()=>(
