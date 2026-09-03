@@ -1,4 +1,4 @@
-// VERSION_CHECK: Unmissable-Save-Step build - August 29 2026 v131
+// VERSION_CHECK: Checker-Boarding-Span-Fix build - September 1 2026 v132
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -2813,13 +2813,34 @@ EXTRACTION RULES:
         const sameDayReminders=sameDayAll.filter(e=>isReminderEntry(e));
         const before=events.filter(e=>e.date===dayBefore&&blocksBoarding(e));
         const after=events.filter(e=>e.date===dayAfter&&blocksBoarding(e));
-        // Also check multi-day busy periods (holidays, dog boarding) that span this date
+        // Also check multi-day busy periods (holidays, dog boarding) that span this date.
         let spanBusy=null;
         events.forEach(e=>{
           const txt=(e.notes||"")+" "+(e.title||"");
+          // (a) explicit date range written in the text
           const m=txt.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–to]+\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)||txt.match(/(\d{4}-\d{2}-\d{2})\s*[-–to]+\s*(\d{4}-\d{2}-\d{2})/);
           if(m){let s,en;if(m.length===7){s=`${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;en=`${m[6]}-${String(m[5]).padStart(2,"0")}-${String(m[4]).padStart(2,"0")}`;}else{s=m[1];en=m[2];}if(dateStr>=s&&dateStr<=en&&blocksBoarding(e))spanBusy=e;}
+          // (b) explicit end-date field on the event
+          const ed=e.endDate||e.end||e.dateEnd;
+          if(ed&&/^\d{4}-\d{2}-\d{2}/.test(String(ed))&&e.date&&dateStr>=e.date&&dateStr<=String(ed).slice(0,10)&&blocksBoarding(e))spanBusy=e;
+          // (c) "N nights" duration from a start date
+          const nm=txt.match(/(\d{1,2})\s*nights?/i);
+          if(nm&&e.date){const dd=new Date(e.date+"T12:00:00");dd.setDate(dd.getDate()+parseInt(nm[1]));const en2=fmt(dd);if(dateStr>=e.date&&dateStr<=en2&&blocksBoarding(e))spanBusy=e;}
         });
+        // (d) MOST IMPORTANT: a boarding stored as an Arrival/Drop-Off event + a Departure/Pick-Up event.
+        // Pair them by the dog/booking name and treat every day in between as busy.
+        if(!spanBusy){
+          const norm=t=>(t||"").toLowerCase().replace(/\b(arrival|arrive|arrives|drop.?off|drop|departure|depart|departs|pick.?up|pickup|collect|collection|start|end|begins?|ends?)\b/g,"").replace(/[-–—:]/g," ").replace(/\s+/g," ").trim();
+          const isArrival=t=>/\b(arrival|arrive|arrives|drop.?off|drop|start|begins?)\b/i.test(t||"");
+          const isDeparture=t=>/\b(departure|depart|departs|pick.?up|pickup|collect|collection|end|ends?)\b/i.test(t||"");
+          const arrivals=events.filter(e=>blocksBoarding(e)&&isArrival(e.title));
+          arrivals.forEach(a=>{
+            const base=norm(a.title);
+            if(!base)return;
+            const dep=events.find(e=>blocksBoarding(e)&&isDeparture(e.title)&&norm(e.title)===base&&e.date>=a.date);
+            if(dep&&dateStr>=a.date&&dateStr<=dep.date)spanBusy={...a,title:base.replace(/\brover\b/i,"").replace(/\bboarding\b/i,"").trim()||a.title,_start:a.date,_end:dep.date};
+          });
+        }
         const timeClash=d.time?sameDay.filter(e=>e.time&&e.time===d.time):[];
         const isFree=sameDay.length===0&&!spanBusy;
         const hasConflict=timeClash.length>0;
