@@ -1,4 +1,4 @@
-// VERSION_CHECK: Deletion-Safety-Net build - September 11 2026 v133
+// VERSION_CHECK: Cancel-Removes-Whole-Booking build - September 13 2026 v134
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1812,9 +1812,20 @@ Other rules:
           }
           if(action.action==="delete"||action.action==="move"||action.action==="cancel"){
             actionExecuted=true;
-            // Delete matching event by title similarity and date
+            const wantTitle=(action.title||"").toLowerCase().trim();
+            // Core name — strip booking-type words so "Isla's Rover Boarding - Drop Off" matches "Isla Pick Up" etc.
+            const coreName=t=>(t||"").toLowerCase().replace(/\b(rover|boarding|dog|sitting|day care|doggy|drop.?off|drop|pick.?up|pickup|collect|collection|arrival|arrive|departure|depart|start|end|begins?|ends?)\b/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+            const wantCore=coreName(wantTitle);
             setEvents(ev=>ev.filter(e=>{
-              const titleMatch=e.title.toLowerCase().includes(action.title.toLowerCase().slice(0,10))||action.title.toLowerCase().includes(e.title.toLowerCase().slice(0,10));
+              const et=(e.title||"").toLowerCase();
+              const eCore=coreName(et);
+              // Title matches if: substring either way, OR the core names match (e.g. both are "isla")
+              const titleMatch=et.includes(wantTitle.slice(0,8))||wantTitle.includes(et.slice(0,8))||(wantCore.length>=2&&eCore.length>=2&&(eCore===wantCore||eCore.includes(wantCore)||wantCore.includes(eCore)));
+              if(!titleMatch)return true;// keep — not this event
+              // For a cancel/delete of a dog boarding, remove EVERY related entry (drop-off AND pick-up), regardless of which date was named.
+              const isBoardingPair=/boarding|day care|doggy|sitting|drop.?off|pick.?up|arrival|departure/i.test(et)&&wantCore.length>=2&&eCore===wantCore;
+              if(isBoardingPair)return false;// remove all parts of this booking
+              // Otherwise require the date to match (so we don't delete an unrelated event with a similar name)
               const dateMatch=!action.date||e.date===action.date||e.date===action.fromDate;
               return !(titleMatch&&dateMatch);
             }));
@@ -1846,7 +1857,18 @@ Other rules:
                 let a;try{a=JSON.parse(rm[1]);}catch{const inner=rm[1].replace(/^\{|\}$/g,"");a={};inner.split(",").forEach(p=>{const ci=p.indexOf(":");if(ci>0){a[p.slice(0,ci).trim().replace(/["']/g,"")]=p.slice(ci+1).trim().replace(/["']/g,"");}});}
                 if(a.action==="delete"||a.action==="move"||a.action==="cancel"){
                   actionExecuted=true;
-                  setEvents(ev=>ev.filter(e=>{const tm=e.title.toLowerCase().includes((a.title||"").toLowerCase().slice(0,10))||(a.title||"").toLowerCase().includes(e.title.toLowerCase().slice(0,10));const dm=!a.date||e.date===a.date||e.date===a.fromDate;return !(tm&&dm);}));
+                  const wantT=(a.title||"").toLowerCase().trim();
+                  const coreN=t=>(t||"").toLowerCase().replace(/\b(rover|boarding|dog|sitting|day care|doggy|drop.?off|drop|pick.?up|pickup|collect|collection|arrival|arrive|departure|depart|start|end|begins?|ends?)\b/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+                  const wantC=coreN(wantT);
+                  setEvents(ev=>ev.filter(e=>{
+                    const et=(e.title||"").toLowerCase();const eC=coreN(et);
+                    const tm=et.includes(wantT.slice(0,8))||wantT.includes(et.slice(0,8))||(wantC.length>=2&&eC.length>=2&&(eC===wantC||eC.includes(wantC)||wantC.includes(eC)));
+                    if(!tm)return true;
+                    const isPair=/boarding|day care|doggy|sitting|drop.?off|pick.?up|arrival|departure/i.test(et)&&wantC.length>=2&&eC===wantC;
+                    if(isPair)return false;
+                    const dm=!a.date||e.date===a.date||e.date===a.fromDate;
+                    return !(tm&&dm);
+                  }));
                 }
                 if(a.action==="add"||a.action==="move"){const nd=a.toDate||a.date;if(nd){actionExecuted=true;setTimeout(()=>setEvents(ev=>[...ev,{id:Date.now()+Math.random()*1000,title:a.title,date:nd,time:a.time||"09:00",priority:a.priority||"medium",notes:a.notes||"",source:"eleanor"}]),200);}}
               }catch{}
