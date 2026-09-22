@@ -1,4 +1,4 @@
-// VERSION_CHECK: Cancel-Removes-Whole-Booking build - September 13 2026 v134
+// VERSION_CHECK: Birthday-Dedup-And-Flag build - September 22 2026 v136
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -1060,6 +1060,31 @@ function AppInner(){
       return removed>0?kept:prev;
     });
   },[]);
+  // Auto-remove EXACT duplicate birthdays (same person AND same date) — safe, they're identical. A same-name
+  // birthday on a DIFFERENT date is NOT auto-removed (I can't know which date is right) — it's flagged on Things
+  // to Check for Sarah to choose. Also clears the reminder events / planned costs tied to the removed duplicate.
+  useEffect(()=>{
+    setBirthdays(prev=>{
+      const seen=new Map();const kept=[];const dropIds=[];
+      for(const b of prev){
+        const nm=(b.name||"").toLowerCase().trim();
+        if(!nm){kept.push(b);continue;}
+        const key=nm+"|"+(b.monthDay||"");
+        if(seen.has(key)){
+          const idx=seen.get(key);
+          // keep whichever already has a present plan; otherwise keep the first
+          if(!kept[idx].present&&b.present){dropIds.push(kept[idx].id);kept[idx]=b;}
+          else dropIds.push(b.id);
+          continue;
+        }
+        seen.set(key,kept.length);kept.push(b);
+      }
+      if(dropIds.length===0)return prev;
+      setEvents(ev=>ev.filter(e=>!dropIds.includes(e.birthdayId)));
+      setFinances(fs=>fs.filter(f=>!dropIds.includes(f.birthdayId)));
+      return kept;
+    });
+  },[]);
   // PROACTIVE — on opening the app, quietly look ahead (no AI, no cost) and surface ONE gentle nudge if
   // something soon needs attention that Sarah hasn't set up. Genuinely looking out for her between briefings.
   useEffect(()=>{
@@ -1829,6 +1854,18 @@ Other rules:
               const dateMatch=!action.date||e.date===action.date||e.date===action.fromDate;
               return !(titleMatch&&dateMatch);
             }));
+            // BIRTHDAYS/ANNIVERSARIES live in a SEPARATE list and auto-regenerate their reminder events — so a
+            // normal event delete never removes them; they reappear. If this delete clearly targets a birthday,
+            // remove it at its source (plus the reminder events and planned costs it generated).
+            if(/\b(birthday|anniversary|bday|b-day)\b/i.test(wantTitle)){
+              setBirthdays(bs=>{
+                const ids=bs.filter(b=>{const bn=(b.name||"").toLowerCase().trim();return bn&&(wantTitle.includes(bn)||wantCore.includes(bn)||bn.includes(wantCore));}).map(b=>b.id);
+                if(ids.length===0)return bs;
+                setEvents(ev=>ev.filter(e=>!ids.includes(e.birthdayId)));
+                setFinances(fs=>fs.filter(f=>!ids.includes(f.birthdayId)));
+                return bs.filter(b=>!ids.includes(b.id));
+              });
+            }
           }
           if(action.action==="add"||action.action==="move"){
             const newDate=action.toDate||action.date;
@@ -1869,6 +1906,16 @@ Other rules:
                     const dm=!a.date||e.date===a.date||e.date===a.fromDate;
                     return !(tm&&dm);
                   }));
+                  // Birthdays live in a separate, self-regenerating list — reach them too when the delete targets one.
+                  if(/\b(birthday|anniversary|bday|b-day)\b/i.test(wantT)){
+                    setBirthdays(bs=>{
+                      const ids=bs.filter(b=>{const bn=(b.name||"").toLowerCase().trim();return bn&&(wantT.includes(bn)||wantC.includes(bn)||bn.includes(wantC));}).map(b=>b.id);
+                      if(ids.length===0)return bs;
+                      setEvents(ev=>ev.filter(e=>!ids.includes(e.birthdayId)));
+                      setFinances(fs=>fs.filter(f=>!ids.includes(f.birthdayId)));
+                      return bs.filter(b=>!ids.includes(b.id));
+                    });
+                  }
                 }
                 if(a.action==="add"||a.action==="move"){const nd=a.toDate||a.date;if(nd){actionExecuted=true;setTimeout(()=>setEvents(ev=>[...ev,{id:Date.now()+Math.random()*1000,title:a.title,date:nd,time:a.time||"09:00",priority:a.priority||"medium",notes:a.notes||"",source:"eleanor"}]),200);}}
               }catch{}
@@ -2736,6 +2783,20 @@ EXTRACTION RULES:
         out.push({id:"datecheck-"+e.id,type:"datecheck",icon:"📅",title:e.title,detail:"You wrote "+saidName+", but "+ukDate(e.date)+" is actually a "+actualName+". The date may be a day out — is it right?",eventId:e.id,date:e.date});
       }
     });
+    // BIRTHDAY DUPLICATE CHECK — same person saved on TWO different dates. Never auto-removed (can't know which
+    // date is right), so flag it for Sarah to choose. Exact same-date duplicates are auto-removed elsewhere.
+    (()=>{
+      const months=["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const fmtMD=md=>{const p=(md||"").split("-");if(p.length!==2)return md||"";const mo=parseInt(p[0],10),d=parseInt(p[1],10);return (d||"?")+" "+(months[mo-1]||"?");};
+      const byName={};
+      birthdays.forEach(b=>{const nm=(b.name||"").trim();if(!nm)return;(byName[nm]=byName[nm]||new Set()).add(b.monthDay||"");});
+      Object.entries(byName).forEach(([nm,setD])=>{
+        const dates=[...setD].filter(Boolean);
+        if(dates.length>1){
+          out.push({id:"bday-dup-"+nm.toLowerCase().replace(/[^a-z0-9]/g,""),type:"birthday-dup",icon:"🎂",title:nm+"'s birthday",detail:nm+"'s birthday is saved on two different dates: "+dates.map(fmtMD).join(" and ")+". Which is right? Reply and I'll remove the wrong one."});
+        }
+      });
+    })();
     return out.filter(c=>!dismissedChecks.includes(c.id)&&!dismissedChecks.includes((c.title||"").toLowerCase().trim()));
   }
 
