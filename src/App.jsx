@@ -1,4 +1,4 @@
-// VERSION_CHECK: Birthday-Dedup-And-Flag build - September 22 2026 v136
+// VERSION_CHECK: Storage-Full-Fix-Visible-Saves build - November 7 2026 v137
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -244,26 +244,30 @@ const ImportIcon=({type,size=36})=>{
 };
 
 // Safe localStorage with quota handling and auto-cleanup of stale per-date keys
-function cleanupOldStorage(){
+// Trim a stored JSON array down to its most recent N entries, to free space without losing essential data.
+function trimJsonArray(key,keep){
+  try{const raw=localStorage.getItem(key);if(!raw)return 0;const arr=JSON.parse(raw);if(Array.isArray(arr)&&arr.length>keep){const before=raw.length;localStorage.setItem(key,JSON.stringify(arr.slice(-keep)));return before;}}catch{}
+  return 0;
+}
+function cleanupOldStorage(hard){
   try{
-    const now=Date.now();
-    const keysToCheck=[];
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(!k)continue;
-      // Remove old per-date keys (meal, trip alerts, dated notifs) older than ~45 days
-      if(k.startsWith("papa_meal_")||k.startsWith("papa_meal_dismissed_")||k.startsWith("papa_trip_alert_")){
-        keysToCheck.push(k);
-      }
-    }
-    // Keep only the most recent 20 dated keys of each type, remove the rest
-    const mealKeys=keysToCheck.filter(k=>k.startsWith("papa_meal_"));
-    const tripKeys=keysToCheck.filter(k=>k.startsWith("papa_trip_alert_"));
-    [mealKeys,tripKeys].forEach(group=>{
-      if(group.length>20){
-        group.slice(0,group.length-20).forEach(k=>{try{localStorage.removeItem(k);}catch{}});
-      }
+    // 1. Remove old per-date keys (meal plans, trip alerts) beyond the most recent 20 of each type.
+    const dated=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&(k.startsWith("papa_meal_")||k.startsWith("papa_meal_dismissed_")||k.startsWith("papa_trip_alert_")))dated.push(k);}
+    ["papa_meal_dismissed_","papa_meal_","papa_trip_alert_"].forEach(pre=>{
+      const g=dated.filter(k=>k.startsWith(pre)).sort();
+      const limit=hard?5:20;
+      if(g.length>limit)g.slice(0,g.length-limit).forEach(k=>{try{localStorage.removeItem(k);}catch{}});
     });
+    // 2. Cap the growing logs / history that are NOT essential user data (events, finances, birthdays, wishlist,
+    //    memory, rules and goals are never touched here). These accumulate over months and can fill up storage.
+    trimJsonArray("papa_signal_log",hard?25:60);
+    trimJsonArray("papa_life_history",hard?30:60);
+    trimJsonArray("papa_session_history",hard?3:8);
+    trimJsonArray("papa_finance_history",hard?30:60);
+    trimJsonArray("papa_saved_plans",hard?3:10);
+    trimJsonArray("papa_scheduled_notifs",hard?20:50);
+    trimJsonArray("papa_msgs",hard?10:25);
   }catch{}
 }
 
@@ -272,12 +276,9 @@ function safeSave(key,value){
     localStorage.setItem(key,value);
     return true;
   }catch(e){
-    // Quota exceeded — try cleanup then retry once
-    cleanupOldStorage();
+    // Quota exceeded — free up space (hard trim) then retry once
+    cleanupOldStorage(true);
     try{
-      // Also trim chat history aggressively as last resort
-      const msgs=localStorage.getItem("papa_msgs");
-      if(msgs){try{const arr=JSON.parse(msgs);if(arr.length>15)localStorage.setItem("papa_msgs",JSON.stringify(arr.slice(-15)));}catch{}}
       localStorage.setItem(key,value);
       return true;
     }catch(e2){
@@ -819,6 +820,7 @@ function AppInner(){
   const [proactiveNudge,setProactiveNudge]=useState(null);
   const [reviewDue,setReviewDue]=useState(false);
   const [reviewBusy,setReviewBusy]=useState(false);
+  const [storageFull,setStorageFull]=useState(false);
   const [myRules,setMyRules]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_my_rules")||"[]");}catch{return [];}});
   const [newRuleText,setNewRuleText]=useState("");
   const [briefReplyOpen,setBriefReplyOpen]=useState(false);
@@ -1161,14 +1163,16 @@ function AppInner(){
     });
   },[birthdays]);
   useEffect(()=>{
-    try{ safeSave("papa_events",JSON.stringify(events)); }catch{}
+    // Save events and NOTICE if it fails (storage full) — so a lost save is never silent again.
+    const ok=safeSave("papa_events",JSON.stringify(events));
+    setStorageFull(prev=>ok?(prev?false:prev):true);
   },[events]);
 
   useEffect(()=>{try{safeSave("papa_wishlist",JSON.stringify(wishlist));}catch{}},[wishlist]);
   useEffect(()=>{if(homeAddress)localStorage.setItem("papa_home_address",homeAddress);},[homeAddress]);
   useEffect(()=>{try{safeSave("papa_reminders",JSON.stringify(reminders));}catch{}},[reminders]);
   useEffect(()=>{try{localStorage.setItem("papa_birthdays",JSON.stringify(birthdays));}catch{}},[birthdays]);
-  useEffect(()=>{try{safeSave("papa_finances",JSON.stringify(finances));}catch{}},[finances]);
+  useEffect(()=>{const ok=safeSave("papa_finances",JSON.stringify(finances));if(!ok)setStorageFull(true);},[finances]);
   useEffect(()=>{if(weeklyGoals)localStorage.setItem("papa_weekly_goals",JSON.stringify(weeklyGoals));},[weeklyGoals]);
   // If the schedule/reminders change after a briefing was generated, mark it stale so Sarah sees fresh info
   useEffect(()=>{if(briefing&&!briefing.error){setBriefingStale(true);}},[events,reminders,finances,resolvedBriefItems]);
@@ -6693,6 +6697,24 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           ))
         }
       </div>
+
+      {/* STORAGE-FULL banner — shown across every screen when a save failed, so a lost save is never silent. */}
+      {storageFull&&<div style={{background:"#8a1c1c",color:"#fff",padding:"12px 16px",display:"flex",flexDirection:"column",gap:8,boxShadow:"0 2px 10px rgba(0,0,0,0.25)"}}>
+        <div style={{fontFamily:FD,fontSize:15,fontWeight:600}}>⚠ Storage full — new things aren't saving</div>
+        <div style={{fontSize:12.5,fontFamily:FB,lineHeight:1.5,opacity:0.95}}>This is why a booking you added may not have appeared. Tap below to free up space — it keeps all your events, finances and birthdays, and only clears old chat history and logs.</div>
+        <button onClick={()=>{
+          cleanupOldStorage(true);
+          let ok=safeSave("papa_events",JSON.stringify(events));
+          if(!ok){
+            // last resort: clear purely-disposable logs (NOT events, finances, birthdays, memory, rules or goals)
+            ["papa_msgs","papa_session_history","papa_signal_log","papa_life_history","papa_finance_history","papa_saved_plans","papa_working_plan","papa_scheduled_notifs"].forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+            ok=safeSave("papa_events",JSON.stringify(events));
+          }
+          safeSave("papa_finances",JSON.stringify(finances));
+          if(ok){setStorageFull(false);alert("✓ Space freed — saving works again.\n\nIf a booking went missing, add it once more and it will stick this time.");}
+          else{alert("Storage is still full even after clearing old data. Let me know and I'll look at what else is taking up room.");}
+        }} style={{alignSelf:"flex-start",padding:"9px 16px",borderRadius:6,border:"none",background:"#fff",color:"#8a1c1c",fontFamily:FM,fontSize:11,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",fontWeight:700}}>Free up space now</button>
+      </div>}
 
       {/* CONTENT */}
       <div style={{flex:1,padding:view==="chat"?"0":"20px 18px",overflowY:view==="chat"?"hidden":"auto"}}>
