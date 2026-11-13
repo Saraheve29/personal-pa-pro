@@ -1,4 +1,4 @@
-// VERSION_CHECK: Storage-Full-Fix-Visible-Saves build - November 7 2026 v137
+// VERSION_CHECK: Backup-And-Restore build - November 13 2026 v138
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -821,6 +821,7 @@ function AppInner(){
   const [reviewDue,setReviewDue]=useState(false);
   const [reviewBusy,setReviewBusy]=useState(false);
   const [storageFull,setStorageFull]=useState(false);
+  const [lastBackup,setLastBackup]=useState(()=>{try{return localStorage.getItem("papa_last_backup")||"";}catch{return "";}});
   const [myRules,setMyRules]=useState(()=>{try{return JSON.parse(localStorage.getItem("papa_my_rules")||"[]");}catch{return [];}});
   const [newRuleText,setNewRuleText]=useState("");
   const [briefReplyOpen,setBriefReplyOpen]=useState(false);
@@ -6385,9 +6386,61 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   };
 
   /* ── SETTINGS VIEW ── */
+  // BACKUP & RESTORE — save everything to a downloadable file (which survives any browser-data clear), and
+  // restore from that file. This is the safety net so a cleared storage box can never wipe Sarah's life again.
+  function downloadBackup(){
+    try{
+      const data={};
+      for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith("papa_"))data[k]=localStorage.getItem(k);}
+      const payload={_app:"personal-pa-pro",_backup:true,date:new Date().toISOString(),data};
+      const blob=new Blob([JSON.stringify(payload)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download="personal-pa-backup-"+fmt(getToday())+".json";
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{try{document.body.removeChild(a);}catch{}URL.revokeObjectURL(url);},200);
+      const when=new Date().toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+      try{localStorage.setItem("papa_last_backup",when);}catch{}
+      setLastBackup(when);
+      setTimeout(()=>alert("Backup saved to your phone's Downloads.\n\nKeep this file safe — email it to yourself or save it to Google Drive. It stays safe even if the app's data is ever cleared."),300);
+    }catch(e){alert("Backup couldn't be saved: "+((e&&e.message)||e));}
+  }
+  function restoreBackup(file){
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const parsed=JSON.parse(r.result);
+        const data=(parsed&&parsed.data&&typeof parsed.data==="object")?parsed.data:parsed;
+        if(!data||typeof data!=="object"){alert("That doesn't look like a Personal PA backup file.");return;}
+        const keys=Object.keys(data).filter(k=>k&&k.startsWith("papa_")&&typeof data[k]==="string");
+        if(keys.length===0){alert("That file has no Personal PA data in it. Make sure it's the .json file the Backup button saved.");return;}
+        if(!window.confirm("Restore "+keys.length+" items from this backup?\n\nThis replaces the app's current data with the backup, then reloads."))return;
+        keys.forEach(k=>{try{localStorage.setItem(k,data[k]);}catch{}});
+        alert("Restored. The app will now reload with your data.");
+        window.location.reload();
+      }catch(e){alert("Couldn't read that backup file. Make sure it's the .json file the Backup button saved.");}
+    };
+    r.onerror=()=>alert("Couldn't open that file. Please try again.");
+    r.readAsText(file);
+  }
+
   const SettingsView=()=>(
     <div>
       <div style={SL}>Settings</div>
+
+      {/* Backup & Restore — the safety net. A downloaded file survives any clearing of browser data. */}
+      <div style={{background:C.card,border:`2px solid ${C.emerald}`,borderRadius:8,padding:"16px",marginBottom:14,boxShadow:`0 2px 12px ${C.shadow}`}}>
+        <div style={{fontFamily:FD,fontSize:17,color:C.emerald,fontStyle:"italic",marginBottom:4}}>🛟 Backup &amp; Restore</div>
+        <div style={{fontSize:12,color:C.inkLight,fontFamily:FB,marginBottom:12,lineHeight:1.55}}>Save a copy of everything to a file on your phone. That file is safe even if the app&apos;s data is ever cleared — keep it somewhere safe, or email it to yourself. Try to back up every week or after adding a lot.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={downloadBackup} style={{padding:"13px",borderRadius:6,border:"none",background:`linear-gradient(135deg,${C.emerald},#3a7a5a)`,color:"#fff",fontFamily:FM,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",fontWeight:700}}>⬇ Back Up My Data Now</button>
+          <label style={{padding:"11px",borderRadius:6,border:`1px solid ${C.emerald}`,background:C.emeraldBg,color:C.emerald,fontFamily:FM,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer",textAlign:"center",boxSizing:"border-box"}}>
+            ⬆ Restore From Backup File
+            <input type="file" accept="application/json,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files&&e.target.files[0];if(f)restoreBackup(f);e.target.value="";}}/>
+          </label>
+          <div style={{fontSize:10,color:C.inkFaint,fontFamily:FM,textAlign:"center",marginTop:2}}>{lastBackup?"Last backup: "+lastBackup:"Not backed up yet — tap above to make your first backup"}</div>
+        </div>
+      </div>
 
       {/* Storage & Data */}
       <div style={{background:C.card,border:`1px solid ${C.borderSoft}`,borderRadius:6,padding:"16px",marginBottom:14,boxShadow:`0 2px 10px ${C.shadow}`}}>
