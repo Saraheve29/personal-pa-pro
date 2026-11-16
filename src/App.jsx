@@ -1,4 +1,4 @@
-// VERSION_CHECK: Backup-And-Restore build - November 13 2026 v138
+// VERSION_CHECK: Import-Year-Fix build - November 16 2026 v139
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -22,6 +22,15 @@ const FM="'Courier Prime','Courier New',monospace";
 const getToday=()=>new Date();
 // Format a date as YYYY-MM-DD in LOCAL time (not UTC) to avoid day-shift near midnight.
 const fmt=d=>{const x=d||new Date();const y=x.getFullYear();const m=String(x.getMonth()+1).padStart(2,"0");const day=String(x.getDate()).padStart(2,"0");return y+"-"+m+"-"+day;};
+// A freshly IMPORTED booking/appointment is never in the past — if the reader guessed a past year (e.g. a Rover
+// screenshot shows "20 Dec" with no year and it defaults to 2024), bump the year forward until the date is today
+// or later, so the booking can never be buried in the past where the calendar won't show it.
+const futureYearFix=dateStr=>{
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr||""))return dateStr;
+  const today=fmt(getToday());let d=dateStr,guard=0;
+  while(d<today&&guard<8){d=(parseInt(d.slice(0,4),10)+1)+d.slice(4);guard++;}
+  return d;
+};
 
 const UK_HOLIDAYS=[
   {name:"Summer Holiday",      start:"2025-07-22",end:"2025-09-01",type:"school"},
@@ -2433,7 +2442,7 @@ ${importContext?"CONTEXT FROM SARAH: "+importContext:""}`;
           }
         }
         if(parsed?.events?.length){
-          allEvents.push(...parsed.events.filter(ev=>ev.title&&ev.date));
+          allEvents.push(...parsed.events.filter(ev=>ev.title&&ev.date).map(ev=>({...ev,date:futureYearFix(ev.date)})));
         }
         if(parsed?.financials?.length){
           allFinancials.push(...parsed.financials);
@@ -4704,7 +4713,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
           if(el)setPasteText(el.value);
           parsePaste();
         }} disabled={pasteBusy}>{pasteBusy?"Analysing…":"Extract Appointments"}</button>
-        <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events,"text");setPasteRes(null);setPasteText("");setCriticalOnly(false);setView("home");}} onDiscard={()=>setPasteRes(null)}/>
+        <ResultPreview result={pasteRes} onAdd={()=>{addEvs(pasteRes.events.map(ev=>({...ev,date:futureYearFix(ev.date)})),"text");setPasteRes(null);setPasteText("");setCriticalOnly(false);setView("home");}} onDiscard={()=>setPasteRes(null)}/>
       </div>}
       {impTab==="image"&&<div>
         <div style={{fontSize:13,color:C.inkLight,fontFamily:FB,lineHeight:1.75,marginBottom:14}}>Upload <strong>any image or PDF</strong> — a poster, flyer, ticket, booking confirmation, screenshot, letter, or a school calendar PDF. Eleanor will read the whole thing (every page of a PDF) and extract every date, time, and location she can find.</div>
@@ -4763,7 +4772,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             </div>
           );})}
           <div style={{height:8}}/>
-          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events,"image");setImgRes(null);setImgFile(null);setImgPrev(null);setImgEventEdit(null);setCriticalOnly(false);setView("home");}}>Add {imgRes.events.length} Event{imgRes.events.length!==1?"s":""} to Schedule</button>
+          <button style={goldBtn()} onClick={()=>{addEvs(imgRes.events.map(ev=>({...ev,date:futureYearFix(ev.date)})),"image");setImgRes(null);setImgFile(null);setImgPrev(null);setImgEventEdit(null);setCriticalOnly(false);setView("home");}}>Add {imgRes.events.length} Event{imgRes.events.length!==1?"s":""} to Schedule</button>
           <button style={goldBtn(true)} onClick={()=>{setImgRes(null);setImgFile(null);setImgPrev(null);setImgEventEdit(null);}}>Discard All</button>
         </div>}
       </div>}
@@ -4843,7 +4852,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events,"document");setDocRes(null);setDocFile(null);setCriticalOnly(false);setView("home");}}>Add Dates to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(docRes.events.map(ev=>({...ev,date:futureYearFix(ev.date)})),"document");setDocRes(null);setDocFile(null);setCriticalOnly(false);setView("home");}}>Add Dates to Schedule</button>
           </div>}
 
           <button style={goldBtn(true)} onClick={()=>{setDocRes(null);setDocFile(null);}}>Clear</button>
@@ -4932,7 +4941,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events,"pdf");setPdfRes(null);setPdfFile(null);setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(pdfRes.events.map(ev=>({...ev,date:futureYearFix(ev.date)})),"pdf");setPdfRes(null);setPdfFile(null);setCriticalOnly(false);setView("home");}}>Add to Schedule</button>
             <button style={goldBtn(true)} onClick={()=>{setPdfRes(null);setPdfFile(null);}}>Clear</button>
           </div>}
         </div>}
@@ -5276,7 +5285,7 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
               </div>
             );})}
             <div style={{height:8}}/>
-            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events,"email");setEmailRes(null);setEmailText("");setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
+            <button style={goldBtn()} onClick={()=>{addEvs(emailRes.events.map(ev=>({...ev,date:futureYearFix(ev.date)})),"email");setEmailRes(null);setEmailText("");setCriticalOnly(false);setView("home");}}>Add All to Schedule</button>
             <button style={goldBtn(true)} onClick={()=>{setEmailRes(null);setEmailText("");}}>Discard</button>
           </div>}
         </div>}
