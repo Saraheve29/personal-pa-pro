@@ -1,4 +1,4 @@
-// VERSION_CHECK: Import-Year-Fix build - November 16 2026 v139
+// VERSION_CHECK: Visible-Version build - November 24 2026 v140
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -16,6 +16,9 @@ const C={
 const FD="'Cormorant Garamond','Didot','Big Caslon',Georgia,serif";
 const FB="'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif";
 const FM="'Courier Prime','Courier New',monospace";
+// Visible app version — shown in Settings so Sarah (and Claude) can always confirm what's actually running on
+// her phone versus what's been uploaded. Keep this in step with the VERSION_CHECK comment on line 1.
+const APP_VERSION="v140 · Visible-Version · 24 Nov 2026";
 
 // Always compute "now" fresh so the app never gets stuck on a stale day.
 // (A PWA left open would otherwise freeze the date at first load.)
@@ -6436,6 +6439,9 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
   const SettingsView=()=>(
     <div>
       <div style={SL}>Settings</div>
+
+      {/* Version — so Sarah can always tell Claude exactly what's running on her phone. */}
+      <div style={{textAlign:"center",fontSize:11,fontFamily:FM,color:C.gold,letterSpacing:"0.08em",marginBottom:14,padding:"8px",background:C.goldPale,border:`1px solid ${C.goldBorder}`,borderRadius:6}}>Running: {APP_VERSION}</div>
 
       {/* Backup & Restore — the safety net. A downloaded file survives any clearing of browser data. */}
       <div style={{background:C.card,border:`2px solid ${C.emerald}`,borderRadius:8,padding:"16px",marginBottom:14,boxShadow:`0 2px 12px ${C.shadow}`}}>
