@@ -1,4 +1,4 @@
-// VERSION_CHECK: Visible-Version build - November 24 2026 v140
+// VERSION_CHECK: Checker-Wording-Tidy build - November 25 2026 v141
 import React, { useState, useEffect, useRef } from "react";
 
 const C={
@@ -18,7 +18,7 @@ const FB="'Tenor Sans','Optima','Gill Sans','Century Gothic',sans-serif";
 const FM="'Courier Prime','Courier New',monospace";
 // Visible app version — shown in Settings so Sarah (and Claude) can always confirm what's actually running on
 // her phone versus what's been uploaded. Keep this in step with the VERSION_CHECK comment on line 1.
-const APP_VERSION="v140 · Visible-Version · 24 Nov 2026";
+const APP_VERSION="v141 · Checker-Wording · 25 Nov 2026";
 
 // Always compute "now" fresh so the app never gets stuck on a stale day.
 // (A PWA left open would otherwise freeze the date at first load.)
@@ -3893,7 +3893,8 @@ Home: ${homeAddress||"March, Cambridgeshire"}`}]
             const verdictColor=r.hasConflict?C.crimson:r.isFree?C.emerald:r.verdict==="busy"?C.gold:C.crimson;
             const verdictBg=r.hasConflict?C.crimsonBg:r.isFree?C.emeraldBg:r.verdict==="busy"?C.goldPale:C.crimsonBg;
             const verdictIcon=r.hasConflict?"⚡ Clash":r.isFree?"✓ You're free":"◈ You have things on";
-            const verdictText=r.hasConflict?`Direct clash with ${r.timeClash?.[0]?.title||"another appointment"}`:r.isFree?"This date is clear in your schedule":`${r.sameDay.length} appointment${r.sameDay.length>1?"s":""} on this day`;
+            const spanName=r.spanBusy?((r.spanBusy.title||"").replace(/\s*[-–—]\s*(drop ?off|pick ?up|start|end|arrival|departure).*$/i,"").replace(/\s*\((start|end|drop ?off|pick ?up)\)\s*/i,"").replace(/\s+/g," ").trim()):"";
+            const verdictText=r.hasConflict?`Direct clash with ${r.timeClash?.[0]?.title||"another appointment"}`:r.isFree?"This date is clear in your schedule":r.sameDay.length>0?`${r.sameDay.length} appointment${r.sameDay.length>1?"s":""} on this day`:r.spanBusy?`Booked — ${spanName||"a multi-day stay"} covers this day`:"You have something on this day";
             return(
               <div key={i} style={{background:verdictBg,border:`1px solid ${verdictColor}30`,borderLeft:`4px solid ${verdictColor}`,borderRadius:4,padding:"12px 14px",marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
